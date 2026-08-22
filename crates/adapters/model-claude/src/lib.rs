@@ -174,6 +174,19 @@ impl AgentPort for ClaudeCliAgent {
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose")
+                .arg("--permission-mode")
+                .arg("acceptEdits")
+                .arg(
+                    "--allowedTools",
+                )
+                .args([
+                    "Read",
+                    "Edit",
+                    "Write",
+                    "Glob",
+                    "Grep",
+                    "Bash(git *)",
+                ])
                 .current_dir(&spec.cwd);
             if let Some(model) = &spec.model {
                 cmd.arg("--model").arg(model);
