@@ -110,6 +110,31 @@ async fn override_card(
 }
 
 #[tauri::command]
+async fn approve_card(card_id: String, state: State<'_, EngineState>) -> Result<u64, String> {
+    state
+        .0
+        .execute(Command::ApproveCard {
+            card_id: CardId::new(card_id),
+        })
+        .await
+}
+
+#[tauri::command]
+async fn reject_card(
+    card_id: String,
+    reason: String,
+    state: State<'_, EngineState>,
+) -> Result<u64, String> {
+    state
+        .0
+        .execute(Command::RejectCard {
+            card_id: CardId::new(card_id),
+            reason,
+        })
+        .await
+}
+
+#[tauri::command]
 async fn start_run(card_id: String, prompt: String, state: State<'_, EngineState>) -> Result<String, String> {
     state
         .0
@@ -233,6 +258,8 @@ pub fn run() {
             override_card,
             start_run,
             cancel_run,
+            approve_card,
+            reject_card,
             snapshot,
             agent_status,
             open_claude_terminal,

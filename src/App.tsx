@@ -29,6 +29,7 @@ interface Envelope {
   card_id?: string;
   title?: string;
   to?: Status;
+  reason?: string;
 }
 
 interface RunUpdate {
@@ -68,6 +69,11 @@ function applyEnvelope(cards: Card[], env: Envelope): Card[] {
       );
     case "run_finished":
       return cards.map((c) => (c.id === env.card_id ? { ...c, current_run: null } : c));
+    case "card_approved":
+    case "card_rejected":
+      return cards.map((c) =>
+        c.id === env.card_id ? { ...c, current_run: null } : c,
+      );
     default:
       return cards;
   }
@@ -135,6 +141,19 @@ export default function App() {
       }
       seqRef.current = env.seq;
       setCards((cs) => applyEnvelope(cs, env));
+      const verdictLine =
+        env.type === "card_approved"
+          ? "[director] approved - moving to done"
+          : env.type === "card_rejected"
+            ? `[director] rejected: ${env.reason ?? "no reason given"}`
+            : null;
+      if (verdictLine && env.card_id) {
+        const cid = env.card_id;
+        setOutputs((prev) => ({
+          ...prev,
+          [cid]: [...(prev[cid] ?? []), verdictLine].slice(-40),
+        }));
+      }
     }).then((u) => {
       if (cancelled) u();
       else unlistens.push(u);
@@ -227,6 +246,26 @@ export default function App() {
     }
   };
 
+  const approve = async (cardId: string) => {
+    setError(null);
+    try {
+      await invoke("approve_card", { cardId });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const reject = async (cardId: string) => {
+    const reason = prompt("Why is this work rejected?");
+    if (!reason) return;
+    setError(null);
+    try {
+      await invoke("reject_card", { cardId, reason });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   useEffect(() => {
     refreshStatus();
     const t = setInterval(refreshStatus, 15000);
@@ -297,6 +336,16 @@ export default function App() {
                         {(outputs[c.id] ?? []).join("\n")}
                       </pre>
                     </>
+                  )}
+                  {col === "review" && (
+                    <div className="review-actions">
+                      <button className="approve" onClick={() => approve(c.id)}>
+                        approve
+                      </button>
+                      <button className="override" onClick={() => reject(c.id)}>
+                        reject…
+                      </button>
+                    </div>
                   )}
                   {col !== "running" &&
                     sessions.some((s) => s.card_id === c.id) && (

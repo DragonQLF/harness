@@ -130,6 +130,16 @@ main {
   border-color: #a25577;
 }
 
+.review-actions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.approve {
+  border-color: #3fb950;
+}
+
 .output {
   background: #141414;
   border: 1px solid #2a2a2a;
