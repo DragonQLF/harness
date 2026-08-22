@@ -7,7 +7,6 @@ edition = "2021"
 harness-domain = { path = "../domain" }
 harness-ports = { path = "../ports" }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros"] }
-
-[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4"] }

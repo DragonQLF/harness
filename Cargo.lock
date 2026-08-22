@@ -1427,8 +1427,10 @@ dependencies = [
 name = "harness"
 version = "0.1.0"
 dependencies = [
+ "harness-agent-claude",
  "harness-domain",
  "harness-engine",
+ "harness-git-cli",
  "harness-ports",
  "harness-store-jsonl",
  "serde",
@@ -1437,6 +1439,16 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "uuid",
+]
+
+[[package]]
+name = "harness-agent-claude"
+version = "0.1.0"
+dependencies = [
+ "harness-ports",
+ "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1454,7 +1466,15 @@ dependencies = [
  "harness-ports",
  "serde",
  "tokio",
+ "tokio-util",
  "uuid",
+]
+
+[[package]]
+name = "harness-git-cli"
+version = "0.1.0"
+dependencies = [
+ "harness-ports",
 ]
 
 [[package]]
@@ -1462,6 +1482,9 @@ name = "harness-ports"
 version = "0.1.0"
 dependencies = [
  "harness-domain",
+ "serde",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -3796,6 +3819,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -3821,6 +3845,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

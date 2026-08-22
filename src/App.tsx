@@ -9,6 +9,7 @@ interface Card {
   id: string;
   title: string;
   status: Status;
+  current_run: string | null;
 }
 
 interface Snapshot {
@@ -24,6 +25,18 @@ interface Envelope {
   to?: Status;
 }
 
+interface RunUpdate {
+  card_id: string;
+  run_id: string;
+  kind?: string;
+  session_id?: string;
+  text?: string;
+  tool?: string;
+  summary?: string;
+  cost_usd?: number;
+  message?: string;
+}
+
 const COLUMNS: Status[] = ["backlog", "ready", "running", "review", "done"];
 
 function applyEnvelope(cards: Card[], env: Envelope): Card[] {
@@ -31,20 +44,49 @@ function applyEnvelope(cards: Card[], env: Envelope): Card[] {
     case "card_created":
       return [
         ...cards,
-        { id: env.card_id!, title: env.title ?? "", status: "backlog" },
+        {
+          id: env.card_id!,
+          title: env.title ?? "",
+          status: "backlog",
+          current_run: null,
+        },
       ];
     case "card_moved":
     case "card_overridden":
       return cards.map((c) =>
         c.id === env.card_id && env.to ? { ...c, status: env.to } : c,
       );
+    case "run_started":
+      return cards.map((c) =>
+        c.id === env.card_id ? { ...c, status: "running", current_run: env.card_id } : c,
+      );
+    case "run_finished":
+      return cards.map((c) => (c.id === env.card_id ? { ...c, current_run: null } : c));
     default:
       return cards;
   }
 }
 
+function runLine(u: RunUpdate): string | null {
+  switch (u.kind) {
+    case "started":
+      return `> session started (${u.session_id})`;
+    case "text":
+      return u.text ?? null;
+    case "tool_use":
+      return `[${u.tool}] ${u.summary ?? ""}`;
+    case "done":
+      return `done${u.cost_usd != null ? ` - cost $${u.cost_usd.toFixed(4)}` : ""}`;
+    case "failed":
+      return `FAILED: ${u.message ?? "unknown"}`;
+    default:
+      return null;
+  }
+}
+
 export default function App() {
   const [cards, setCards] = useState<Card[]>([]);
+  const [outputs, setOutputs] = useState<Record<string, string[]>>({});
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(-1);
@@ -62,9 +104,10 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
+    const unlistens: UnlistenFn[] = [];
 
     refresh();
+
     listen<Envelope>("engine://event", (evt) => {
       if (cancelled) return;
       const env = evt.payload;
@@ -77,12 +120,26 @@ export default function App() {
       setCards((cs) => applyEnvelope(cs, env));
     }).then((u) => {
       if (cancelled) u();
-      else unlisten = u;
+      else unlistens.push(u);
+    });
+
+    listen<RunUpdate>("engine://run", (evt) => {
+      if (cancelled) return;
+      const u = evt.payload;
+      const line = runLine(u);
+      if (!line) return;
+      setOutputs((prev) => {
+        const arr = [...(prev[u.card_id] ?? []), line];
+        return { ...prev, [u.card_id]: arr.slice(-40) };
+      });
+    }).then((u) => {
+      if (cancelled) u();
+      else unlistens.push(u);
     });
 
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlistens.forEach((u) => u());
     };
   }, [refresh]);
 
@@ -117,6 +174,26 @@ export default function App() {
     }
   };
 
+  const run = async (cardId: string) => {
+    const task = prompt(`Task for the agent on ${cardId}:`);
+    if (!task) return;
+    setError(null);
+    try {
+      await invoke("start_run", { cardId, prompt: task });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const stop = async (cardId: string) => {
+    setError(null);
+    try {
+      await invoke("cancel_run", { cardId });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   return (
     <div className="board">
       <header>
@@ -144,6 +221,17 @@ export default function App() {
               .map((c) => (
                 <article key={c.id} className="card">
                   <p>{c.title}</p>
+                  {col === "ready" && (
+                    <button onClick={() => run(c.id)}>run agent</button>
+                  )}
+                  {col === "running" && (
+                    <>
+                      <button onClick={() => stop(c.id)}>stop</button>
+                      <pre className="output">
+                        {(outputs[c.id] ?? []).join("\n")}
+                      </pre>
+                    </>
+                  )}
                   <div className="actions">
                     {COLUMNS.filter((t) => t !== col).map((t) => (
                       <button key={t} onClick={() => move(c.id, t)}>

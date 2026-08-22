@@ -1,0 +1,217 @@
+use std::pin::Pin;
+
+use harness_ports::{AgentPort, RunEvent, RunOutcome, RunSpec};
+use serde_json::Value;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Child;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+pub struct ClaudeCliAgent {
+    program: String,
+}
+
+impl ClaudeCliAgent {
+    pub fn new(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+        }
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let cut: String = s.chars().take(max).collect();
+        format!("{cut}…")
+    }
+}
+
+fn summarize_input(input: &Value) -> String {
+    match input {
+        Value::Object(map) => {
+            let parts: Vec<String> = map
+                .iter()
+                .take(3)
+                .map(|(k, v)| {
+                    let rendered = match v {
+                        Value::String(s) => truncate(s, 80),
+                        other => truncate(&other.to_string(), 80),
+                    };
+                    format!("{k}: {rendered}")
+                })
+                .collect();
+            parts.join(" | ")
+        }
+        other => truncate(&other.to_string(), 120),
+    }
+}
+
+async fn emit(tx: &mpsc::Sender<RunEvent>, ev: RunEvent) {
+    let _ = tx.send(ev).await;
+}
+
+async fn pump_lines(
+    child: &mut Child,
+    tx: mpsc::Sender<RunEvent>,
+    cancel: CancellationToken,
+) -> Result<Option<(Option<String>, Option<f64>, Option<String>)>, String> {
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "claude stdout unavailable".to_string())?;
+    let mut lines = BufReader::new(&mut stdout).lines();
+    let mut session_id: Option<String> = None;
+    let mut cost_usd: Option<f64> = None;
+    let mut failure: Option<String> = None;
+    let mut done_seen = false;
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                let _ = child.kill().await;
+                return Ok(None);
+            }
+            line = lines.next_line() => {
+                let line = match line {
+                    Ok(Some(l)) => l,
+                    Ok(None) => break,
+                    Err(e) => return Err(format!("read stdout: {e}")),
+                };
+                let v: Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                match v.get("type").and_then(|t| t.as_str()) {
+                    Some("system") => {
+                        if v.get("subtype").and_then(|s| s.as_str()) == Some("init") {
+                            if let Some(id) = v.get("session_id").and_then(|s| s.as_str()) {
+                                session_id = Some(id.to_string());
+                                emit(&tx, RunEvent::Started { session_id: id.to_string() }).await;
+                            }
+                        }
+                    }
+                    Some("assistant") => {
+                        let content = v
+                            .pointer("/message/content")
+                            .and_then(|c| c.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        for item in content {
+                            match item.get("type").and_then(|t| t.as_str()) {
+                                Some("text") => {
+                                    let text = item
+                                        .get("text")
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    if !text.trim().is_empty() {
+                                        emit(&tx, RunEvent::Text { text }).await;
+                                    }
+                                }
+                                Some("tool_use") => {
+                                    let tool = item
+                                        .get("name")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or("tool")
+                                        .to_string();
+                                    let summary = item
+                                        .get("input")
+                                        .map(summarize_input)
+                                        .unwrap_or_default();
+                                    emit(&tx, RunEvent::ToolUse { tool, summary }).await;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Some("result") => {
+                        done_seen = true;
+                        if let Some(c) = v.get("total_cost_usd").and_then(|c| c.as_f64()) {
+                            cost_usd = Some(c);
+                        }
+                        let subtype = v.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
+                        if subtype != "success" && failure.is_none() {
+                            failure = Some(
+                                v.get("result")
+                                    .or_else(|| v.get("error"))
+                                    .and_then(|r| r.as_str())
+                                    .unwrap_or(subtype)
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let status = child.wait().await.map_err(|e| format!("wait claude: {e}"))?;
+    if !done_seen && !status.success() {
+        failure = Some(format!("claude exited with {status}"));
+    }
+
+    if let Some(msg) = failure {
+        return Ok(Some((session_id, cost_usd, Some(msg))));
+    }
+    Ok(Some((session_id, cost_usd, None)))
+}
+
+impl AgentPort for ClaudeCliAgent {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        cancel: CancellationToken,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<RunOutcome, String>> + Send>> {
+        let program = self.program.clone();
+        Box::pin(async move {
+            let mut cmd = tokio::process::Command::new(&program);
+            cmd.arg("-p")
+                .arg(&spec.prompt)
+                .arg("--output-format")
+                .arg("stream-json")
+                .arg("--verbose")
+                .arg("--bare")
+                .current_dir(&spec.cwd);
+            if let Some(model) = &spec.model {
+                cmd.arg("--model").arg(model);
+            }
+            if let Some(tools) = &spec.allowed_tools {
+                if !tools.is_empty() {
+                    cmd.arg("--allowedTools").args(tools);
+                }
+            }
+            if let Some(budget) = spec.max_budget_usd {
+                cmd.arg("--max-budget-usd").arg(budget.to_string());
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            cmd.stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("failed to spawn '{program}': {e}"))?;
+
+            match pump_lines(&mut child, tx, cancel).await? {
+                None => Ok(RunOutcome::Cancelled),
+                Some((_sid, cost, None)) => Ok(RunOutcome::Completed {
+                    session_id: None,
+                    cost_usd: cost,
+                }),
+                Some((_sid, cost, Some(msg))) => {
+                    let _ = cost;
+                    Ok(RunOutcome::Failed(msg))
+                }
+            }
+        })
+    }
+}

@@ -27,4 +27,6 @@ harness-domain = { path = "../crates/domain" }
 harness-engine = { path = "../crates/engine" }
 harness-ports = { path = "../crates/ports" }
 harness-store-jsonl = { path = "../crates/adapters/store-jsonl" }
+harness-git-cli = { path = "../crates/adapters/git" }
+harness-agent-claude = { path = "../crates/adapters/model-claude" }
 

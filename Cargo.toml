@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["crates/domain", "crates/ports", "crates/engine", "crates/adapters/store-jsonl", "src-tauri"]
+members = ["crates/domain", "crates/ports", "crates/engine", "crates/adapters/store-jsonl", "crates/adapters/git", "crates/adapters/model-claude", "src-tauri"]

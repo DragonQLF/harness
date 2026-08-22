@@ -23,6 +23,16 @@ impl fmt::Display for CardId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RunId(pub String);
+
+impl fmt::Display for RunId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -31,6 +41,14 @@ pub enum Status {
     Running,
     Review,
     Done,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOutcome {
+    Completed,
+    Cancelled,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +96,8 @@ pub struct Card {
     pub id: CardId,
     pub title: String,
     pub status: Status,
+    #[serde(default)]
+    pub current_run: Option<RunId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +106,8 @@ pub enum Event {
     CardCreated { card_id: CardId, title: String },
     CardMoved { card_id: CardId, from: Status, to: Status },
     CardOverridden { card_id: CardId, from: Status, to: Status, reason: String },
+    RunStarted { card_id: CardId, run_id: RunId },
+    RunFinished { card_id: CardId, run_id: RunId, outcome: RunOutcome },
 }
 
 impl Event {
@@ -93,7 +115,9 @@ impl Event {
         match self {
             Event::CardCreated { card_id, .. }
             | Event::CardMoved { card_id, .. }
-            | Event::CardOverridden { card_id, .. } => card_id,
+            | Event::CardOverridden { card_id, .. }
+            | Event::RunStarted { card_id, .. }
+            | Event::RunFinished { card_id, .. } => card_id,
         }
     }
 }
@@ -103,6 +127,8 @@ pub enum Command {
     CreateCard { card_id: CardId, title: String },
     MoveCard { card_id: CardId, to: Status },
     OverrideCard { card_id: CardId, to: Status, reason: String },
+    StartRun { card_id: CardId, run_id: RunId },
+    FinishRun { card_id: CardId, run_id: RunId, outcome: RunOutcome },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +139,9 @@ pub enum DecisionError {
     SameStatus(Status),
     EmptyTitle,
     EmptyReason,
+    NotReady(Status),
+    NotRunning(Status),
+    RunMismatch,
 }
 
 impl fmt::Display for DecisionError {
@@ -126,6 +155,13 @@ impl fmt::Display for DecisionError {
             DecisionError::SameStatus(status) => write!(f, "card already in {status:?}"),
             DecisionError::EmptyTitle => write!(f, "title cannot be empty"),
             DecisionError::EmptyReason => write!(f, "override requires a non-empty reason"),
+            DecisionError::NotReady(status) => {
+                write!(f, "card must be Ready to start a run (is {status:?})")
+            }
+            DecisionError::NotRunning(status) => {
+                write!(f, "card is not Running (is {status:?})")
+            }
+            DecisionError::RunMismatch => write!(f, "run id does not match the active run"),
         }
     }
 }
@@ -161,12 +197,28 @@ impl Board {
                         id: card_id.clone(),
                         title: title.clone(),
                         status: Status::Backlog,
+                        current_run: None,
                     },
                 );
             }
             Event::CardMoved { card_id, to, .. } | Event::CardOverridden { card_id, to, .. } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
                     card.status = *to;
+                }
+            }
+            Event::RunStarted { card_id, run_id } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.status = Status::Running;
+                    card.current_run = Some(run_id.clone());
+                }
+            }
+            Event::RunFinished { card_id, outcome, .. } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.status = match outcome {
+                        RunOutcome::Completed => Status::Review,
+                        RunOutcome::Cancelled | RunOutcome::Failed => Status::Ready,
+                    };
+                    card.current_run = None;
                 }
             }
         }
@@ -222,13 +274,43 @@ impl Board {
                     reason: reason.trim().to_string(),
                 }])
             }
+            Command::StartRun { card_id, run_id } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status != Status::Ready {
+                    return Err(DecisionError::NotReady(card.status));
+                }
+                Ok(vec![Event::RunStarted {
+                    card_id: card_id.clone(),
+                    run_id: run_id.clone(),
+                }])
+            }
+            Command::FinishRun { card_id, run_id, outcome } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status != Status::Running {
+                    return Err(DecisionError::NotRunning(card.status));
+                }
+                if card.current_run.as_ref() != Some(run_id) {
+                    return Err(DecisionError::RunMismatch);
+                }
+                Ok(vec![Event::RunFinished {
+                    card_id: card_id.clone(),
+                    run_id: run_id.clone(),
+                    outcome: outcome.clone(),
+                }])
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Board, CardId, Command, DecisionError, Status::*};
+    use super::{Board, CardId, Command, DecisionError, Status, Status::*};
 
     #[test]
     fn happy_path_backlog_to_done() {
@@ -435,6 +517,136 @@ mod tests {
                 title: "   ".into()
             }),
             Err(DecisionError::EmptyTitle)
+        ));
+    }
+
+    fn card_in(board: &mut Board, id: &CardId, status: Status) {
+        board.apply(
+            &board
+                .decide(&Command::CreateCard {
+                    card_id: id.clone(),
+                    title: "t".into(),
+                })
+                .unwrap()[0],
+        );
+        if status != Backlog {
+            board.apply(
+                &board
+                    .decide(&Command::OverrideCard {
+                        card_id: id.clone(),
+                        to: status,
+                        reason: "setup".into(),
+                    })
+                    .unwrap()[0],
+            );
+        }
+    }
+
+    #[test]
+    fn run_lifecycle_ready_to_running_to_review() {
+        use super::RunId;
+        let mut board = Board::default();
+        let id = CardId::new("r1");
+        card_in(&mut board, &id, Ready);
+        let run = RunId("run-1".into());
+
+        board.apply(
+            &board
+                .decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() })
+                .unwrap()[0],
+        );
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Running);
+        assert_eq!(card.current_run, Some(run.clone()));
+
+        assert!(matches!(
+            board.decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() }),
+            Err(DecisionError::NotReady(Running))
+        ));
+
+        board.apply(
+            &board
+                .decide(&Command::FinishRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    outcome: super::RunOutcome::Completed,
+                })
+                .unwrap()[0],
+        );
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Review);
+        assert_eq!(card.current_run, None);
+    }
+
+    #[test]
+    fn cancelled_run_returns_card_to_ready() {
+        use super::{RunId, RunOutcome};
+        let mut board = Board::default();
+        let id = CardId::new("r2");
+        card_in(&mut board, &id, Ready);
+        let run = RunId("run-2".into());
+        board.apply(
+            &board
+                .decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() })
+                .unwrap()[0],
+        );
+        board.apply(
+            &board
+                .decide(&Command::FinishRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    outcome: RunOutcome::Cancelled,
+                })
+                .unwrap()[0],
+        );
+        assert_eq!(board.get(&id).unwrap().status, Ready);
+
+        let run2 = RunId("run-3".into());
+        assert!(board
+            .decide(&Command::StartRun { card_id: id.clone(), run_id: run2 })
+            .is_ok());
+    }
+
+    #[test]
+    fn finish_run_rejects_mismatched_run_and_non_running_card() {
+        use super::{RunId, RunOutcome};
+        let mut board = Board::default();
+        let id = CardId::new("r3");
+        card_in(&mut board, &id, Backlog);
+
+        assert!(matches!(
+            board.decide(&Command::FinishRun {
+                card_id: id.clone(),
+                run_id: RunId("nope".into()),
+                outcome: RunOutcome::Completed,
+            }),
+            Err(DecisionError::NotRunning(Backlog))
+        ));
+
+        board.apply(
+            &board
+                .decide(&Command::OverrideCard {
+                    card_id: id.clone(),
+                    to: Ready,
+                    reason: "setup".into(),
+                })
+                .unwrap()[0],
+        );
+        board.apply(
+            &board
+                .decide(&Command::StartRun {
+                    card_id: id.clone(),
+                    run_id: RunId("real".into()),
+                })
+                .unwrap()[0],
+        );
+        assert!(matches!(
+            board.decide(&Command::FinishRun {
+                card_id: id.clone(),
+                run_id: RunId("fake".into()),
+                outcome: RunOutcome::Completed,
+            }),
+            Err(DecisionError::RunMismatch)
         ));
     }
 }

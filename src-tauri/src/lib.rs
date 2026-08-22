@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use harness_agent_claude::ClaudeCliAgent;
 use harness_domain::{CardId, Command, Status};
-use harness_engine::{Engine, EngineHandle, Snapshot};
+use harness_engine::{Engine, EngineConfig, EngineHandle, Snapshot};
+use harness_git_cli::{CliGit, ensure_workspace};
 use harness_ports::{ClockPort, StorePort};
 use harness_store_jsonl::JsonlStore;
 use tauri::{Emitter, Manager, State};
@@ -61,6 +63,20 @@ async fn override_card(
 }
 
 #[tauri::command]
+async fn start_run(card_id: String, prompt: String, state: State<'_, EngineState>) -> Result<String, String> {
+    state
+        .0
+        .start_run(CardId::new(card_id), prompt)
+        .await
+        .map(|run_id| run_id.0)
+}
+
+#[tauri::command]
+async fn cancel_run(card_id: String, state: State<'_, EngineState>) -> Result<(), String> {
+    state.0.cancel_run(CardId::new(card_id)).await
+}
+
+#[tauri::command]
 async fn snapshot(state: State<'_, EngineState>) -> Result<Snapshot, String> {
     state.0.snapshot().await
 }
@@ -72,25 +88,47 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+
+            let workspace_dir = data_dir.join("workspace");
             let store = Arc::new(JsonlStore::open(data_dir.join("events.jsonl"))?);
+            let git = Arc::new(CliGit::new(&workspace_dir));
+            ensure_workspace(&workspace_dir)?;
+
             let history = store.read_all()?;
-            let (engine, mut events_rx) = tauri::async_runtime::block_on(async {
-                Engine::spawn(store, Arc::new(SystemClock), history)
-            });
+            let agent = Arc::new(ClaudeCliAgent::new("claude"));
+            let config = EngineConfig {
+                repo_root: workspace_dir.clone(),
+                base_branch: "main".to_string(),
+            };
+
+            let (engine, mut logged_rx, mut runs_rx) =
+                tauri::async_runtime::block_on(async {
+                    Engine::spawn(store, Arc::new(SystemClock), agent, git, config, history)
+                });
             app.manage(EngineState(engine));
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                while let Ok(envelope) = events_rx.recv().await {
+                while let Ok(envelope) = logged_rx.recv().await {
                     let _ = app_handle.emit("engine://event", &envelope);
                 }
             });
+
+            let app_handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                while let Ok(update) = runs_rx.recv().await {
+                    let _ = app_handle2.emit("engine://run", &update);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             create_card,
             move_card,
             override_card,
+            start_run,
+            cancel_run,
             snapshot
         ])
         .run(tauri::generate_context!())
