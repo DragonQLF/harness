@@ -174,7 +174,6 @@ impl AgentPort for ClaudeCliAgent {
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose")
-                .arg("--bare")
                 .current_dir(&spec.cwd);
             if let Some(model) = &spec.model {
                 cmd.arg("--model").arg(model);
@@ -189,7 +188,6 @@ impl AgentPort for ClaudeCliAgent {
             }
             #[cfg(windows)]
             {
-                use std::os::windows::process::CommandExt;
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                 cmd.creation_flags(CREATE_NO_WINDOW);
             }

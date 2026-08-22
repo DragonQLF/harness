@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harness_agent_claude::ClaudeCliAgent;
@@ -6,9 +7,55 @@ use harness_engine::{Engine, EngineConfig, EngineHandle, Snapshot};
 use harness_git_cli::{CliGit, ensure_workspace};
 use harness_ports::{ClockPort, StorePort};
 use harness_store_jsonl::JsonlStore;
+use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
 struct EngineState(EngineHandle);
+
+struct WorkspaceDir(PathBuf);
+
+#[derive(Debug, Serialize)]
+pub struct AgentStatus {
+    pub cli_found: bool,
+    pub logged_in: bool,
+}
+
+fn credentials_present() -> bool {
+    if std::env::var_os("ANTHROPIC_API_KEY").is_some_and(|v| !v.is_empty()) {
+        return true;
+    }
+    let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join(".claude")));
+    config_dir
+        .map(|d| d.join(".credentials.json").exists())
+        .unwrap_or(false)
+}
+
+fn open_terminal_in(dir: &Path, argv: &[&str]) -> Result<(), String> {
+    let dir_str = dir.to_string_lossy().to_string();
+    let mut wt_args: Vec<&str> = vec!["-d", &dir_str];
+    wt_args.extend_from_slice(argv);
+    if std::process::Command::new("wt")
+        .args(&wt_args)
+        .spawn()
+        .is_ok()
+    {
+        return Ok(());
+    }
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .arg("start")
+        .arg("harness")
+        .arg("/D")
+        .arg(&dir_str)
+        .arg("cmd")
+        .arg("/K")
+        .args(argv)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to open a terminal window: {e}"))
+}
 
 struct SystemClock;
 
@@ -81,6 +128,44 @@ async fn snapshot(state: State<'_, EngineState>) -> Result<Snapshot, String> {
     state.0.snapshot().await
 }
 
+#[tauri::command]
+async fn agent_status() -> Result<AgentStatus, String> {
+    let cli_found = std::process::Command::new("claude")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    Ok(AgentStatus {
+        cli_found,
+        logged_in: credentials_present(),
+    })
+}
+
+#[tauri::command]
+async fn open_claude_terminal(
+    workspace: State<'_, WorkspaceDir>,
+) -> Result<(), String> {
+    open_terminal_in(&workspace.0, &["cmd", "/K", "claude"])
+}
+
+#[tauri::command]
+async fn open_agent_terminal(
+    card_id: String,
+    state: State<'_, EngineState>,
+) -> Result<(), String> {
+    let snap = state.0.snapshot().await?;
+    let session = snap
+        .sessions
+        .iter()
+        .find(|s| s.card_id.as_str() == card_id)
+        .ok_or_else(|| "no agent session known for this card".to_string())?;
+    let dir = PathBuf::from(&session.worktree);
+    match &session.session_id {
+        Some(sid) => open_terminal_in(&dir, &["cmd", "/K", "claude", "--resume", sid]),
+        None => open_terminal_in(&dir, &["cmd", "/K", "claude"]),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -106,6 +191,7 @@ pub fn run() {
                     Engine::spawn(store, Arc::new(SystemClock), agent, git, config, history)
                 });
             app.manage(EngineState(engine));
+            app.manage(WorkspaceDir(workspace_dir));
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -129,7 +215,10 @@ pub fn run() {
             override_card,
             start_run,
             cancel_run,
-            snapshot
+            snapshot,
+            agent_status,
+            open_claude_terminal,
+            open_agent_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

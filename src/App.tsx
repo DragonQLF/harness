@@ -15,6 +15,12 @@ interface Card {
 interface Snapshot {
   last_seq: number;
   cards: Card[];
+  sessions: { card_id: string; worktree: string; session_id: string | null }[];
+}
+
+interface AgentStatus {
+  cli_found: boolean;
+  logged_in: boolean;
 }
 
 interface Envelope {
@@ -86,17 +92,28 @@ function runLine(u: RunUpdate): string | null {
 
 export default function App() {
   const [cards, setCards] = useState<Card[]>([]);
+  const [sessions, setSessions] = useState<Snapshot["sessions"]>([]);
   const [outputs, setOutputs] = useState<Record<string, string[]>>({});
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<AgentStatus | null>(null);
   const seqRef = useRef(-1);
 
   const refresh = useCallback(async () => {
     try {
       const snap = await invoke<Snapshot>("snapshot");
       setCards(snap.cards);
+      setSessions(snap.sessions ?? []);
       seqRef.current = snap.last_seq;
       setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      setStatus(await invoke<AgentStatus>("agent_status"));
     } catch (e) {
       setError(String(e));
     }
@@ -194,9 +211,57 @@ export default function App() {
     }
   };
 
+  const loginTerminal = async () => {
+    try {
+      await invoke("open_claude_terminal");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const agentTerminal = async (cardId: string) => {
+    try {
+      await invoke("open_agent_terminal", { cardId });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  useEffect(() => {
+    refreshStatus();
+    const t = setInterval(refreshStatus, 15000);
+    return () => clearInterval(t);
+  }, [refreshStatus]);
+
   return (
     <div className="board">
       <header>
+        <div className="statusbar">
+          <span
+            className={`dot ${
+              status == null
+                ? ""
+                : status.cli_found && status.logged_in
+                  ? "ok"
+                  : "bad"
+            }`}
+          />
+          <span className="statustext">
+            {status == null
+              ? "checking claude..."
+              : !status.cli_found
+                ? "claude CLI not found in PATH"
+                : status.logged_in
+                  ? "claude ready"
+                  : "claude not logged in"}
+          </span>
+          {status != null && (!status.logged_in || !status.cli_found) && (
+            <>
+              <button onClick={loginTerminal}>open claude terminal (/login)</button>
+              <button onClick={refreshStatus}>recheck</button>
+            </>
+          )}
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -227,11 +292,16 @@ export default function App() {
                   {col === "running" && (
                     <>
                       <button onClick={() => stop(c.id)}>stop</button>
+                      <button onClick={() => agentTerminal(c.id)}>terminal</button>
                       <pre className="output">
                         {(outputs[c.id] ?? []).join("\n")}
                       </pre>
                     </>
                   )}
+                  {col !== "running" &&
+                    sessions.some((s) => s.card_id === c.id) && (
+                      <button onClick={() => agentTerminal(c.id)}>agent terminal</button>
+                    )}
                   <div className="actions">
                     {COLUMNS.filter((t) => t !== col).map((t) => (
                       <button key={t} onClick={() => move(c.id, t)}>

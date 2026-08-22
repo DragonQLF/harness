@@ -25,6 +25,7 @@ pub struct Envelope {
 pub struct Snapshot {
     pub last_seq: u64,
     pub cards: Vec<Card>,
+    pub sessions: Vec<SessionView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +34,13 @@ pub struct RunUpdate {
     pub run_id: RunId,
     #[serde(flatten)]
     pub event: RunEvent,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionView {
+    pub card_id: CardId,
+    pub worktree: String,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +71,10 @@ enum Msg {
         card_id: CardId,
         run_id: RunId,
         outcome: harness_ports::RunOutcome,
+    },
+    AgentSession {
+        card_id: CardId,
+        session_id: String,
     },
 }
 
@@ -155,6 +167,7 @@ where
     git: Arc<G>,
     config: EngineConfig,
     runs: HashMap<CardId, RunEntry>,
+    sessions: HashMap<CardId, (PathBuf, Option<String>)>,
     logged_tx: broadcast::Sender<Envelope>,
     runs_tx: broadcast::Sender<RunUpdate>,
 }
@@ -207,6 +220,7 @@ where
             git,
             config,
             runs: HashMap::new(),
+            sessions: HashMap::new(),
             logged_tx,
             runs_tx,
         };
@@ -274,6 +288,15 @@ where
                     let snap = Snapshot {
                         last_seq: self.last_seq,
                         cards: self.board.cards().into_iter().cloned().collect(),
+                        sessions: self
+                            .sessions
+                            .iter()
+                            .map(|(card_id, (worktree, sid))| SessionView {
+                                card_id: card_id.clone(),
+                                worktree: worktree.to_string_lossy().to_string(),
+                                session_id: sid.clone(),
+                            })
+                            .collect(),
                     };
                     #[cfg(test)]
                     eprintln!(
@@ -302,6 +325,14 @@ where
                 } => {
                     self.finish_run(card_id, run_id, outcome).await;
                 }
+                Msg::AgentSession {
+                    card_id,
+                    session_id,
+                } => {
+                    if let Some((_, sid)) = self.sessions.get_mut(&card_id) {
+                        *sid = Some(session_id);
+                    }
+                }
             }
         }
     }
@@ -326,10 +357,10 @@ where
                 run_id: run_id.clone(),
             })
             .map_err(|e| e.to_string())?;
-        let seq = self.persist(events).await?;
+        self.persist(events).await?;
         #[cfg(test)]
         eprintln!(
-            "[probe] start_run persisted seq={seq} card={card_id} status={:?}",
+            "[probe] start_run persisted ok card={card_id} status={:?}",
             self.board.get(&card_id).map(|c| c.status)
         );
 
@@ -349,6 +380,8 @@ where
                 _worktree: worktree.clone(),
             },
         );
+        self.sessions
+            .insert(card_id.clone(), (worktree.0.clone(), None));
 
         let spec = RunSpec {
             prompt,
@@ -373,6 +406,13 @@ where
         tokio::spawn(async move {
             let forward = async {
                 while let Some(ev) = ev_rx.recv().await {
+                    if let RunEvent::Started { session_id } = &ev {
+                        let _ = self_tx.send(Msg::AgentSession {
+                            card_id: upd_card.clone(),
+                            session_id: session_id.clone(),
+                        })
+                        .await;
+                    }
                     let _ = upd_tx.send(RunUpdate {
                         card_id: upd_card.clone(),
                         run_id: upd_run.clone(),
@@ -515,6 +555,7 @@ mod tests {
         ) -> PinBox<Result<RunOutcome, String>> {
             match self.0 {
                 FakeMode::Complete => Box::pin(async move {
+                    let _ = tx.send(RunEvent::Started { session_id: "sess-42".into() }).await;
                     let _ = tx.send(RunEvent::Text { text: "working".into() }).await;
                     drop(tx);
                     Ok(RunOutcome::Completed {
@@ -650,10 +691,30 @@ mod tests {
 
         handle.start_run(id.clone(), "do it".into()).await.unwrap();
 
-        wait_for("card reaches Running", async || handle.snapshot().await.unwrap().cards[0].status == Status::Running).await;
+        wait_for(
+            "card reaches Running",
+            async || handle.snapshot().await.unwrap().cards[0].status == Status::Running,
+        )
+        .await;
+
+        wait_for(
+            "session captured",
+            async || {
+                handle
+                    .snapshot()
+                    .await
+                    .unwrap()
+                    .sessions
+                    .iter()
+                    .any(|s| s.session_id.as_deref() == Some("sess-42"))
+            },
+        )
+        .await;
 
         let upd = runs.recv().await.unwrap();
         assert_eq!(upd.card_id, id);
+        assert!(matches!(upd.event, RunEvent::Started { .. }));
+        let upd = runs.recv().await.unwrap();
         assert!(matches!(upd.event, RunEvent::Text { .. }));
 
         wait_for("card reaches Review", async || handle.snapshot().await.unwrap().cards[0].status == Status::Review).await;

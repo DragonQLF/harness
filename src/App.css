@@ -23,6 +23,32 @@ header {
   gap: 8px;
 }
 
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #666;
+}
+
+.dot.ok {
+  background: #3fb950;
+}
+
+.dot.bad {
+  background: #f85149;
+}
+
+.statustext {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
 form {
   display: flex;
   gap: 8px;
