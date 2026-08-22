@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
 type Status = "backlog" | "ready" | "running" | "review" | "done";
@@ -16,11 +17,6 @@ interface Snapshot {
   last_seq: number;
   cards: Card[];
   sessions: { card_id: string; worktree: string; session_id: string | null }[];
-}
-
-interface AgentStatus {
-  cli_found: boolean;
-  logged_in: boolean;
 }
 
 interface Envelope {
@@ -40,23 +36,38 @@ interface RunUpdate {
   text?: string;
   tool?: string;
   summary?: string;
+  request_id?: string;
   cost_usd?: number;
   message?: string;
 }
 
+interface AgentStatus {
+  cli_found: boolean;
+  logged_in: boolean;
+}
+
+interface ChatMsg {
+  role: "user" | "director";
+  text: string;
+}
+
+interface PendingApproval {
+  request_id: string;
+  card_id: string;
+  tool: string;
+  summary: string;
+}
+
 const COLUMNS: Status[] = ["backlog", "ready", "running", "review", "done"];
+const DIRECTOR_ID = "director";
+const appWindow = getCurrentWindow();
 
 function applyEnvelope(cards: Card[], env: Envelope): Card[] {
   switch (env.type) {
     case "card_created":
       return [
         ...cards,
-        {
-          id: env.card_id!,
-          title: env.title ?? "",
-          status: "backlog",
-          current_run: null,
-        },
+        { id: env.card_id!, title: env.title ?? "", status: "backlog", current_run: null },
       ];
     case "card_moved":
     case "card_overridden":
@@ -68,12 +79,9 @@ function applyEnvelope(cards: Card[], env: Envelope): Card[] {
         c.id === env.card_id ? { ...c, status: "running", current_run: env.card_id } : c,
       );
     case "run_finished":
-      return cards.map((c) => (c.id === env.card_id ? { ...c, current_run: null } : c));
     case "card_approved":
     case "card_rejected":
-      return cards.map((c) =>
-        c.id === env.card_id ? { ...c, current_run: null } : c,
-      );
+      return cards.map((c) => (c.id === env.card_id ? { ...c, current_run: null } : c));
     default:
       return cards;
   }
@@ -96,6 +104,117 @@ function runLine(u: RunUpdate): string | null {
   }
 }
 
+function TitleBar({ status }: { status: AgentStatus | null }) {
+  const [maximized, setMaximized] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    appWindow.isMaximized().then((m) => alive && setMaximized(m)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <header className="titlebar">
+      <div className="titlebar-drag">
+        <span className="brand">harness</span>
+        <span
+          className={`dot ${
+            status == null ? "" : status.cli_found && status.logged_in ? "ok" : "bad"
+          }`}
+          title={
+            status == null
+              ? "checking claude..."
+              : !status.cli_found
+                ? "claude CLI not found"
+                : status.logged_in
+                  ? "claude ready"
+                  : "claude not logged in"
+          }
+        />
+      </div>
+      <div className="titlebar-controls">
+        <button className="tb-btn" onClick={() => appWindow.minimize()} aria-label="minimize">
+          &#x2500;
+        </button>
+        <button
+          className="tb-btn"
+          onClick={() => (maximized ? appWindow.unmaximize() : appWindow.maximize())}
+          aria-label="maximize"
+        >
+          {maximized ? "\u2750" : "\u25A1"}
+        </button>
+        <button className="tb-btn close" onClick={() => appWindow.close()} aria-label="close">
+          &#x2715;
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function DirectorSidebar({
+  messages,
+  input,
+  setInput,
+  onSend,
+  busy,
+}: {
+  messages: ChatMsg[];
+  input: string;
+  setInput: (v: string) => void;
+  onSend: () => void;
+  busy: boolean;
+}) {
+  const endRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  return (
+    <aside className="sidebar">
+      <h1 className="sidebar-title">Director</h1>
+      <div className="chat-scroll">
+        {messages.length === 0 && (
+          <p className="chat-empty">
+            Talk to the Director. It sees the board and the workspace.
+          </p>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`bubble ${m.role}`}>
+            {m.text}
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+      <form
+        className="chat-input"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!input.trim() || busy) return;
+          onSend();
+        }}
+      >
+        <textarea
+          rows={2}
+          value={input}
+          placeholder={busy ? "Director is thinking..." : "Message the director..."}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (input.trim() && !busy) onSend();
+            }
+          }}
+        />
+        <button type="submit" disabled={!input.trim() || busy}>
+          send
+        </button>
+      </form>
+    </aside>
+  );
+}
+
 export default function App() {
   const [cards, setCards] = useState<Card[]>([]);
   const [sessions, setSessions] = useState<Snapshot["sessions"]>([]);
@@ -103,6 +222,10 @@ export default function App() {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<AgentStatus | null>(null);
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [approval, setApproval] = useState<PendingApproval | null>(null);
   const seqRef = useRef(-1);
 
   const refresh = useCallback(async () => {
@@ -120,10 +243,31 @@ export default function App() {
   const refreshStatus = useCallback(async () => {
     try {
       setStatus(await invoke<AgentStatus>("agent_status"));
-    } catch (e) {
-      setError(String(e));
+    } catch {
+      /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    refreshStatus();
+    const t = setInterval(refreshStatus, 15000);
+    return () => clearInterval(t);
+  }, [refreshStatus]);
+
+  const sendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    setChat((cs) => [...cs, { role: "user", text }]);
+    setChatInput("");
+    setChatBusy(true);
+    try {
+      await invoke("director_chat", { text });
+    } catch (e) {
+      setChat((cs) => [...cs, { role: "director", text: `(error) ${String(e)}` }]);
+    } finally {
+      setChatBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +306,28 @@ export default function App() {
     listen<RunUpdate>("engine://run", (evt) => {
       if (cancelled) return;
       const u = evt.payload;
+      if (u.card_id === DIRECTOR_ID) {
+        if (u.kind === "text" && u.text) {
+          setChat((cs) => {
+            const last = cs[cs.length - 1];
+            if (last && last.role === "director") {
+              const copy = cs.slice(0, -1);
+              copy.push({ role: "director", text: `${last.text}\n${u.text}` });
+              return copy;
+            }
+            return [...cs, { role: "director", text: u.text! }];
+          });
+        }
+        return;
+      }
+      if (u.kind === "approval_requested" && u.request_id) {
+        setApproval({
+          request_id: u.request_id,
+          card_id: u.card_id,
+          tool: u.tool ?? "tool",
+          summary: u.summary ?? "",
+        });
+      }
       const line = runLine(u);
       if (!line) return;
       setOutputs((prev) => {
@@ -230,22 +396,6 @@ export default function App() {
     }
   };
 
-  const loginTerminal = async () => {
-    try {
-      await invoke("open_claude_terminal");
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const agentTerminal = async (cardId: string) => {
-    try {
-      await invoke("open_agent_terminal", { cardId });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   const approve = async (cardId: string) => {
     setError(null);
     try {
@@ -266,106 +416,140 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    refreshStatus();
-    const t = setInterval(refreshStatus, 15000);
-    return () => clearInterval(t);
-  }, [refreshStatus]);
+  const loginTerminal = async () => {
+    try {
+      await invoke("open_claude_terminal");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const agentTerminal = async (cardId: string) => {
+    try {
+      await invoke("open_agent_terminal", { cardId });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const answerApproval = async (allow: boolean) => {
+    if (!approval) return;
+    const req = approval;
+    setApproval(null);
+    setOutputs((prev) => ({
+      ...prev,
+      [req.card_id]: [
+        ...(prev[req.card_id] ?? []),
+        `[approval] ${req.tool} ${allow ? "ALLOWED" : "DENIED"} - ${req.summary}`,
+      ].slice(-40),
+    }));
+    try {
+      await invoke("respond_approval", { requestId: req.request_id, allow });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   return (
-    <div className="board">
-      <header>
-        <div className="statusbar">
-          <span
-            className={`dot ${
-              status == null
-                ? ""
-                : status.cli_found && status.logged_in
-                  ? "ok"
-                  : "bad"
-            }`}
-          />
-          <span className="statustext">
-            {status == null
-              ? "checking claude..."
-              : !status.cli_found
-                ? "claude CLI not found in PATH"
-                : status.logged_in
-                  ? "claude ready"
-                  : "claude not logged in"}
-          </span>
-          {status != null && (!status.logged_in || !status.cli_found) && (
-            <>
-              <button onClick={loginTerminal}>open claude terminal (/login)</button>
-              <button onClick={refreshStatus}>recheck</button>
-            </>
-          )}
+    <div className="shell">
+      <TitleBar status={status} />
+      {approval && (
+        <div className="overlay">
+          <div className="approval-card">
+            <h3>Permission requested</h3>
+            <p className="approval-tool">{approval.tool}</p>
+            <pre className="approval-summary">{approval.summary}</pre>
+            <p className="approval-hint">Card: {approval.card_id}</p>
+            <div className="row-actions">
+              <button className="approve" onClick={() => answerApproval(true)}>
+                Allow
+              </button>
+              <button className="override" onClick={() => answerApproval(false)}>
+                Deny
+              </button>
+            </div>
+          </div>
         </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            create();
-          }}
-        >
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="New card title"
-          />
-          <button type="submit">Add card</button>
-        </form>
-        {error && <div className="error">{error}</div>}
-      </header>
-      <main>
-        {COLUMNS.map((col) => (
-          <section key={col} className="column">
-            <h2>{col}</h2>
-            {cards
-              .filter((c) => c.status === col)
-              .map((c) => (
-                <article key={c.id} className="card">
-                  <p>{c.title}</p>
-                  {col === "ready" && (
-                    <button onClick={() => run(c.id)}>run agent</button>
-                  )}
-                  {col === "running" && (
-                    <>
-                      <button onClick={() => stop(c.id)}>stop</button>
-                      <button onClick={() => agentTerminal(c.id)}>terminal</button>
-                      <pre className="output">
-                        {(outputs[c.id] ?? []).join("\n")}
-                      </pre>
-                    </>
-                  )}
-                  {col === "review" && (
-                    <div className="review-actions">
-                      <button className="approve" onClick={() => approve(c.id)}>
-                        approve
-                      </button>
-                      <button className="override" onClick={() => reject(c.id)}>
-                        reject…
-                      </button>
-                    </div>
-                  )}
-                  {col !== "running" &&
-                    sessions.some((s) => s.card_id === c.id) && (
-                      <button onClick={() => agentTerminal(c.id)}>agent terminal</button>
-                    )}
-                  <div className="actions">
-                    {COLUMNS.filter((t) => t !== col).map((t) => (
-                      <button key={t} onClick={() => move(c.id, t)}>
-                        → {t}
-                      </button>
-                    ))}
-                    <button className="override" onClick={() => override(c.id)}>
-                      override…
-                    </button>
-                  </div>
-                </article>
-              ))}
-          </section>
-        ))}
-      </main>
+      )}
+      {!status?.logged_in && (
+        <div className="banner">
+          claude is not logged in.
+          <button onClick={loginTerminal}>open claude terminal (/login)</button>
+          <button onClick={refreshStatus}>recheck</button>
+        </div>
+      )}
+      <div className="body">
+        <main className="stage">
+          <form
+            className="new-card"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create();
+            }}
+          >
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="New card title"
+            />
+            <button type="submit">Add card</button>
+          </form>
+          {error && <div className="error">{error}</div>}
+          <div className="columns">
+            {COLUMNS.map((col) => (
+              <section key={col} className="column">
+                <h2>{col}</h2>
+                {cards
+                  .filter((c) => c.status === col)
+                  .map((c) => (
+                    <article key={c.id} className="card">
+                      <p>{c.title}</p>
+                      {col === "ready" && (
+                        <button onClick={() => run(c.id)}>run agent</button>
+                      )}
+                      {col === "running" && (
+                        <>
+                          <div className="row-actions">
+                            <button onClick={() => stop(c.id)}>stop</button>
+                            <button onClick={() => agentTerminal(c.id)}>terminal</button>
+                          </div>
+                          <pre className="output">{(outputs[c.id] ?? []).join("\n")}</pre>
+                        </>
+                      )}
+                      {col === "review" && (
+                        <div className="row-actions">
+                          <button className="approve" onClick={() => approve(c.id)}>
+                            approve
+                          </button>
+                          <button className="override" onClick={() => reject(c.id)}>
+                            reject…
+                          </button>
+                        </div>
+                      )}
+                      <div className="actions">
+                        {COLUMNS.filter((t) => t !== col).map((t) => (
+                          <button key={t} onClick={() => move(c.id, t)}>
+                            → {t}
+                          </button>
+                        ))}
+                        <button className="override" onClick={() => override(c.id)}>
+                          override…
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+              </section>
+            ))}
+          </div>
+        </main>
+        <DirectorSidebar
+          messages={chat}
+          input={chatInput}
+          setInput={setChatInput}
+          onSend={sendChat}
+          busy={chatBusy}
+        />
+      </div>
     </div>
   );
 }

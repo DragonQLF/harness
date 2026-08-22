@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use harness_domain::{Board, Card, CardId, Command, Event, RunId, RunOutcome};
 use harness_ports::{
-    AgentPort, ClockPort, GitPort, RunEvent, RunSpec, StoredEvent, WorktreePath,
+    AgentPort, Approver, ClockPort, GitPort, RunEvent, RunSpec, StoredEvent, WorktreePath,
 };
 use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -78,6 +78,10 @@ enum Msg {
         card_id: CardId,
         session_id: String,
     },
+    DirectorChat {
+        text: String,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
     DirectorDone {
         card_id: CardId,
         outcome: Box<harness_ports::RunOutcome>,
@@ -142,6 +146,18 @@ impl EngineHandle {
             Err(_) => Err("engine dropped the reply".to_string()),
         }
     }
+
+    pub async fn director_chat(&self, text: String) -> Result<(), String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(Msg::DirectorChat { text, reply: reply_tx })
+            .await
+            .map_err(|_| "engine is not running".to_string())?;
+        match reply_rx.await {
+            Ok(outcome) => outcome,
+            Err(_) => Err("engine dropped the reply".to_string()),
+        }
+    }
 }
 
 pub fn rebuild(history: &[StoredEvent]) -> Board {
@@ -173,7 +189,8 @@ where
     clock: Arc<C>,
     agent: Arc<A>,
     director: Arc<D>,
-    git: Arc<G>,
+    approver: Option<Approver>,
+git: Arc<G>,
     config: EngineConfig,
     runs: HashMap<CardId, RunEntry>,
     sessions: HashMap<CardId, (PathBuf, Option<String>)>,
@@ -197,7 +214,8 @@ where
         clock: Arc<C>,
         agent: Arc<A>,
         director: Arc<D>,
-        git: Arc<G>,
+        approver: Option<Approver>,
+git: Arc<G>,
         config: EngineConfig,
         history: Vec<StoredEvent>,
     ) -> (
@@ -229,6 +247,7 @@ where
             clock,
             agent,
             director,
+            approver,
             git,
             config,
             runs: HashMap::new(),
@@ -352,6 +371,10 @@ where
                 } => {
                     self.handle_director_done(card_id, *outcome, verdict).await;
                 }
+                Msg::DirectorChat { text, reply } => {
+                    let outcome = self.director_chat(text).await;
+                    let _ = reply.send(outcome);
+                }
             }
         }
     }
@@ -409,6 +432,7 @@ where
             allowed_tools: Some(self.config.worker_allowed_tools.clone()),
             max_budget_usd: None,
             permission_mode: Some(self.config.permission_mode.clone()),
+            approver: self.approver.clone(),
         };
 
         let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(256);
@@ -517,8 +541,63 @@ where
         }
     }
 
-    async fn run_director(&mut self, card_id: CardId) {
-        let (worktree, _) = match self.sessions.get(&card_id) {
+    async fn director_chat(&mut self, text: String) -> Result<(), String> {
+        let board_summary = self
+            .board
+            .cards()
+            .into_iter()
+            .map(|c| format!("- [{:?}] {}", c.status, c.title))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let prompt = format!(
+            "You are the Director of an agent harness. The kanban board currently holds:\n\
+             {board_summary}\n\n\
+             The operator writes to you directly. Answer concisely and practically.\n\
+             You may read files under the current workspace if needed.\n\n\
+             Operator: {text}"
+        );
+
+        let spec = RunSpec {
+            prompt,
+            cwd: self.config.repo_root.clone(),
+            model: None,
+            allowed_tools: Some(vec!["Read".into(), "Glob".into(), "Grep".into()]),
+            max_budget_usd: None,
+            permission_mode: Some("dontAsk".to_string()),
+            approver: None,
+        };
+
+        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
+        let token = CancellationToken::new();
+        let fut = self.director.run(spec, ev_tx, token);
+
+        let upd_tx = self.runs_tx.clone();
+        let chat_card = CardId::new("director");
+        let chat_run = RunId(uuid::Uuid::new_v4().to_string());
+
+        tokio::spawn(async move {
+            let forward = async {
+                while let Some(ev) = ev_rx.recv().await {
+                    match &ev {
+                        RunEvent::Text { text } => {
+                            let _ = upd_tx.send(RunUpdate {
+                                card_id: chat_card.clone(),
+                                run_id: chat_run.clone(),
+                                event: RunEvent::Text { text: text.clone() },
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            };
+            let _ = tokio::join!(fut, forward);
+        });
+
+        Ok(())
+    }
+
+    async fn run_director(&mut self, card_id: CardId) {        let (worktree, _) = match self.sessions.get(&card_id) {
             Some(v) => v.clone(),
             None => return,
         };
@@ -545,6 +624,7 @@ where
             allowed_tools: Some(vec!["Read".into(), "Glob".into(), "Grep".into()]),
             max_budget_usd: None,
             permission_mode: Some("dontAsk".to_string()),
+            approver: None,
         };
 
         let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
@@ -854,6 +934,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            None,
             Arc::new(FakeGit::new()),
             test_config(),
             vec![],
@@ -887,6 +968,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            None,
             git.clone(),
             test_config(),
             vec![],
@@ -953,6 +1035,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::WaitCancelled)),
             Arc::new(FakeAgent(FakeMode::WaitCancelled)),
+            None,
             git.clone(),
             test_config(),
             vec![],
@@ -990,6 +1073,7 @@ mod tests {
                 Arc::new(FixedClock),
                 Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
+                None,
                 Arc::new(FakeGit::new()),
                 test_config(),
                 vec![],
@@ -1018,6 +1102,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            None,
             Arc::new(FakeGit::new()),
             test_config(),
             history,
@@ -1041,6 +1126,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            None,
             Arc::new(FakeGit::new()),
             test_config(),
             vec![],
@@ -1067,6 +1153,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(director)),
+            None,
             git.clone(),
             test_config(),
             vec![],

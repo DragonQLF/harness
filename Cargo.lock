@@ -1428,6 +1428,7 @@ name = "harness"
 version = "0.1.0"
 dependencies = [
  "harness-agent-claude",
+ "harness-agent-sidecar",
  "harness-domain",
  "harness-engine",
  "harness-git-cli",
@@ -1438,6 +1439,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tokio",
  "uuid",
 ]
 
@@ -1449,6 +1451,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "harness-agent-sidecar"
+version = "0.1.0"
+dependencies = [
+ "harness-ports",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -1484,6 +1497,7 @@ version = "0.1.0"
 dependencies = [
  "harness-domain",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-util",
 ]

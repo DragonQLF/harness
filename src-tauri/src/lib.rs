@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use harness_agent_claude::ClaudeCliAgent;
+use harness_agent_sidecar::SidecarAgent;
 use harness_domain::{CardId, Command, Status};
 use harness_engine::{Engine, EngineConfig, EngineHandle, Snapshot};
 use harness_git_cli::{CliGit, ensure_workspace};
@@ -9,10 +11,50 @@ use harness_ports::{ClockPort, StorePort};
 use harness_store_jsonl::JsonlStore;
 use serde::Serialize;
 use tauri::{Emitter, Manager, State};
+use tokio::sync::oneshot;
 
 struct EngineState(EngineHandle);
 
 struct WorkspaceDir(PathBuf);
+
+struct ApprovalRouter {
+    next: AtomicU64,
+    pending: std::sync::Mutex<HashMap<String, oneshot::Sender<bool>>>,
+}
+
+impl ApprovalRouter {
+    fn new() -> Self {
+        Self {
+            next: AtomicU64::new(1),
+            pending: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn make_approver(self: &Arc<Self>) -> harness_ports::Approver {
+        let me = Arc::clone(self);
+        Arc::new(move |_tool, _input| {
+            let me = Arc::clone(&me);
+            Box::pin(async move {
+                let id = format!("apr-{}", me.next.fetch_add(1, Ordering::SeqCst));
+                let (tx, rx) = oneshot::channel();
+                me.pending.lock().unwrap().insert(id.clone(), tx);
+                let decision = tokio::time::timeout(std::time::Duration::from_secs(300), rx).await;
+                me.pending.lock().unwrap().remove(&id);
+                matches!(decision, Ok(Ok(true)))
+            })
+        })
+    }
+
+    fn resolve(&self, request_id: &str, allow: bool) -> Result<(), String> {
+        match self.pending.lock().unwrap().remove(request_id) {
+            Some(tx) => {
+                let _ = tx.send(allow);
+                Ok(())
+            }
+            None => Err(format!("unknown or already-answered request {request_id}")),
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct AgentStatus {
@@ -149,6 +191,20 @@ async fn cancel_run(card_id: String, state: State<'_, EngineState>) -> Result<()
 }
 
 #[tauri::command]
+async fn director_chat(text: String, state: State<'_, EngineState>) -> Result<(), String> {
+    state.0.director_chat(text).await
+}
+
+#[tauri::command]
+async fn respond_approval(
+    request_id: String,
+    allow: bool,
+    router: State<'_, ApprovalRouter>,
+) -> Result<(), String> {
+    router.resolve(&request_id, allow)
+}
+
+#[tauri::command]
 async fn snapshot(state: State<'_, EngineState>) -> Result<Snapshot, String> {
     state.0.snapshot().await
 }
@@ -191,6 +247,23 @@ async fn open_agent_terminal(
     }
 }
 
+fn sidecar_script() -> PathBuf {
+    if let Ok(p) = std::env::var("HARNESS_SIDECAR") {
+        return PathBuf::from(p);
+    }
+    let mut dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(PathBuf::from));
+    while let Some(d) = dir {
+        let candidate = d.join("sidecar").join("index.mjs");
+        if candidate.exists() {
+            return candidate;
+        }
+        dir = d.parent().map(PathBuf::from);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sidecar/index.mjs")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -205,8 +278,9 @@ pub fn run() {
             ensure_workspace(&workspace_dir)?;
 
             let history = store.read_all()?;
-            let agent = Arc::new(ClaudeCliAgent::new("claude"));
-            let director = Arc::new(ClaudeCliAgent::new("claude"));
+            let agent = Arc::new(SidecarAgent::new("node", sidecar_script()));
+            let director = Arc::new(SidecarAgent::new("node", sidecar_script()));
+            let router = Arc::new(ApprovalRouter::new());
             let config = EngineConfig {
                 repo_root: workspace_dir.clone(),
                 base_branch: "main".to_string(),
@@ -228,6 +302,7 @@ pub fn run() {
                         Arc::new(SystemClock),
                         agent,
                         director,
+                        Some(router.make_approver()),
                         git,
                         config,
                         history,
@@ -235,6 +310,7 @@ pub fn run() {
                 });
             app.manage(EngineState(engine));
             app.manage(WorkspaceDir(workspace_dir));
+            app.manage(router);
 
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -260,6 +336,8 @@ pub fn run() {
             cancel_run,
             approve_card,
             reject_card,
+            director_chat,
+            respond_approval,
             snapshot,
             agent_status,
             open_claude_terminal,

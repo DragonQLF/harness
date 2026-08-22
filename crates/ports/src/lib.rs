@@ -2,11 +2,14 @@ use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use harness_domain::Event;
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
+pub type JsonValue = serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredEvent {
@@ -83,7 +86,11 @@ pub trait GitPort: Send + Sync {
     fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError>;
 }
 
-#[derive(Debug, Clone)]
+pub type Approver = Arc<
+    dyn Fn(String, JsonValue) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync,
+>;
+
+#[derive(Clone)]
 pub struct RunSpec {
     pub prompt: String,
     pub cwd: PathBuf,
@@ -91,6 +98,7 @@ pub struct RunSpec {
     pub allowed_tools: Option<Vec<String>>,
     pub max_budget_usd: Option<f64>,
     pub permission_mode: Option<String>,
+    pub approver: Option<Approver>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -113,6 +121,11 @@ pub enum RunEvent {
     },
     Failed {
         message: String,
+    },
+    ApprovalRequested {
+        request_id: String,
+        tool: String,
+        summary: String,
     },
 }
 
