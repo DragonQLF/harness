@@ -1,0 +1,9 @@
+[package]
+name = "harness-store-jsonl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+harness-domain = { path = "../../domain" }
+harness-ports = { path = "../../ports" }
+serde_json = "1"

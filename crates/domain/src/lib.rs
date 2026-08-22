@@ -1,6 +1,10 @@
+use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct CardId(String);
 
 impl CardId {
@@ -19,7 +23,8 @@ impl fmt::Display for CardId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     Backlog,
     Ready,
@@ -68,16 +73,162 @@ impl Status {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Card {
+    pub id: CardId,
+    pub title: String,
+    pub status: Status,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Event {
+    CardCreated { card_id: CardId, title: String },
+    CardMoved { card_id: CardId, from: Status, to: Status },
+    CardOverridden { card_id: CardId, from: Status, to: Status, reason: String },
+}
+
+impl Event {
+    pub fn card_id(&self) -> &CardId {
+        match self {
+            Event::CardCreated { card_id, .. }
+            | Event::CardMoved { card_id, .. }
+            | Event::CardOverridden { card_id, .. } => card_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Command {
+    CreateCard { card_id: CardId, title: String },
+    MoveCard { card_id: CardId, to: Status },
+    OverrideCard { card_id: CardId, to: Status, reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecisionError {
+    CardNotFound(CardId),
+    DuplicateCard(CardId),
+    IllegalMove { from: Status, to: Status },
+    SameStatus(Status),
+    EmptyTitle,
+    EmptyReason,
+}
+
+impl fmt::Display for DecisionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DecisionError::CardNotFound(id) => write!(f, "card '{id}' not found"),
+            DecisionError::DuplicateCard(id) => write!(f, "card '{id}' already exists"),
+            DecisionError::IllegalMove { from, to } => {
+                write!(f, "illegal move: {from:?} -> {to:?}")
+            }
+            DecisionError::SameStatus(status) => write!(f, "card already in {status:?}"),
+            DecisionError::EmptyTitle => write!(f, "title cannot be empty"),
+            DecisionError::EmptyReason => write!(f, "override requires a non-empty reason"),
+        }
+    }
+}
+
+impl std::error::Error for DecisionError {}
+
+#[derive(Debug, Clone, Default)]
+pub struct Board {
+    cards: HashMap<CardId, Card>,
+}
+
+impl Board {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get(&self, id: &CardId) -> Option<&Card> {
+        self.cards.get(id)
+    }
+
+    pub fn cards(&self) -> Vec<&Card> {
+        let mut v: Vec<&Card> = self.cards.values().collect();
+        v.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        v
+    }
+
+    pub fn apply(&mut self, event: &Event) {
+        match event {
+            Event::CardCreated { card_id, title } => {
+                self.cards.insert(
+                    card_id.clone(),
+                    Card {
+                        id: card_id.clone(),
+                        title: title.clone(),
+                        status: Status::Backlog,
+                    },
+                );
+            }
+            Event::CardMoved { card_id, to, .. } | Event::CardOverridden { card_id, to, .. } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.status = *to;
+                }
+            }
+        }
+    }
+
+    pub fn decide(&self, cmd: &Command) -> Result<Vec<Event>, DecisionError> {
+        match cmd {
+            Command::CreateCard { card_id, title } => {
+                let trimmed = title.trim();
+                if trimmed.is_empty() {
+                    return Err(DecisionError::EmptyTitle);
+                }
+                if self.cards.contains_key(card_id) {
+                    return Err(DecisionError::DuplicateCard(card_id.clone()));
+                }
+                Ok(vec![Event::CardCreated {
+                    card_id: card_id.clone(),
+                    title: trimmed.to_string(),
+                }])
+            }
+            Command::MoveCard { card_id, to } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status == *to {
+                    return Err(DecisionError::SameStatus(card.status));
+                }
+                card.status
+                    .move_to(*to)
+                    .map_err(|e| DecisionError::IllegalMove { from: e.from, to: e.to })?;
+                Ok(vec![Event::CardMoved {
+                    card_id: card_id.clone(),
+                    from: card.status,
+                    to: *to,
+                }])
+            }
+            Command::OverrideCard { card_id, to, reason } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if reason.trim().is_empty() {
+                    return Err(DecisionError::EmptyReason);
+                }
+                if card.status == *to {
+                    return Err(DecisionError::SameStatus(card.status));
+                }
+                Ok(vec![Event::CardOverridden {
+                    card_id: card_id.clone(),
+                    from: card.status,
+                    to: *to,
+                    reason: reason.trim().to_string(),
+                }])
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CardId, Status, Status::*};
-
-    #[test]
-    fn card_id_display_and_as_str() {
-        let id = CardId::new("card-42");
-        assert_eq!(id.to_string(), "card-42");
-        assert_eq!(id.as_str(), "card-42");
-    }
+    use super::{Board, CardId, Command, DecisionError, Status::*};
 
     #[test]
     fn happy_path_backlog_to_done() {
@@ -130,6 +281,7 @@ mod tests {
 
     #[test]
     fn can_move_to_agrees_with_move_to() {
+        use super::Status;
         for &(from, to) in Status::LEGAL_MOVES {
             assert!(from.can_move_to(to));
             assert_eq!(from.move_to(to), Ok(to));
@@ -141,5 +293,148 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn create_then_move_roundtrip() {
+        let mut board = Board::default();
+        let id = CardId::new("c1");
+        let events = board
+            .decide(&Command::CreateCard {
+                card_id: id.clone(),
+                title: "  hello  ".into(),
+            })
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        for e in &events {
+            board.apply(e);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.title, "hello");
+        assert_eq!(card.status, Backlog);
+
+        let events = board
+            .decide(&Command::MoveCard { card_id: id.clone(), to: Ready })
+            .unwrap();
+        for e in &events {
+            board.apply(e);
+        }
+        assert_eq!(board.get(&id).unwrap().status, Ready);
+    }
+
+    #[test]
+    fn replay_reproduces_the_same_board() {
+        let mut driven = Board::default();
+        let id = CardId::new("c9");
+        let mut log = Vec::new();
+        for to in [None, Some(Ready), Some(Running)] {
+            let cmd = match to {
+                None => Command::CreateCard { card_id: id.clone(), title: "x".into() },
+                Some(t) => Command::MoveCard { card_id: id.clone(), to: t },
+            };
+            let events = driven.decide(&cmd).unwrap();
+            for e in &events {
+                driven.apply(e);
+            }
+            log.extend(events);
+        }
+
+        let mut replayed = Board::default();
+        for e in &log {
+            replayed.apply(e);
+        }
+        assert_eq!(driven.cards(), replayed.cards());
+    }
+
+    #[test]
+    fn duplicate_create_is_rejected() {
+        let mut board = Board::default();
+        let id = CardId::new("dup");
+        let cmd = Command::CreateCard { card_id: id.clone(), title: "a".into() };
+        board.apply(&board.decide(&cmd).unwrap()[0]);
+        assert!(matches!(
+            board.decide(&cmd),
+            Err(DecisionError::DuplicateCard(_))
+        ));
+    }
+
+    #[test]
+    fn unknown_card_moves_are_rejected() {
+        let board = Board::default();
+        assert!(matches!(
+            board.decide(&Command::MoveCard {
+                card_id: CardId::new("ghost"),
+                to: Ready
+            }),
+            Err(DecisionError::CardNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn illegal_move_reports_from_and_to() {
+        let mut board = Board::default();
+        let id = CardId::new("c2");
+        board.apply(
+            &board
+                .decide(&Command::CreateCard { card_id: id.clone(), title: "t".into() })
+                .unwrap()[0],
+        );
+        assert!(matches!(
+            board.decide(&Command::MoveCard { card_id: id.clone(), to: Done }),
+            Err(DecisionError::IllegalMove { from: Backlog, to: Done })
+        ));
+    }
+
+    #[test]
+    fn override_requires_reason_but_can_leave_done() {
+        let mut board = Board::default();
+        let id = CardId::new("c3");
+        board.apply(
+            &board
+                .decide(&Command::CreateCard { card_id: id.clone(), title: "t".into() })
+                .unwrap()[0],
+        );
+        for to in [Ready, Running, Review, Done] {
+            let evts = board
+                .decide(&Command::MoveCard { card_id: id.clone(), to })
+                .unwrap();
+            for e in evts {
+                board.apply(&e);
+            }
+        }
+        assert_eq!(board.get(&id).unwrap().status, Done);
+
+        assert!(matches!(
+            board.decide(&Command::OverrideCard {
+                card_id: id.clone(),
+                to: Backlog,
+                reason: "   ".into()
+            }),
+            Err(DecisionError::EmptyReason)
+        ));
+
+        let evts = board
+            .decide(&Command::OverrideCard {
+                card_id: id.clone(),
+                to: Backlog,
+                reason: "reopen".into(),
+            })
+            .unwrap();
+        for e in evts {
+            board.apply(&e);
+        }
+        assert_eq!(board.get(&id).unwrap().status, Backlog);
+    }
+
+    #[test]
+    fn empty_title_is_rejected() {
+        let board = Board::default();
+        assert!(matches!(
+            board.decide(&Command::CreateCard {
+                card_id: CardId::new("x"),
+                title: "   ".into()
+            }),
+            Err(DecisionError::EmptyTitle)
+        ));
     }
 }

@@ -1,0 +1,13 @@
+[package]
+name = "harness-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+harness-domain = { path = "../domain" }
+harness-ports = { path = "../ports" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

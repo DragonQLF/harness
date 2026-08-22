@@ -1,51 +1,164 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type Status = "backlog" | "ready" | "running" | "review" | "done";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+interface Card {
+  id: string;
+  title: string;
+  status: Status;
 }
 
-export default App;
+interface Snapshot {
+  last_seq: number;
+  cards: Card[];
+}
+
+interface Envelope {
+  seq: number;
+  type: string;
+  card_id?: string;
+  title?: string;
+  to?: Status;
+}
+
+const COLUMNS: Status[] = ["backlog", "ready", "running", "review", "done"];
+
+function applyEnvelope(cards: Card[], env: Envelope): Card[] {
+  switch (env.type) {
+    case "card_created":
+      return [
+        ...cards,
+        { id: env.card_id!, title: env.title ?? "", status: "backlog" },
+      ];
+    case "card_moved":
+    case "card_overridden":
+      return cards.map((c) =>
+        c.id === env.card_id && env.to ? { ...c, status: env.to } : c,
+      );
+    default:
+      return cards;
+  }
+}
+
+export default function App() {
+  const [cards, setCards] = useState<Card[]>([]);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const seqRef = useRef(-1);
+
+  const refresh = useCallback(async () => {
+    try {
+      const snap = await invoke<Snapshot>("snapshot");
+      setCards(snap.cards);
+      seqRef.current = snap.last_seq;
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+
+    refresh();
+    listen<Envelope>("engine://event", (evt) => {
+      if (cancelled) return;
+      const env = evt.payload;
+      const prev = seqRef.current;
+      if (prev >= 0 && env.seq !== prev + 1) {
+        refresh();
+        return;
+      }
+      seqRef.current = env.seq;
+      setCards((cs) => applyEnvelope(cs, env));
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refresh]);
+
+  const create = async () => {
+    try {
+      await invoke("create_card", { title });
+      setTitle("");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const move = async (cardId: string, to: Status) => {
+    setError(null);
+    try {
+      await invoke("move_card", { cardId, to });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const override = async (cardId: string) => {
+    const reason = prompt(`Reason for overriding ${cardId}:`);
+    if (!reason) return;
+    const to = prompt(`Target column (${COLUMNS.join(", ")}):`);
+    if (!to || !COLUMNS.includes(to as Status)) return;
+    setError(null);
+    try {
+      await invoke("override_card", { cardId, to, reason });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div className="board">
+      <header>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
+          }}
+        >
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="New card title"
+          />
+          <button type="submit">Add card</button>
+        </form>
+        {error && <div className="error">{error}</div>}
+      </header>
+      <main>
+        {COLUMNS.map((col) => (
+          <section key={col} className="column">
+            <h2>{col}</h2>
+            {cards
+              .filter((c) => c.status === col)
+              .map((c) => (
+                <article key={c.id} className="card">
+                  <p>{c.title}</p>
+                  <div className="actions">
+                    {COLUMNS.filter((t) => t !== col).map((t) => (
+                      <button key={t} onClick={() => move(c.id, t)}>
+                        → {t}
+                      </button>
+                    ))}
+                    <button className="override" onClick={() => override(c.id)}>
+                      override…
+                    </button>
+                  </div>
+                </article>
+              ))}
+          </section>
+        ))}
+      </main>
+    </div>
+  );
+}
