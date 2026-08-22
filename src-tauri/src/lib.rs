@@ -181,14 +181,32 @@ pub fn run() {
 
             let history = store.read_all()?;
             let agent = Arc::new(ClaudeCliAgent::new("claude"));
+            let director = Arc::new(ClaudeCliAgent::new("claude"));
             let config = EngineConfig {
                 repo_root: workspace_dir.clone(),
                 base_branch: "main".to_string(),
+                permission_mode: "acceptEdits".to_string(),
+                worker_allowed_tools: vec![
+                    "Read".to_string(),
+                    "Edit".to_string(),
+                    "Write".to_string(),
+                    "Glob".to_string(),
+                    "Grep".to_string(),
+                    "Bash(git *)".to_string(),
+                ],
             };
 
             let (engine, mut logged_rx, mut runs_rx) =
                 tauri::async_runtime::block_on(async {
-                    Engine::spawn(store, Arc::new(SystemClock), agent, git, config, history)
+                    Engine::spawn(
+                        store,
+                        Arc::new(SystemClock),
+                        agent,
+                        director,
+                        git,
+                        config,
+                        history,
+                    )
                 });
             app.manage(EngineState(engine));
             app.manage(WorkspaceDir(workspace_dir));

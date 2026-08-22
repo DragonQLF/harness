@@ -108,6 +108,8 @@ pub enum Event {
     CardOverridden { card_id: CardId, from: Status, to: Status, reason: String },
     RunStarted { card_id: CardId, run_id: RunId },
     RunFinished { card_id: CardId, run_id: RunId, outcome: RunOutcome },
+    CardApproved { card_id: CardId },
+    CardRejected { card_id: CardId, reason: String },
 }
 
 impl Event {
@@ -117,7 +119,7 @@ impl Event {
             | Event::CardMoved { card_id, .. }
             | Event::CardOverridden { card_id, .. }
             | Event::RunStarted { card_id, .. }
-            | Event::RunFinished { card_id, .. } => card_id,
+            | Event::RunFinished { card_id, .. } | Event::CardApproved { card_id } | Event::CardRejected { card_id, .. } => card_id,
         }
     }
 }
@@ -129,6 +131,8 @@ pub enum Command {
     OverrideCard { card_id: CardId, to: Status, reason: String },
     StartRun { card_id: CardId, run_id: RunId },
     FinishRun { card_id: CardId, run_id: RunId, outcome: RunOutcome },
+    ApproveCard { card_id: CardId },
+    RejectCard { card_id: CardId, reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +145,7 @@ pub enum DecisionError {
     EmptyReason,
     NotReady(Status),
     NotRunning(Status),
+    NotInReview(Status),
     RunMismatch,
 }
 
@@ -160,6 +165,9 @@ impl fmt::Display for DecisionError {
             }
             DecisionError::NotRunning(status) => {
                 write!(f, "card is not Running (is {status:?})")
+            }
+            DecisionError::NotInReview(status) => {
+                write!(f, "card is not in Review (is {status:?})")
             }
             DecisionError::RunMismatch => write!(f, "run id does not match the active run"),
         }
@@ -219,6 +227,16 @@ impl Board {
                         RunOutcome::Cancelled | RunOutcome::Failed => Status::Ready,
                     };
                     card.current_run = None;
+                }
+            }
+            Event::CardApproved { card_id } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.status = Status::Done;
+                }
+            }
+            Event::CardRejected { card_id, .. } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.status = Status::Ready;
                 }
             }
         }
@@ -302,6 +320,34 @@ impl Board {
                     card_id: card_id.clone(),
                     run_id: run_id.clone(),
                     outcome: outcome.clone(),
+                }])
+            }
+            Command::ApproveCard { card_id } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status != Status::Review {
+                    return Err(DecisionError::NotInReview(card.status));
+                }
+                Ok(vec![Event::CardApproved {
+                    card_id: card_id.clone(),
+                }])
+            }
+            Command::RejectCard { card_id, reason } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status != Status::Review {
+                    return Err(DecisionError::NotInReview(card.status));
+                }
+                if reason.trim().is_empty() {
+                    return Err(DecisionError::EmptyReason);
+                }
+                Ok(vec![Event::CardRejected {
+                    card_id: card_id.clone(),
+                    reason: reason.trim().to_string(),
                 }])
             }
         }

@@ -56,7 +56,7 @@ async fn pump_lines(
     child: &mut Child,
     tx: mpsc::Sender<RunEvent>,
     cancel: CancellationToken,
-) -> Result<Option<(Option<String>, Option<f64>, Option<String>)>, String> {
+) -> Result<Option<(Option<String>, Option<f64>, Option<String>, Option<String>)>, String> {
     let mut stdout = child
         .stdout
         .take()
@@ -66,6 +66,7 @@ async fn pump_lines(
     let mut cost_usd: Option<f64> = None;
     let mut failure: Option<String> = None;
     let mut done_seen = false;
+    let mut final_result: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -131,6 +132,10 @@ async fn pump_lines(
                         if let Some(c) = v.get("total_cost_usd").and_then(|c| c.as_f64()) {
                             cost_usd = Some(c);
                         }
+                        if v.get("result").and_then(|r| r.as_str()).is_some() {
+                            final_result =
+                                Some(v.get("result").unwrap().as_str().unwrap().to_string());
+                        }
                         let subtype = v.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
                         if subtype != "success" && failure.is_none() {
                             failure = Some(
@@ -154,9 +159,18 @@ async fn pump_lines(
     }
 
     if let Some(msg) = failure {
-        return Ok(Some((session_id, cost_usd, Some(msg))));
+        return Ok(Some((session_id, cost_usd, final_result, Some(msg))));
     }
-    Ok(Some((session_id, cost_usd, None)))
+    emit(
+        &tx,
+        RunEvent::Done {
+            session_id: session_id.clone(),
+            cost_usd,
+            result: final_result.clone(),
+        },
+    )
+    .await;
+    Ok(Some((session_id, cost_usd, final_result, None)))
 }
 
 impl AgentPort for ClaudeCliAgent {
@@ -174,31 +188,22 @@ impl AgentPort for ClaudeCliAgent {
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose")
-                .arg("--permission-mode")
-                .arg("acceptEdits")
                 .arg(
-                    "--allowedTools",
+                    "--permission-mode",
                 )
-                .args([
-                    "Read",
-                    "Edit",
-                    "Write",
-                    "Glob",
-                    "Grep",
-                    "Bash(git *)",
-                ])
-                .current_dir(&spec.cwd);
-            if let Some(model) = &spec.model {
-                cmd.arg("--model").arg(model);
-            }
+                .arg(spec.permission_mode.as_deref().unwrap_or("acceptEdits"));
             if let Some(tools) = &spec.allowed_tools {
                 if !tools.is_empty() {
                     cmd.arg("--allowedTools").args(tools);
                 }
             }
+            if let Some(model) = &spec.model {
+                cmd.arg("--model").arg(model);
+            }
             if let Some(budget) = spec.max_budget_usd {
                 cmd.arg("--max-budget-usd").arg(budget.to_string());
             }
+            cmd.current_dir(&spec.cwd);
             #[cfg(windows)]
             {
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -214,14 +219,11 @@ impl AgentPort for ClaudeCliAgent {
 
             match pump_lines(&mut child, tx, cancel).await? {
                 None => Ok(RunOutcome::Cancelled),
-                Some((_sid, cost, None)) => Ok(RunOutcome::Completed {
-                    session_id: None,
+                Some((_sid, cost, _result, None)) => Ok(RunOutcome::Completed {
+                    session_id: _sid,
                     cost_usd: cost,
                 }),
-                Some((_sid, cost, Some(msg))) => {
-                    let _ = cost;
-                    Ok(RunOutcome::Failed(msg))
-                }
+                Some((_sid, _cost, _result, Some(msg))) => Ok(RunOutcome::Failed(msg)),
             }
         })
     }

@@ -47,6 +47,8 @@ pub struct SessionView {
 pub struct EngineConfig {
     pub repo_root: PathBuf,
     pub base_branch: String,
+    pub permission_mode: String,
+    pub worker_allowed_tools: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -75,6 +77,11 @@ enum Msg {
     AgentSession {
         card_id: CardId,
         session_id: String,
+    },
+    DirectorDone {
+        card_id: CardId,
+        outcome: Box<harness_ports::RunOutcome>,
+        verdict: Option<String>,
     },
 }
 
@@ -150,11 +157,12 @@ struct RunEntry {
     _worktree: WorktreePath,
 }
 
-pub struct Engine<S, C, A, G>
+pub struct Engine<S, C, A, D, G>
 where
     S: StorePort + 'static,
     C: ClockPort + 'static,
     A: AgentPort + 'static,
+    D: AgentPort + 'static,
     G: GitPort + 'static,
 {
     rx: mpsc::Receiver<Msg>,
@@ -164,6 +172,7 @@ where
     store: Arc<S>,
     clock: Arc<C>,
     agent: Arc<A>,
+    director: Arc<D>,
     git: Arc<G>,
     config: EngineConfig,
     runs: HashMap<CardId, RunEntry>,
@@ -174,11 +183,12 @@ where
 
 use harness_ports::StorePort;
 
-impl<S, C, A, G> Engine<S, C, A, G>
+impl<S, C, A, D, G> Engine<S, C, A, D, G>
 where
     S: StorePort + 'static,
     C: ClockPort + 'static,
     A: AgentPort + 'static,
+    D: AgentPort + 'static,
     G: GitPort + 'static,
 {
     #[allow(clippy::type_complexity)]
@@ -186,6 +196,7 @@ where
         store: Arc<S>,
         clock: Arc<C>,
         agent: Arc<A>,
+        director: Arc<D>,
         git: Arc<G>,
         config: EngineConfig,
         history: Vec<StoredEvent>,
@@ -217,6 +228,7 @@ where
             store,
             clock,
             agent,
+            director,
             git,
             config,
             runs: HashMap::new(),
@@ -333,6 +345,13 @@ where
                         *sid = Some(session_id);
                     }
                 }
+                Msg::DirectorDone {
+                    card_id,
+                    outcome,
+                    verdict,
+                } => {
+                    self.handle_director_done(card_id, *outcome, verdict).await;
+                }
             }
         }
     }
@@ -387,8 +406,9 @@ where
             prompt,
             cwd: worktree.0.clone(),
             model: None,
-            allowed_tools: None,
+            allowed_tools: Some(self.config.worker_allowed_tools.clone()),
             max_budget_usd: None,
+            permission_mode: Some(self.config.permission_mode.clone()),
         };
 
         let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(256);
@@ -422,11 +442,23 @@ where
             };
             let (result, _) = tokio::join!(fut, forward);
             let outcome = result.unwrap_or_else(harness_ports::RunOutcome::Failed);
-            if matches!(
-                outcome,
-                harness_ports::RunOutcome::Cancelled | harness_ports::RunOutcome::Failed(_)
-            ) {
-                let _ = tokio::task::block_in_place(|| git.commit_wip(&wt_for_wip));
+            match &outcome {
+                harness_ports::RunOutcome::Completed { .. } => {
+                    let trailers = harness_ports::Trailers(vec![
+                        ("Harness-Card".to_string(), done_card.to_string()),
+                        ("Harness-Run".to_string(), done_run.to_string()),
+                    ]);
+                    let _ = tokio::task::block_in_place(|| {
+                        git.commit(
+                            &wt_for_wip,
+                            &format!("work for card {done_card}"),
+                            &trailers,
+                        )
+                    });
+                }
+                harness_ports::RunOutcome::Cancelled | harness_ports::RunOutcome::Failed(_) => {
+                    let _ = tokio::task::block_in_place(|| git.commit_wip(&wt_for_wip));
+                }
             }
             let _ = self_tx
                 .send(Msg::RunDone {
@@ -460,7 +492,7 @@ where
         let domain_outcome = match outcome {
             harness_ports::RunOutcome::Completed { .. } => RunOutcome::Completed,
             harness_ports::RunOutcome::Cancelled => RunOutcome::Cancelled,
-            harness_ports::RunOutcome::Failed(msg) => {
+            harness_ports::RunOutcome::Failed(ref msg) => {
                 eprintln!("run on card {card_id} failed: {msg}");
                 RunOutcome::Failed
             }
@@ -478,8 +510,143 @@ where
         };
         if let Err(e) = self.persist(events).await {
             eprintln!("finish_run persist failed for {card_id}: {e}");
+            return;
+        }
+        if matches!(outcome, harness_ports::RunOutcome::Completed { .. }) {
+            self.run_director(card_id).await;
         }
     }
+
+    async fn run_director(&mut self, card_id: CardId) {
+        let (worktree, _) = match self.sessions.get(&card_id) {
+            Some(v) => v.clone(),
+            None => return,
+        };
+        let git = Arc::clone(&self.git);
+        let wt = WorktreePath(worktree.clone());
+        let base = self.config.base_branch.clone();
+        let diff = tokio::task::block_in_place(move || git.diff_summary(&wt, &base))
+            .unwrap_or_else(|_| "(diff unavailable)".to_string());
+
+        let prompt = format!(
+            "You are the Director reviewing work done for kanban card '{card_id}'.\n\n\
+             Review the following git diff summary produced by the agent in its worktree.\n\
+             Judge whether the work fulfills the task reasonably.\n\n\
+             Respond with ONLY a JSON object, no other text:\n\
+             {{\"decision\": \"approve\"|\"reject\", \"reason\": \"<short explanation>\"}}\n\n\
+             DIFF:\n{diff}"
+        );
+
+        let run_id = RunId(uuid::Uuid::new_v4().to_string());
+        let spec = RunSpec {
+            prompt,
+            cwd: worktree,
+            model: None,
+            allowed_tools: Some(vec!["Read".into(), "Glob".into(), "Grep".into()]),
+            max_budget_usd: None,
+            permission_mode: Some("dontAsk".to_string()),
+        };
+
+        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
+        let token = CancellationToken::new();
+        let fut = self.director.run(spec, ev_tx, token);
+
+        let upd_tx = self.runs_tx.clone();
+        let self_tx = self.self_tx.clone();
+        let upd_card = card_id;
+        let director_run = run_id;
+        let last_result = Arc::new(std::sync::Mutex::new(None::<String>));
+        let lr = Arc::clone(&last_result);
+
+        tokio::spawn(async move {
+            let forward = async {
+                while let Some(ev) = ev_rx.recv().await {
+                    match &ev {
+                        RunEvent::Done { result: Some(r), .. } => {
+                            *lr.lock().unwrap() = Some(r.clone());
+                        }
+                        RunEvent::Text { text } => {
+                            let _ = upd_tx.send(RunUpdate {
+                                card_id: upd_card.clone(),
+                                run_id: director_run.clone(),
+                                event: RunEvent::Text {
+                                    text: format!("[director] {text}"),
+                                },
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            };
+            let (res, _) = tokio::join!(fut, forward);
+            let outcome = res.unwrap_or_else(harness_ports::RunOutcome::Failed);
+            let verdict = last_result.lock().unwrap().clone();
+            let _ = self_tx
+                .send(Msg::DirectorDone {
+                    card_id: upd_card,
+                    outcome: Box::new(outcome),
+                    verdict,
+                })
+                .await;
+        });
+    }
+
+    async fn handle_director_done(
+        &mut self,
+        card_id: CardId,
+        outcome: harness_ports::RunOutcome,
+        verdict: Option<String>,
+    ) {
+        if !matches!(outcome, harness_ports::RunOutcome::Completed { .. }) {
+            eprintln!("director run failed for {card_id}; leaving card in Review");
+            return;
+        }
+        let raw = verdict.unwrap_or_default();
+        let parsed = extract_json_object(&raw)
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| {
+                let decision = v.get("decision")?.as_str()?.to_string();
+                let reason = v
+                    .get("reason")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some((decision, reason))
+            });
+
+        let cmd = match parsed {
+            Some((d, reason)) if d == "approve" => Command::ApproveCard {
+                card_id: card_id.clone(),
+            },
+            Some((d, reason)) if d == "reject" => Command::RejectCard {
+                card_id: card_id.clone(),
+                reason: format!("director: {reason}"),
+            },
+            _ => {
+                eprintln!("director verdict unparsable for {card_id}; leaving card in Review");
+                return;
+            }
+        };
+        let events = match self.board.decide(&cmd) {
+            Ok(events) => events,
+            Err(e) => {
+                eprintln!("director decision rejected for {card_id}: {e}");
+                return;
+            }
+        };
+        if let Err(e) = self.persist(events).await {
+            eprintln!("director persist failed for {card_id}: {e}");
+        }
+    }
+}
+
+fn extract_json_object(s: &str) -> Option<String> {
+    let start = s.find('{')?;
+    let end = s.rfind('}')?;
+    if end < start {
+        return None;
+    }
+    Some(s[start..=end].to_string())
 }
 
 
@@ -540,6 +707,8 @@ mod tests {
     enum FakeMode {
         Complete,
         WaitCancelled,
+        DirectApprove,
+        DirectReject,
     }
 
     struct FakeAgent(FakeMode);
@@ -567,6 +736,39 @@ mod tests {
                     cancel.cancelled().await;
                     drop(tx);
                     Ok(RunOutcome::Cancelled)
+                }),
+                FakeMode::DirectApprove => Box::pin(async move {
+                    let _ = tx
+                        .send(RunEvent::Done {
+                            session_id: None,
+                            cost_usd: Some(0.0),
+                            result: Some(
+                                "{\"decision\":\"approve\",\"reason\":\"fine\"}".into(),
+                            ),
+                        })
+                        .await;
+                    drop(tx);
+                    Ok(RunOutcome::Completed {
+                        session_id: None,
+                        cost_usd: Some(0.0),
+                    })
+                }),
+                FakeMode::DirectReject => Box::pin(async move {
+                    let _ = tx
+                        .send(RunEvent::Done {
+                            session_id: None,
+                            cost_usd: Some(0.0),
+                            result: Some(
+                                "{\"decision\":\"reject\",\"reason\":\"not good enough\"}"
+                                    .into(),
+                            ),
+                        })
+                        .await;
+                    drop(tx);
+                    Ok(RunOutcome::Completed {
+                        session_id: None,
+                        cost_usd: Some(0.0),
+                    })
                 }),
             }
         }
@@ -607,6 +809,14 @@ mod tests {
         fn remove_worktree(&self, _wt: &WorktreePath) -> Result<(), GitError> {
             Ok(())
         }
+
+        fn diff_summary(
+            &self,
+            _wt: &WorktreePath,
+            _base: &str,
+        ) -> Result<String, GitError> {
+            Ok("diff --git a/eggs.md b/eggs.md\n+egg content".to_string())
+        }
     }
 
     async fn wait_for(label: &str, mut check: impl AsyncFnMut() -> bool) {
@@ -624,6 +834,15 @@ mod tests {
         EngineConfig {
             repo_root: std::env::temp_dir(),
             base_branch: "main".into(),
+            permission_mode: "acceptEdits".into(),
+            worker_allowed_tools: vec![
+                "Read".into(),
+                "Edit".into(),
+                "Write".into(),
+                "Glob".into(),
+                "Grep".into(),
+                "Bash(git *)".into(),
+            ],
         }
     }
 
@@ -633,6 +852,7 @@ mod tests {
         let (handle, mut sub, _runs) = Engine::spawn(
             store.clone(),
             Arc::new(FixedClock),
+            Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeGit::new()),
             test_config(),
@@ -665,6 +885,7 @@ mod tests {
         let (handle, _logged, mut runs) = Engine::spawn(
             store.clone(),
             Arc::new(FixedClock),
+            Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeAgent(FakeMode::Complete)),
             git.clone(),
             test_config(),
@@ -731,6 +952,7 @@ mod tests {
             Arc::new(MemStore::default()),
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::WaitCancelled)),
+            Arc::new(FakeAgent(FakeMode::WaitCancelled)),
             git.clone(),
             test_config(),
             vec![],
@@ -767,6 +989,7 @@ mod tests {
                 store.clone(),
                 Arc::new(FixedClock),
                 Arc::new(FakeAgent(FakeMode::Complete)),
+            Arc::new(FakeAgent(FakeMode::Complete)),
                 Arc::new(FakeGit::new()),
                 test_config(),
                 vec![],
@@ -794,6 +1017,7 @@ mod tests {
             store,
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeGit::new()),
             test_config(),
             history,
@@ -816,6 +1040,7 @@ mod tests {
             store.clone(),
             Arc::new(FixedClock),
             Arc::new(FakeAgent(FakeMode::Complete)),
+            Arc::new(FakeAgent(FakeMode::Complete)),
             Arc::new(FakeGit::new()),
             test_config(),
             vec![],
@@ -832,5 +1057,65 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("illegal"), "got: {err}");
         assert_eq!(store.count(), 1);
+    }
+
+    async fn driven_to_review(mode: FakeMode, director: FakeMode) -> (EngineHandle, Arc<MemStore>, Arc<FakeGit>) {
+        let store = Arc::new(MemStore::default());
+        let git = Arc::new(FakeGit::new());
+        let (handle, _logged, _runs) = Engine::spawn(
+            store.clone(),
+            Arc::new(FixedClock),
+            Arc::new(FakeAgent(FakeMode::Complete)),
+            Arc::new(FakeAgent(director)),
+            git.clone(),
+            test_config(),
+            vec![],
+        );
+        let id = CardId::new("d1");
+        handle
+            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
+            .await
+            .unwrap();
+        handle
+            .execute(Command::OverrideCard {
+                card_id: id.clone(),
+                to: Status::Ready,
+                reason: "setup".into(),
+            })
+            .await
+            .unwrap();
+        let _ = (mode,);
+        handle.start_run(id.clone(), "work".into()).await.unwrap();
+        (handle, store, git)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn director_approval_moves_card_to_done() {
+        let (handle, store, git) =
+            driven_to_review(FakeMode::Complete, FakeMode::DirectApprove).await;
+        wait_for(
+            "card reaches Done via director",
+            async || handle.snapshot().await.unwrap().cards[0].status == Status::Done,
+        )
+        .await;
+        assert_eq!(store.count(), 5);
+        assert!(git.calls().iter().any(|c| c.starts_with("commit:")));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn director_rejection_sends_card_back_to_ready() {
+        let (handle, store, _git) =
+            driven_to_review(FakeMode::Complete, FakeMode::DirectReject).await;
+        wait_for(
+            "card returns to Ready via director rejection",
+            async || handle.snapshot().await.unwrap().cards[0].status == Status::Ready,
+        )
+        .await;
+        assert_eq!(store.count(), 5);
+        let history = store.read_all().unwrap();
+        assert!(matches!(
+            history.last().unwrap().event,
+            Event::CardRejected { .. }
+        ));
     }
 }

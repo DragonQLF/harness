@@ -1465,6 +1465,7 @@ dependencies = [
  "harness-domain",
  "harness-ports",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-util",
  "uuid",

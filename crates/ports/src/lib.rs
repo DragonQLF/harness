@@ -80,6 +80,7 @@ pub trait GitPort: Send + Sync {
     fn commit(&self, wt: &WorktreePath, msg: &str, trailers: &Trailers) -> Result<String, GitError>;
     fn commit_wip(&self, wt: &WorktreePath) -> Result<Option<String>, GitError>;
     fn remove_worktree(&self, wt: &WorktreePath) -> Result<(), GitError>;
+    fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError>;
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +90,7 @@ pub struct RunSpec {
     pub model: Option<String>,
     pub allowed_tools: Option<Vec<String>>,
     pub max_budget_usd: Option<f64>,
+    pub permission_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,6 +109,7 @@ pub enum RunEvent {
     Done {
         session_id: Option<String>,
         cost_usd: Option<f64>,
+        result: Option<String>,
     },
     Failed {
         message: String,

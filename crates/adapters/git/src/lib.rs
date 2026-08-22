@@ -139,6 +139,22 @@ impl GitPort for CliGit {
         self.git(&self.repo_root, &["worktree", "prune"])?;
         Ok(())
     }
+
+    fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError> {
+        let range = format!("{base}...HEAD");
+        let stat = self
+            .git(&wt.0, &["diff", "--stat", &range])
+            .unwrap_or_default();
+        let patch = self
+            .git(&wt.0, &["diff", &range])
+            .unwrap_or_default();
+        if patch.chars().count() > 4000 {
+            let cut: String = patch.chars().take(4000).collect();
+            Ok(format!("{stat}\n\n{cut}\n[diff truncated]"))
+        } else {
+            Ok(format!("{stat}\n\n{patch}"))
+        }
+    }
 }
 
 #[cfg(test)]
