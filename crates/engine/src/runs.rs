@@ -9,7 +9,7 @@ use harness_ports::{
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{Engine, Msg, RunEntry, SessionEntry, worktree_label};
+use crate::{Engine, Msg, RunEntry, SessionEntry, worktree_label, SHARED_WORKTREE};
 
 impl Engine {
     pub(crate) async fn start_run(
@@ -22,15 +22,12 @@ impl Engine {
             return Err("card already has an active run".to_string());
         }
         let run_id = RunId(uuid::Uuid::new_v4().to_string());
-        let events = self
-            .board
-            .decide(&Command::StartRun {
-                card_id: card_id.clone(),
-                run_id: run_id.clone(),
-            })
-            .map_err(|e| e.to_string())?;
-        self.persist(events).await?;
 
+        // The worktree is resolved *before* the run is recorded, for two
+        // reasons: a checkout that cannot be created must not leave a card
+        // marked Running with no run behind it, and the log needs to say where
+        // the work happened — that is not derivable afterwards, because the
+        // profile that chose the mode may have changed by then.
         let worktree = self.worktree_for(&card_id, profile.worktree)?;
         let branch = match profile.worktree {
             WorktreeMode::None => None,
@@ -39,11 +36,31 @@ impl Engine {
                 .file_name()
                 .map(|n| format!("harness/{}", n.to_string_lossy())),
         };
+
+        let events = self
+            .board
+            .decide(&Command::StartRun {
+                card_id: card_id.clone(),
+                run_id: run_id.clone(),
+                worktree: Some(worktree.0.to_string_lossy().to_string()),
+                branch: branch.clone(),
+            })
+            .map_err(|e| e.to_string())?;
+        self.persist(events).await?;
+
         let started_ms = self.now();
+        // What the last run left behind, whether that was a minute ago or
+        // before the last restart: the board carries it now, so it is the
+        // board that is asked.
         let resume_session = self
-            .sessions
+            .board
             .get(&card_id)
-            .and_then(|s| s.session_id.clone());
+            .and_then(|c| c.session_id.clone())
+            .or_else(|| {
+                self.sessions
+                    .get(&card_id)
+                    .and_then(|s| s.session_id.clone())
+            });
 
         let token = CancellationToken::new();
         self.runs.insert(
@@ -238,10 +255,21 @@ impl Engine {
                         return Ok(existing.clone());
                     }
                 }
+                // After a restart the engine has no memory of the shared
+                // checkout, but it is still on disk. Recreating it would take
+                // the branch its commits are on with it, so an existing one is
+                // adopted rather than rebuilt.
+                let existing = self.git.worktree_path(SHARED_WORKTREE);
+                if existing.is_dir() {
+                    let found = WorktreePath(existing);
+                    self.shared_worktree = Some(found.clone());
+                    return Ok(found);
+                }
                 let git = Arc::clone(&self.git);
                 let base = self.config.base_branch.clone();
-                let created = tokio::task::block_in_place(move || git.create_worktree("shared", &base))
-                    .map_err(|e| e.to_string())?;
+                let created =
+                    tokio::task::block_in_place(move || git.create_worktree(SHARED_WORKTREE, &base))
+                        .map_err(|e| e.to_string())?;
                 self.shared_worktree = Some(created.clone());
                 Ok(created)
             }
@@ -280,8 +308,11 @@ impl Engine {
                 turns,
                 session_id,
             } => {
-                if let (Some(sid), Some(entry)) = (session_id, self.sessions.get_mut(&card_id)) {
-                    entry.session_id = Some(sid.clone());
+                // The result carries the session too, and for a run that never
+                // emitted an init event it is the only place it appears.
+                // Recorded on the board, so a restart keeps it.
+                if let Some(sid) = session_id.clone() {
+                    self.record_session(card_id.clone(), sid).await;
                 }
                 (RunOutcome::Completed, *cost_usd, *turns)
             }

@@ -1,6 +1,7 @@
 //! Tauri shell: wires the app-data layout, the project engines and the IPC
 //! surface together. All state lives in `Workspace`; this file only assembles.
 
+mod chat;
 mod commands;
 mod director_tools;
 mod sidecar;
@@ -61,9 +62,38 @@ pub fn run() {
             commands::board::cancel_run,
             commands::board::active_runs,
             commands::board::run_log,
-            commands::board::director_ask,
             commands::board::activity,
             commands::board::project_stats,
+            // conversations
+            commands::chat::conversations_list,
+            commands::chat::conversation_new,
+            commands::chat::conversation_open,
+            commands::chat::conversation_select,
+            commands::chat::conversation_rename,
+            commands::chat::conversation_archive,
+            commands::chat::conversation_delete,
+            commands::chat::conversation_pin,
+            commands::chat::conversation_transcript,
+            commands::chat::chat_send,
+            commands::chat::agent_templates,
+            commands::chat::agent_create_from_template,
+            commands::chat::agent_duplicate,
+            commands::chat::agent_remove,
+            // conversations
+            commands::chat::conversations_list,
+            commands::chat::conversation_new,
+            commands::chat::conversation_open,
+            commands::chat::conversation_select,
+            commands::chat::conversation_rename,
+            commands::chat::conversation_archive,
+            commands::chat::conversation_delete,
+            commands::chat::conversation_pin,
+            commands::chat::conversation_transcript,
+            commands::chat::chat_send,
+            commands::chat::agent_templates,
+            commands::chat::agent_create_from_template,
+            commands::chat::agent_duplicate,
+            commands::chat::agent_remove,
             // projects
             commands::project::projects_list,
             commands::project::project_pick_folder,

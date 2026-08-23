@@ -281,17 +281,6 @@ pub async fn run_log(
     .map_err(|e| e.to_string())?
 }
 
-/// One Director for the workspace: it is handed every board, and runs inside
-/// the project that is open so it can also read that code.
-#[tauri::command]
-pub async fn director_ask(
-    text: String,
-    project_id: Option<String>,
-    ws: Shared<'_>,
-) -> Result<(), String> {
-    ws.ask_director(text, project_id).await
-}
-
 #[tauri::command]
 pub async fn activity(
     project_id: String,

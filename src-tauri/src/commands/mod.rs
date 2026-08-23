@@ -2,5 +2,6 @@
 //! renders the snapshots and events that come back.
 
 pub mod board;
+pub mod chat;
 pub mod project;
 pub mod system;

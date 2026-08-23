@@ -53,6 +53,10 @@ function harnessTools(runId) {
         {
           card_id: z.string().describe("The card id, for example c_7b30"),
           to: z.enum(["later", "ready", "running", "review", "done"]),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
         },
         call("move_card"),
       ),
@@ -63,19 +67,37 @@ function harnessTools(runId) {
           title: z.string().describe("What should happen, in one line"),
           agent_id: z.string().optional().describe("Which agent takes it, default builder"),
           start: z.boolean().optional().describe("Hand it to the agent immediately"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
         },
         call("create_card"),
       ),
       tool(
         "approve_card",
         "Approve a card that is waiting for review, sending it to done.",
-        { card_id: z.string(), reason: z.string().describe("Why it holds up") },
+        {
+          card_id: z.string(),
+          reason: z.string().describe("Why it holds up"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
         call("approve_card"),
       ),
       tool(
         "reject_card",
         "Send a card in review back to ready, with a reason the agent will read.",
-        { card_id: z.string(), reason: z.string().describe("What has to change") },
+        {
+          card_id: z.string(),
+          reason: z.string().describe("What has to change"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
         call("reject_card"),
       ),
       tool(
@@ -84,14 +106,43 @@ function harnessTools(runId) {
         {
           card_id: z.string(),
           reason: z.string().optional().describe("Why it is going"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
         },
         call("delete_card"),
       ),
       tool(
         "read_diff",
         "Read what a card's run actually changed. Use this instead of guessing.",
-        { card_id: z.string() },
+        {
+          card_id: z.string(),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
         call("read_diff"),
+      ),
+      tool(
+        "list_projects",
+        "List every project Harness knows about, with the id to use for the other tools. " +
+          "Use this rather than guessing an id, and before saying a project does or does not exist.",
+        {},
+        call("list_projects"),
+      ),
+      tool(
+        "create_project",
+        "Create a new project: a git repository with its own board, initialised at " +
+          "<parent_path>/<name>. Ask where it should live rather than choosing for them.",
+        {
+          name: z.string().describe("What the project is called"),
+          parent_path: z
+            .string()
+            .describe("The existing folder to create it inside, as an absolute path"),
+        },
+        call("create_project"),
       ),
       tool(
         "open_screen",
@@ -224,6 +275,20 @@ async function handleRun({ id, spec }) {
         }
         case "result": {
           controllers.delete(id);
+          // An error result looks like a normal one from the outside: same
+          // `result` message, cost 0, no text. A resume of a session that no
+          // longer exists arrives exactly this way, and the SDK only throws
+          // afterwards — by which time we have already returned. So the
+          // failure has to be read off this message, or it passes for success.
+          const failed = message.is_error === true || message.subtype !== "success";
+          const errors = Array.isArray(message.errors)
+            ? message.errors.map((e) => String(e).trim()).filter(Boolean).join("; ")
+            : "";
+          const detail =
+            errors ||
+            (typeof message.result === "string" && message.result.trim()) ||
+            message.subtype ||
+            "the run ended with an error";
           send({
             type: "event",
             run_id: id,
@@ -233,6 +298,7 @@ async function handleRun({ id, spec }) {
               cost_usd: message.total_cost_usd ?? null,
               turns: typeof message.num_turns === "number" ? message.num_turns : null,
               result: typeof message.result === "string" ? message.result : null,
+              error: failed ? detail : null,
             },
           });
           return;

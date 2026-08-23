@@ -10,6 +10,7 @@ import type {
   AgentStats,
   Bootstrap,
   CheckRow,
+  Conversation,
   CreatedCard,
   Envelope,
   Navigation,
@@ -90,16 +91,57 @@ export const api = {
   activeRuns: (projectId: string) => invoke<ActiveRun[]>("active_runs", { projectId }),
   runLog: (projectId: string, runId: string) =>
     invoke<RunLogLine[]>("run_log", { projectId, runId }),
-  /** One Director for the workspace: it is handed every board, and reads code
-   *  from the project that is open, if any. */
-  directorAsk: (text: string, projectId?: string | null) =>
-    invoke<void>("director_ask", { text, projectId: projectId ?? null }),
+  // ---- conversations ----
+  /** Every chat, newest first. Archived ones only when asked for. */
+  conversations: (includeArchived = false) =>
+    invoke<Conversation[]>("conversations_list", { includeArchived }),
+  /** A new chat, which means a new Claude session: nothing is resumed. */
+  conversationNew: (profileId?: string | null, projectId?: string | null) =>
+    invoke<Conversation>("conversation_new", {
+      profileId: profileId ?? null,
+      projectId: projectId ?? null,
+    }),
+  /** The chat to talk in: the last one for this profile, or a new one. */
+  conversationOpen: (profileId?: string | null, projectId?: string | null) =>
+    invoke<Conversation>("conversation_open", {
+      profileId: profileId ?? null,
+      projectId: projectId ?? null,
+    }),
+  conversationSelect: (conversationId: string) =>
+    invoke<Conversation>("conversation_select", { conversationId }),
+  conversationRename: (conversationId: string, title: string) =>
+    invoke<Conversation>("conversation_rename", { conversationId, title }),
+  conversationArchive: (conversationId: string, archived: boolean) =>
+    invoke<Conversation>("conversation_archive", { conversationId, archived }),
+  conversationDelete: (conversationId: string) =>
+    invoke<void>("conversation_delete", { conversationId }),
+  /** Pin a chat to a project: that is the code it can read while answering. */
+  conversationPin: (conversationId: string, projectId: string | null) =>
+    invoke<Conversation>("conversation_pin", { conversationId, projectId }),
+  /** The stored transcript, readable whether or not the session resumes. */
+  conversationTranscript: (conversationId: string) =>
+    invoke<RunLogLine[]>("conversation_transcript", { conversationId }),
+  /** Send a message. The answer streams back on the run channel, keyed by the
+   *  conversation id. */
+  chatSend: (text: string, conversationId?: string | null) =>
+    invoke<Conversation>("chat_send", { text, conversationId: conversationId ?? null }),
+
+  /** Profiles you can create from. Fetched on request: a template is a menu
+   *  entry, never something Harness installs by itself. */
+  agentTemplates: () => invoke<AgentProfile[]>("agent_templates"),
+  agentCreateFromTemplate: (templateId: string) =>
+    invoke<AgentProfile>("agent_create_from_template", { templateId }),
+  agentDuplicate: (agentId: string) => invoke<AgentProfile>("agent_duplicate", { agentId }),
+  agentRemove: (agentId: string) => invoke<AgentProfile[]>("agent_remove", { agentId }),
   activity: (projectId: string, limit = 200) =>
     invoke<ActivityRow[]>("activity", { projectId, limit }),
 
   approvalsPending: () => invoke<PendingApproval[]>("approvals_pending"),
+  /** Answer a permission request. With `always`, the returned label is the
+   *  scoped rule that was recorded — null when the call could not be scoped
+   *  safely and will be asked about again. */
   respondApproval: (requestId: string, allow: boolean, always: boolean) =>
-    invoke<void>("respond_approval", { requestId, allow, always }),
+    invoke<string | null>("respond_approval", { requestId, allow, always }),
 
   sidecarInstall: () => invoke<string>("sidecar_install"),
   openClaudeTerminal: (projectId?: string) =>
@@ -121,6 +163,9 @@ export const events = {
   /** The Director asked to take the operator somewhere. */
   onNavigate: (fn: (n: Navigation) => void) =>
     listen<Navigation>("ui://navigate", (evt) => fn(evt.payload)),
+  /** The conversation list changed on the backend. */
+  onConversations: (fn: (list: Conversation[]) => void) =>
+    listen<Conversation[]>("chat://conversations", (evt) => fn(evt.payload)),
   onSidecarLog: (fn: (line: string) => void) =>
     listen<string>("sidecar://log", (evt) => fn(evt.payload)),
 };

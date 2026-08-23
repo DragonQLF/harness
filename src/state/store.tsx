@@ -19,6 +19,7 @@ import type {
   ActivityRow,
   AgentProfile,
   AgentStats,
+  Conversation,
   Envelope,
   PendingApproval,
   ProjectStats,
@@ -44,8 +45,28 @@ export interface LogLine {
 }
 
 export interface ChatMsg {
-  role: "user" | "director";
+  /** `notice` is Harness itself talking: a failed resume, a cancelled turn. */
+  role: "user" | "agent" | "notice";
   text: string;
+}
+
+/** One stored transcript line as a chat bubble. Deltas never reach here: the
+ *  final `text` is the record (the backend does not log them). */
+function toChatMsg(line: RunLogLine): ChatMsg | null {
+  switch (line.kind) {
+    case "user_message":
+      return line.text?.trim() ? { role: "user", text: line.text } : null;
+    case "text":
+      return line.text?.trim() ? { role: "agent", text: line.text } : null;
+    case "notice":
+      return line.text?.trim() ? { role: "notice", text: line.text } : null;
+    case "failed":
+      return { role: "notice", text: line.message ?? "the answer did not arrive" };
+    // Tool calls and session boundaries are in the log but would clutter the
+    // conversation; they show live as progress instead.
+    default:
+      return null;
+  }
 }
 
 /** What is arriving right now for a card, before the final text lands. */
@@ -71,6 +92,10 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
     case "text":
       return u.text?.trim()
         ? { ts: u.ts_ms, kind: u.kind, text: u.text, color: "var(--text)" }
+        : null;
+    case "user_message":
+      return u.text?.trim()
+        ? { ts: u.ts_ms, kind: u.kind, text: `you: ${u.text}`, color: "var(--text2)" }
         : null;
     case "tool_use":
       return {
@@ -137,6 +162,11 @@ interface Store {
   /** Token-level stream per card, cleared when the final text arrives. */
   streams: Record<string, LiveStream>;
   approvals: PendingApproval[];
+  /** Every conversation the backend knows about, newest first. */
+  conversations: Conversation[];
+  /** The one on screen. */
+  conversationId: string | null;
+  conversation: Conversation | null;
   chat: ChatMsg[];
   chatBusy: boolean;
   /** The Director's reasoning as it arrives; cleared when it answers. */
@@ -165,6 +195,21 @@ interface Store {
   loadRunLog: (runId: string, cardId: string) => Promise<void>;
 
   sendChat: (text: string) => Promise<void>;
+  /** Start a fresh conversation, which means a fresh Claude session. */
+  newConversation: (profileId?: string) => Promise<void>;
+  /** Open the standing conversation with a profile, creating one only if there
+   *  is none: clicking "chat" twice continues the same thread. */
+  chatWithProfile: (profileId: string) => Promise<void>;
+  openConversation: (id: string) => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<void>;
+  archiveConversation: (id: string, archived: boolean) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
+  pinConversation: (id: string, projectId: string | null) => Promise<void>;
+  /** Templates are fetched on demand: nothing is installed until you say so. */
+  agentTemplates: () => Promise<AgentProfile[]>;
+  createAgentFromTemplate: (templateId: string) => Promise<void>;
+  duplicateAgent: (agentId: string) => Promise<void>;
+  removeAgent: (agentId: string) => Promise<void>;
   answerApproval: (requestId: string, allow: boolean, always: boolean) => Promise<void>;
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
   saveAgents: (agents: AgentProfile[]) => Promise<void>;
@@ -212,6 +257,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [outputs, setOutputs] = useState<Record<string, LogLine[]>>({});
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatThinking, setChatThinking] = useState("");
@@ -223,6 +270,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const projectRef = useRef<string | null>(null);
   projectRef.current = projectId;
+  // The run channel is keyed by conversation id, so the listener needs the
+  // current one without re-subscribing on every switch.
+  const chatRef = useRef<string | null>(null);
+  chatRef.current = conversationId;
   const toastSeq = useRef(0);
 
   const toast = useCallback((tone: string, title: string, body?: string) => {
@@ -301,6 +352,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setStatus(boot.status);
         setApprovals(boot.approvals);
         setDataDir(boot.data_dir);
+        setConversations(boot.conversations);
+        // The backend decides which conversation reopens; the frontend just
+        // renders it. Its transcript is read from disk, so it is there whether
+        // or not the native Claude session can still be resumed.
+        if (boot.last_conversation) {
+          setConversationId(boot.last_conversation);
+          chatRef.current = boot.last_conversation;
+          api
+            .conversationTranscript(boot.last_conversation)
+            .then((lines) =>
+              setChat(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null)),
+            )
+            .catch(() => {});
+        }
+        if (boot.revoked_allowances.length > 0) {
+          // Said once, because it changes what the app will do without asking.
+          toast(
+            "var(--warn)",
+            "Standing permissions were narrowed",
+            `${boot.revoked_allowances.join(", ")} allowed every command, so it no longer allows any. Approve once more to record a scoped rule.`,
+          );
+        }
 
         const list = await api.projects();
         if (!alive) return;
@@ -325,8 +398,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSnapshot(null);
     setOutputs({});
     setStreams({});
-    setChat([]);
-    setChatThinking("");
+    // The conversation is not per project: a Director chat outlives switching
+    // boards, and is pinned to a project only if you pin it.
     refresh();
     refreshAgentStats();
   }, [projectId, refresh, refreshAgentStats]);
@@ -368,13 +441,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const appendToDirector = (text: string) =>
           setChat((cs) => {
             const last = cs[cs.length - 1];
-            if (last && last.role === "director") {
-              return [...cs.slice(0, -1), { role: "director", text: last.text + text }];
+            if (last && last.role === "agent") {
+              return [...cs.slice(0, -1), { role: "agent", text: last.text + text }];
             }
-            return [...cs, { role: "director", text }];
+            return [...cs, { role: "agent", text }];
           });
 
-        if (u.card_id === DIRECTOR) {
+        // A conversation streams under its own id. `DIRECTOR` is the id older
+        // builds published chat on; kept so nothing from before is orphaned.
+        if (u.card_id === chatRef.current || u.card_id === DIRECTOR) {
           switch (u.kind) {
             case "thinking":
               if (u.text) setChatThinking((t) => (t + u.text).slice(-600));
@@ -408,6 +483,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               if (u.text && !streamedRef.current) appendToDirector(u.text);
               streamedRef.current = false;
               break;
+            case "notice":
+              // Harness itself talking — a resume that could not be honoured.
+              if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text! }]);
+              break;
             case "done":
               streamedRef.current = false;
               setChatThinking("");
@@ -419,7 +498,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               setChatBusy(false);
               setChat((cs) => [
                 ...cs,
-                { role: "director", text: `(the Director could not answer: ${u.message})` },
+                { role: "notice", text: `No answer: ${u.message}` },
               ]);
               break;
           }
@@ -461,6 +540,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     );
 
     keep(events.onApprovalQueue((list) => !closed && setApprovals(list)));
+    keep(events.onConversations((list) => !closed && setConversations(list)));
     keep(
       events.onNavigate((n) => {
         if (closed) return;
@@ -636,6 +716,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [withProject],
   );
 
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await api.conversations());
+    } catch {
+      /* the list is a view of backend state; a failed read is not fatal */
+    }
+  }, []);
+
   const sendChat = useCallback(
     async (text: string) => {
       const clean = text.trim();
@@ -645,30 +733,236 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setChatThinking("");
       streamedRef.current = false;
       try {
-        // The reply streams back on the run channel; `chatBusy` clears when the
-        // done event arrives, not when this call returns. There is one Director:
-        // it sees every board, and reads code from the project that is open.
-        await api.directorAsk(clean, projectRef.current);
+        // The first message of a session with no conversation open gets one
+        // pinned to the project on screen, so it can read that code. After
+        // that the backend owns which conversation this belongs to.
+        if (!chatRef.current) {
+          const started = await api.conversationNew(DIRECTOR, projectRef.current);
+          setConversationId(started.id);
+          chatRef.current = started.id;
+        }
+        // The reply streams back on the run channel, keyed by the conversation
+        // id; `chatBusy` clears when the done event arrives, not when this call
+        // returns. The backend decides which conversation this belongs to and
+        // hands it back, so the first message of a new chat lands in the right
+        // thread.
+        const conversation = await api.chatSend(clean, chatRef.current);
+        setConversationId(conversation.id);
+        chatRef.current = conversation.id;
+        await refreshConversations();
       } catch (e) {
         setChatBusy(false);
-        fail(e, "The Director could not be reached");
+        fail(e, "The message could not be sent");
       }
     },
-    [chatBusy, fail],
+    [chatBusy, fail, refreshConversations],
+  );
+
+  /** Load a conversation and its stored transcript. */
+  const openConversation = useCallback(
+    async (id: string) => {
+      try {
+        const conversation = await api.conversationSelect(id);
+        const lines = await api.conversationTranscript(id);
+        setConversationId(conversation.id);
+        chatRef.current = conversation.id;
+        setChat(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null));
+        setChatThinking("");
+        setChatBusy(false);
+        streamedRef.current = false;
+        await refreshConversations();
+      } catch (e) {
+        fail(e, "Could not open that conversation");
+      }
+    },
+    [fail, refreshConversations],
+  );
+
+  /** A direct, persistent conversation with one profile. Resumes the last one
+   *  rather than piling up a new session per click. */
+  const chatWithProfile = useCallback(
+    async (profileId: string) => {
+      try {
+        const conversation = await api.conversationOpen(profileId, projectRef.current);
+        await openConversation(conversation.id);
+      } catch (e) {
+        fail(e, "Could not open that conversation");
+      }
+    },
+    [fail, openConversation],
+  );
+
+  const newConversation = useCallback(
+    async (profileId?: string) => {
+      try {
+        // A new row is a new native session: nothing from the last chat is
+        // resumed, which is the whole point of New Chat.
+        const conversation = await api.conversationNew(
+          profileId ?? DIRECTOR,
+          projectRef.current,
+        );
+        setConversationId(conversation.id);
+        chatRef.current = conversation.id;
+        setChat([]);
+        setChatThinking("");
+        setChatBusy(false);
+        streamedRef.current = false;
+        await refreshConversations();
+      } catch (e) {
+        fail(e, "Could not start a new conversation");
+      }
+    },
+    [fail, refreshConversations],
+  );
+
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      try {
+        await api.conversationRename(id, title);
+        await refreshConversations();
+      } catch (e) {
+        fail(e, "Could not rename the conversation");
+      }
+    },
+    [fail, refreshConversations],
+  );
+
+  const archiveConversation = useCallback(
+    async (id: string, archived: boolean) => {
+      try {
+        await api.conversationArchive(id, archived);
+        await refreshConversations();
+        if (archived && chatRef.current === id) {
+          setConversationId(null);
+          chatRef.current = null;
+          setChat([]);
+        }
+        toast("var(--ok)", archived ? "Archived" : "Restored");
+      } catch (e) {
+        fail(e, "Could not archive the conversation");
+      }
+    },
+    [fail, refreshConversations, toast],
+  );
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      const which = conversations.find((c) => c.id === id);
+      const ok = window.confirm(
+        `Delete "${which?.title ?? id}"?\n\n` +
+          "The transcript is deleted with it, and the Claude session it continues " +
+          "can no longer be reopened. This cannot be undone.",
+      );
+      if (!ok) return;
+      try {
+        await api.conversationDelete(id);
+        if (chatRef.current === id) {
+          setConversationId(null);
+          chatRef.current = null;
+          setChat([]);
+        }
+        await refreshConversations();
+        toast("var(--ok)", "Deleted", which?.title);
+      } catch (e) {
+        fail(e, "Could not delete the conversation");
+      }
+    },
+    [conversations, fail, refreshConversations, toast],
+  );
+
+  const pinConversation = useCallback(
+    async (id: string, project: string | null) => {
+      try {
+        await api.conversationPin(id, project);
+        await refreshConversations();
+      } catch (e) {
+        fail(e, "Could not change the project");
+      }
+    },
+    [fail, refreshConversations],
+  );
+
+  // ---- the crew ----
+
+  const agentTemplates = useCallback(async () => {
+    try {
+      return await api.agentTemplates();
+    } catch (e) {
+      fail(e, "Could not read the templates");
+      return [];
+    }
+  }, [fail]);
+
+  const createAgentFromTemplate = useCallback(
+    async (templateId: string) => {
+      try {
+        const created = await api.agentCreateFromTemplate(templateId);
+        setAgents(await api.agentsGet());
+        toast("var(--ok)", "Added", `${created.name} joined the crew`);
+      } catch (e) {
+        fail(e, "Could not create that profile");
+      }
+    },
+    [fail, toast],
+  );
+
+  const duplicateAgent = useCallback(
+    async (agentId: string) => {
+      try {
+        const copy = await api.agentDuplicate(agentId);
+        setAgents(await api.agentsGet());
+        toast("var(--ok)", "Duplicated", copy.name);
+      } catch (e) {
+        fail(e, "Could not duplicate that profile");
+      }
+    },
+    [fail, toast],
+  );
+
+  const removeAgent = useCallback(
+    async (agentId: string) => {
+      const which = agents.find((a) => a.id === agentId);
+      const ok = window.confirm(
+        `Remove ${which?.name ?? agentId}?\n\n` +
+          "Cards already assigned to it keep the name, but nothing new can be given to it.",
+      );
+      if (!ok) return;
+      try {
+        setAgents(await api.agentRemove(agentId));
+        toast("var(--ok)", "Removed", which?.name);
+      } catch (e) {
+        fail(e, "Could not remove that profile");
+      }
+    },
+    [agents, fail, toast],
   );
 
   const answerApproval = useCallback(
     async (requestId: string, allow: boolean, always: boolean) => {
       try {
-        await api.respondApproval(requestId, allow, always);
+        const recorded = await api.respondApproval(requestId, allow, always);
         if (always && allow) {
           setSettings(await api.settingsGet());
         }
-        toast(
-          allow ? "var(--ok)" : "var(--bad)",
-          allow ? "Allowed" : "Denied",
-          allow ? "The agent carried on." : "The agent was told no.",
-        );
+        if (allow && always && !recorded) {
+          // Nothing safe to remember: a chained shell command cannot be scoped,
+          // so it is allowed once and asked about again.
+          toast(
+            "var(--warn)",
+            "Allowed once",
+            "That command could not be narrowed into a rule, so you will be asked again.",
+          );
+        } else {
+          toast(
+            allow ? "var(--ok)" : "var(--bad)",
+            allow ? "Allowed" : "Denied",
+            recorded
+              ? `Not asking again about ${recorded}`
+              : allow
+                ? "The agent carried on."
+                : "The agent was told no.",
+          );
+        }
       } catch (e) {
         fail(e, "Could not answer the request");
       }
@@ -835,6 +1129,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     outputs,
     streams,
     approvals,
+    conversations,
+    conversationId,
+    conversation: conversations.find((c) => c.id === conversationId) ?? null,
     chat,
     chatBusy,
     chatThinking,
@@ -857,6 +1154,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     discard,
     loadRunLog,
     sendChat,
+    newConversation,
+    chatWithProfile,
+    openConversation,
+    renameConversation,
+    archiveConversation,
+    deleteConversation,
+    pinConversation,
+    agentTemplates,
+    createAgentFromTemplate,
+    duplicateAgent,
+    removeAgent,
     answerApproval,
     saveSettings,
     saveAgents,

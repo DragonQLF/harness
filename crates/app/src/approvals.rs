@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use harness_ports::{ApprovalRequest, Approver};
+use harness_ports::{ApprovalRequest, Approver, JsonValue};
 use serde::Serialize;
 use tokio::sync::oneshot;
 
@@ -33,6 +33,9 @@ pub struct PendingApproval {
     pub card_id: Option<String>,
     pub tool: String,
     pub summary: String,
+    /// What the agent actually asked for. Kept so a standing allowance can be
+    /// scoped to *this* call rather than to the bare tool name.
+    pub input: JsonValue,
     pub asked_ms: u64,
 }
 
@@ -132,12 +135,11 @@ impl ApprovalRouter {
             let project_id = project_id.clone();
             Box::pin(async move {
                 // A standing allowance answers without bothering the operator.
-                if me
-                    .settings
-                    .lock()
-                    .unwrap()
-                    .allows(&request.tool, &request.summary)
-                {
+                if me.settings.lock().unwrap().allows(
+                    &request.tool,
+                    &request.input,
+                    &request.summary,
+                ) {
                     return true;
                 }
 
@@ -148,6 +150,7 @@ impl ApprovalRouter {
                     card_id: None,
                     tool: request.tool.clone(),
                     summary: request.summary.clone(),
+                    input: request.input.clone(),
                     asked_ms: Self::now_ms(),
                 };
                 me.pending.lock().unwrap().insert(
@@ -242,7 +245,11 @@ mod tests {
     #[tokio::test]
     async fn a_standing_allowance_answers_without_asking() {
         let (router, settings, recorder) = router();
-        settings.lock().unwrap().allow_always("Bash");
+        settings
+            .lock()
+            .unwrap()
+            .allow_always("Bash", &serde_json::json!({ "command": "git push origin main" }))
+            .expect("a scoped rule");
         let approve = router.approver_for("proj");
         assert!(approve(request("req-1")).await);
         assert!(router.pending_list().is_empty());
@@ -250,6 +257,42 @@ mod tests {
             recorder.asked.lock().unwrap().is_empty(),
             "a standing allowance must not bother the operator"
         );
+    }
+
+    /// The safety property, end to end through the router: agreeing to one git
+    /// command must not let the next shell command through unasked.
+    #[tokio::test]
+    async fn approving_one_git_command_does_not_open_the_shell() {
+        let (router, settings, recorder) = router();
+        settings
+            .lock()
+            .unwrap()
+            .allow_always("Bash", &serde_json::json!({ "command": "git status" }))
+            .expect("a scoped rule");
+
+        let approve = router.approver_for("proj");
+        let unrelated = ApprovalRequest {
+            request_id: "req-danger".to_string(),
+            tool: "Bash".to_string(),
+            summary: "command: rm -rf /".to_string(),
+            input: serde_json::json!({ "command": "rm -rf /" }),
+        };
+        let waiting = tokio::spawn(async move { approve(unrelated).await });
+
+        // It reached the operator instead of being waved through.
+        for _ in 0..100 {
+            if !router.pending_list().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let pending = router.pending_list();
+        assert_eq!(pending.len(), 1, "an unrelated command must still be asked about");
+        assert_eq!(pending[0].request_id, "req-danger");
+        assert_eq!(recorder.asked.lock().unwrap().len(), 1);
+
+        router.resolve("req-danger", false).unwrap();
+        assert!(!waiting.await.unwrap());
     }
 
     #[tokio::test]

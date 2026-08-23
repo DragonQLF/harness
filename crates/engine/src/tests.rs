@@ -161,6 +161,7 @@ impl AgentPort for FakeAgent {
                         cost_usd: Some(0.0),
                         turns: None,
                         result: Some("{\"decision\":\"approve\",\"reason\":\"fine\"}".into()),
+                        error: None,
                     })
                     .await;
                 drop(tx);
@@ -176,6 +177,7 @@ impl AgentPort for FakeAgent {
                             "sure thing: {\"decision\":\"reject\",\"reason\":\"not good enough\"}"
                                 .into(),
                         ),
+                        error: None,
                     })
                     .await;
                 drop(tx);
@@ -188,6 +190,7 @@ impl AgentPort for FakeAgent {
                         cost_usd: None,
                         turns: None,
                         result: Some("I could not decide".into()),
+                        error: None,
                     })
                     .await;
                 drop(tx);
@@ -198,16 +201,23 @@ impl AgentPort for FakeAgent {
 }
 
 struct FakeGit {
+    /// Its own directory per instance: two tests sharing one would see each
+    /// other's checkouts, and "does it already exist" is now a real question.
+    root: std::path::PathBuf,
     calls: Mutex<Vec<String>>,
     /// When set, every commit fails with this reason.
     commit_fails: Option<String>,
+    /// A checkout that cannot be created, the way a locked worktree is.
+    fail_worktree: bool,
 }
 
 impl FakeGit {
     fn new() -> Self {
         Self {
+            root: unique_worktree_root(),
             calls: Mutex::new(Vec::new()),
             commit_fails: None,
+            fail_worktree: false,
         }
     }
 
@@ -215,8 +225,10 @@ impl FakeGit {
     /// identity or a rejecting hook does.
     fn refusing_commits(reason: &str) -> Self {
         Self {
+            root: unique_worktree_root(),
             calls: Mutex::new(Vec::new()),
             commit_fails: Some(reason.to_string()),
+            fail_worktree: false,
         }
     }
 
@@ -225,10 +237,32 @@ impl FakeGit {
     }
 }
 
+fn unique_worktree_root() -> std::path::PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "harness-engine-tests-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::SeqCst)
+    ))
+}
+
+impl Default for FakeGit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GitPort for FakeGit {
+    fn worktree_path(&self, name: &str) -> std::path::PathBuf {
+        self.root.join(name)
+    }
+
     fn create_worktree(&self, card_id: &str, _base: &str) -> Result<WorktreePath, GitError> {
         self.calls.lock().unwrap().push(format!("create:{card_id}"));
-        let path = std::env::temp_dir().join("harness-engine-tests").join(card_id);
+        if self.fail_worktree {
+            return Err(GitError::Git("worktree is locked".into()));
+        }
+        let path = self.root.join(card_id);
         std::fs::create_dir_all(&path).map_err(|e| GitError::Io(e.to_string()))?;
         Ok(WorktreePath(path))
     }
@@ -274,6 +308,38 @@ async fn wait_for(label: &str, mut check: impl AsyncFnMut() -> bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("timeout: {label}");
+}
+
+/// Records the `resume_session` each run was handed, so a test can prove the
+/// engine offered it rather than trusting that it did.
+#[derive(Default)]
+struct ResumeSpy {
+    seen: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl ResumeSpy {
+    fn seen(&self) -> Vec<Option<String>> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+impl AgentPort for ResumeSpy {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        _cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        self.seen.lock().unwrap().push(spec.resume_session.clone());
+        Box::pin(async move {
+            drop(tx);
+            Ok(RunOutcome::Completed {
+                session_id: Some("s2".into()),
+                cost_usd: Some(0.0),
+                turns: Some(1),
+            })
+        })
+    }
 }
 
 fn test_config() -> EngineConfig {
@@ -879,4 +945,270 @@ async fn a_commit_that_fails_is_reported_and_skips_review() {
         &l.event,
         RunEvent::Notice { text } if text.contains("could not commit")
     )));
+}
+
+/// The wip commit on close keeps the *work*. This keeps the agent's *memory* of
+/// it: without the session id, the next run starts a stranger on a card it has
+/// already worked on.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_card_session_survives_a_restart() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let id = CardId::new("c_resume");
+
+    {
+        let (handle, _e, _r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(FakeAgent(FakeMode::Complete)),
+                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            EnginePolicy::default(),
+            vec![],
+        );
+        card_ready(&handle, &id).await;
+        let mut human = profile();
+        human.reviewer = Reviewer::Human;
+        handle
+            .start_run(id.clone(), "work".into(), human)
+            .await
+            .unwrap();
+        wait_for("the run finished", async || {
+            status_of(&handle, &id).await == Some(Status::Review)
+        })
+        .await;
+
+        let live = handle.snapshot().await.unwrap();
+        let session = live
+            .sessions
+            .iter()
+            .find(|s| s.card_id == id)
+            .expect("a session while the engine is up");
+        // The result carries the session, and it wins over the init event.
+        assert_eq!(session.session_id.as_deref(), Some("s1"));
+        assert!(!session.worktree.is_empty());
+    }
+
+    // A new engine over the same log: this is what a restart is.
+    let history = store.read_all().unwrap();
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        history,
+    );
+
+    let snap = handle.snapshot().await.unwrap();
+    let session = snap
+        .sessions
+        .iter()
+        .find(|s| s.card_id == id)
+        .expect("the session came back after the restart");
+    assert_eq!(session.session_id.as_deref(), Some("s1"));
+    assert_eq!(session.agent_id, "builder");
+    assert!(!session.worktree.is_empty(), "and it remembers where it worked");
+    assert!(!session.live, "but nothing is running any more");
+
+    // The card carries it too, so anything reading cards can offer a resume.
+    let card = snap.cards.iter().find(|c| c.id == id).unwrap();
+    assert_eq!(card.session_id.as_deref(), Some("s1"));
+    assert!(card.worktree.is_some());
+}
+
+/// And the point of keeping it: the next run continues that conversation.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let id = CardId::new("c_again");
+
+    {
+        let (handle, _e, _r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(FakeAgent(FakeMode::Complete)),
+                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            EnginePolicy::default(),
+            vec![],
+        );
+        card_ready(&handle, &id).await;
+        let mut human = profile();
+        human.reviewer = Reviewer::Human;
+        handle.start_run(id.clone(), "work".into(), human).await.unwrap();
+        wait_for("the first run finished", async || {
+            status_of(&handle, &id).await == Some(Status::Review)
+        })
+        .await;
+    }
+
+    let spy = ResumeSpy::default();
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(ResumeSpy { seen: Arc::clone(&spy.seen) }),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        store.read_all().unwrap(),
+    );
+
+    // Send it back so it can be worked again, then run it.
+    handle
+        .execute(Command::RejectCard {
+            card_id: id.clone(),
+            reason: "another pass".into(),
+            by: Actor::Human,
+        })
+        .await
+        .unwrap();
+    let mut human = profile();
+    human.reviewer = Reviewer::Human;
+    handle.start_run(id.clone(), "again".into(), human).await.unwrap();
+    wait_for("the second run finished", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    let seen = spy.seen();
+    assert_eq!(
+        seen,
+        vec![Some("s1".to_string())],
+        "the run after the restart was handed the session from before it"
+    );
+
+    // And the newer session replaces the old one on the card.
+    let snap = handle.snapshot().await.unwrap();
+    let card = snap.cards.iter().find(|c| c.id == id).unwrap();
+    assert_eq!(card.session_id.as_deref(), Some("s2"));
+}
+
+/// A worktree that cannot be created must not leave a card marked Running with
+/// no run behind it: the checkout is resolved before the run is recorded.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_worktree_leaves_the_card_alone() {
+    let mut fake_git = FakeGit::default();
+    fake_git.fail_worktree = true;
+    let store = Arc::new(MemStore::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: Arc::new(fake_git),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        vec![],
+    );
+
+    let id = CardId::new("c_nowhere");
+    card_ready(&handle, &id).await;
+    let before = store.count();
+    assert!(handle.start_run(id.clone(), "work".into(), profile()).await.is_err());
+
+    assert_eq!(status_of(&handle, &id).await, Some(Status::Ready));
+    assert_eq!(store.count(), before, "nothing was written for a run that never began");
+}
+
+/// `create_worktree` removes and recreates, which takes the branch with it. A
+/// shared checkout has commits on that branch, so after a restart it has to be
+/// adopted rather than rebuilt.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let mut profile_shared = profile();
+    profile_shared.worktree = WorktreeMode::Shared;
+    profile_shared.reviewer = Reviewer::Human;
+
+    {
+        let (handle, _e, _r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(FakeAgent(FakeMode::Complete)),
+                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            EnginePolicy::default(),
+            vec![],
+        );
+        let first = CardId::new("c_shared_1");
+        card_ready(&handle, &first).await;
+        handle
+            .start_run(first.clone(), "work".into(), profile_shared.clone())
+            .await
+            .unwrap();
+        wait_for("the first shared run finished", async || {
+            status_of(&handle, &first).await == Some(Status::Review)
+        })
+        .await;
+    }
+    assert_eq!(
+        git.calls().iter().filter(|c| c.starts_with("create:")).count(),
+        1,
+        "the checkout was created once"
+    );
+
+    // A new engine over the same log, then another shared run.
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        store.read_all().unwrap(),
+    );
+    let second = CardId::new("c_shared_2");
+    card_ready(&handle, &second).await;
+    handle
+        .start_run(second.clone(), "more".into(), profile_shared)
+        .await
+        .unwrap();
+    wait_for("the second shared run finished", async || {
+        status_of(&handle, &second).await == Some(Status::Review)
+    })
+    .await;
+
+    assert_eq!(
+        git.calls().iter().filter(|c| c.starts_with("create:")).count(),
+        1,
+        "and never again: rebuilding it would delete the branch its commits are on"
+    );
 }

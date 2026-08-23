@@ -22,6 +22,12 @@ export interface Card {
   turns: number;
   runs: number;
   last_review: Review | null;
+  /** The native agent session this card's runs continue. Survives a restart,
+   *  so the next run resumes instead of starting over. */
+  session_id: string | null;
+  /** Where the last run worked, and on which branch. */
+  worktree: string | null;
+  branch: string | null;
 }
 
 export interface SessionView {
@@ -63,6 +69,7 @@ export interface Envelope {
 
 export type RunEventKind =
   | "started"
+  | "user_message"
   | "text"
   | "delta"
   | "thinking"
@@ -128,6 +135,46 @@ export interface AgentProfile {
   reviewer: Reviewer;
   paused: boolean;
   permission_mode: string | null;
+  /** Grouping in the UI: leadership, engineering, growth. Free text. */
+  team: string;
+  /** Can you open a persistent conversation with it? */
+  chat_enabled: boolean;
+  /** Can it be handed a card? */
+  tasks_enabled: boolean;
+  max_concurrent: number;
+  skills: string[];
+  reports_to: string | null;
+  /** May it put work on a board and hand it to other agents? */
+  can_delegate: boolean;
+  expected_output: string;
+  escalate_to: string | null;
+}
+
+/** One chat, and the Claude session it continues. */
+export interface Conversation {
+  id: string;
+  /** The native Claude session. Null before the first answer, or after a
+   *  resume was refused. */
+  session_id: string | null;
+  profile_id: string;
+  project_id: string | null;
+  title: string;
+  created_ms: number;
+  updated_ms: number;
+  archived: boolean;
+  messages: number;
+  cost_usd: number;
+  /** The last resume was refused: the transcript is still readable, but the
+   *  model has lost its own memory of it. */
+  resume_failed: boolean;
+}
+
+/** A standing approval, scoped to the kind of call it came from. */
+export interface AllowRule {
+  tool: string;
+  /** The leading words of the command it covers. Absent means the tool takes
+   *  no command — and for a shell tool that rule authorises nothing. */
+  command?: string | null;
 }
 
 export interface AgentStats {
@@ -154,7 +201,7 @@ export interface Settings {
   commit_wip_on_close: boolean;
   permission_mode: string;
   daily_budget_usd: number;
-  always_allow: string[];
+  always_allow: AllowRule[];
   last_project: string | null;
   user_name: string;
 }
@@ -289,6 +336,8 @@ export interface PendingApproval {
   card_id: string | null;
   tool: string;
   summary: string;
+  /** What the agent actually asked for, so "always allow" can be scoped. */
+  input: unknown;
   asked_ms: number;
 }
 
@@ -323,6 +372,11 @@ export interface Bootstrap {
   status: SystemStatus;
   approvals: PendingApproval[];
   data_dir: string;
+  conversations: Conversation[];
+  /** The chat to reopen, so the window comes back where it was left. */
+  last_conversation: string | null;
+  /** Unscoped shell allowances from an older build. They authorise nothing. */
+  revoked_allowances: string[];
 }
 
 export interface CreatedCard {
@@ -357,6 +411,18 @@ export const TONE: Record<string, { color: string; soft: string }> = {
   warn: { color: "var(--warn)", soft: "var(--warnSoft)" },
   bad: { color: "var(--bad)", soft: "var(--badSoft)" },
 };
+
+/** How a standing allowance reads, matching the backend label. */
+export function ruleLabel(rule: AllowRule): string {
+  return rule.command ? `${rule.tool}(${rule.command} \u2026)` : rule.tool;
+}
+
+/** A shell rule with no command scope authorises nothing: it is left in the
+ *  list only so it can be seen and removed. */
+export function ruleIsRevoked(rule: AllowRule): boolean {
+  const head = rule.tool.toLowerCase().split("(")[0].trim();
+  return !rule.command && ["bash", "shell", "sh", "powershell"].includes(head);
+}
 
 export function tone(name: string | undefined) {
   return TONE[name ?? "accent"] ?? TONE.accent;

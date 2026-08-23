@@ -42,8 +42,14 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
         .map(|c| (c.id.as_str(), c.title.as_str()))
         .collect();
 
-    let start = history.len().saturating_sub(limit);
-    let mut rows: Vec<ActivityRow> = history[start..]
+    // A recorded session is bookkeeping, not something that happened on the
+    // board, so it never becomes a row.
+    let shown: Vec<&StoredEvent> = history
+        .iter()
+        .filter(|s| !matches!(s.event, Event::AgentSession { .. }))
+        .collect();
+    let start = shown.len().saturating_sub(limit);
+    let mut rows: Vec<ActivityRow> = shown[start..]
         .iter()
         .map(|stored| {
             let card_id = stored.event.card_id().to_string();
@@ -103,6 +109,10 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                         reason.clone()
                     },
                 ),
+                // Filtered out above; the match still has to be total.
+                Event::AgentSession { session_id, .. } => {
+                    ("run", "Session recorded", short(session_id))
+                }
                 Event::CardRejected { reason, by, .. } => (
                     "review",
                     match by {
@@ -329,7 +339,7 @@ mod tests {
         push(&mut board, &mut log, &mut seq, now_ms, Command::AssignAgent { card_id: id.clone(), agent_id: "builder".into() });
         push(&mut board, &mut log, &mut seq, now_ms, Command::MoveCard { card_id: id.clone(), to: Status::Ready });
         let run = RunId("run-1".into());
-        push(&mut board, &mut log, &mut seq, now_ms, Command::StartRun { card_id: id.clone(), run_id: run.clone() });
+        push(&mut board, &mut log, &mut seq, now_ms, Command::StartRun { card_id: id.clone(), run_id: run.clone(), worktree: None, branch: None });
         push(&mut board, &mut log, &mut seq, now_ms, Command::FinishRun { card_id: id.clone(), run_id: run, outcome: RunOutcome::Completed, cost_usd: Some(0.25), turns: Some(9) });
         push(&mut board, &mut log, &mut seq, now_ms, Command::ApproveCard { card_id: id.clone(), by: Actor::Director, reason: "scoped".into() });
 
@@ -340,7 +350,7 @@ mod tests {
         push(&mut board, &mut log, &mut seq, week_ago, Command::AssignAgent { card_id: old.clone(), agent_id: "scout".into() });
         push(&mut board, &mut log, &mut seq, week_ago, Command::MoveCard { card_id: old.clone(), to: Status::Ready });
         let run2 = RunId("run-2".into());
-        push(&mut board, &mut log, &mut seq, week_ago, Command::StartRun { card_id: old.clone(), run_id: run2.clone() });
+        push(&mut board, &mut log, &mut seq, week_ago, Command::StartRun { card_id: old.clone(), run_id: run2.clone(), worktree: None, branch: None });
         push(&mut board, &mut log, &mut seq, week_ago, Command::FinishRun { card_id: old.clone(), run_id: run2, outcome: RunOutcome::Completed, cost_usd: Some(0.05), turns: Some(2) });
 
         let cards: Vec<Card> = board.cards().into_iter().cloned().collect();

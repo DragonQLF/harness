@@ -184,6 +184,97 @@ substituem os atributos `style-hover` do design. Consequências:
 | 8 | Custo do Director | O custo da revisão fica na transcrição do run, não soma ao cartão |
 | 9 | Sandbox | Continua adiado: permission modes + worktree isolada |
 
+### 41. Um resultado de erro tinha exactamente a forma de um sucesso (bug)
+Descoberto ao verificar #35 com o SDK a correr, em vez de assumir. Retomar uma
+sessão que já não existe **não falha**: o SDK emite uma mensagem `result` normal
+com `is_error: true`, `num_turns: 0`, custo 0 e texto nenhum — e só lança a
+excepção *depois*, quando o nosso `case "result"` já fez `return`. Resultado
+medido antes da correcção:
+
+```
+{"kind":"done","session_id":"00000000-dead-...","cost_usd":0,"turns":0,"result":null}
+```
+
+Ou seja: a conversa aparecia respondida com uma resposta vazia. E não era só no
+chat — **qualquer** run com resultado de erro (orçamento excedido, max turns,
+erro de API) era reportado como `Completed`, o cartão era commitado e o Director
+revia um diff de nada.
+
+Corrigido na origem: o sidecar lê `is_error`/`subtype`/`errors` da mensagem
+`result` e envia um campo `error` novo no evento `done` (aditivo, com
+`#[serde(default)]`); o adapter transforma um `done` com erro em
+`RunOutcome::Failed`. Depois disto, o mesmo teste devolve a razão verdadeira:
+
+```
+"error":"No conversation found with session ID: 00000000-dead-..."
+```
+
+A detecção de resume perdido no `chat.rs` passou a olhar para *este* run — houve
+`started` ou texto? — em vez de para o estado guardado, que numa retoma está
+sempre preenchido, e portanto nunca detectaria nada.
+
+Verificado ao vivo, dois processos separados (que é o que um restart é): a mesma
+sessão retomada lembra-se do que foi dito no processo anterior; um chat novo
+recebe um `session_id` diferente e não sabe nada; uma sessão morta diz porquê.
+
+### 42. Sessões de cartão também sobrevivem ao restart
+Pergunta do operador ao ler #41: "não é para isto que serve o encerramento
+gracioso, o commit wip?". Não — são metades diferentes do mesmo problema:
+
+- o **commit wip** guarda o *trabalho*: os ficheiros ficam em git, nada se perde;
+- o **session_id** guarda a *memória* do agente sobre esse trabalho.
+
+Sem o segundo, depois de reiniciar o Harness o run seguinte no mesmo cartão
+começava do zero: relia tudo, redecidia tudo, pagava tudo outra vez, e podia
+refazer de maneira diferente aquilo que já estava meio feito. E o botão "agent
+terminal" (`claude --resume <sid>`) respondia "no agent session for this card
+yet", porque o mapa `sessions` do engine só existia em memória.
+
+Aplicado o mesmo padrão das conversas, mas no sítio próprio: o **log de eventos**,
+que já é a fonte da verdade do quadro (precedente da #10, onde custo e turnos
+passaram a ser persistidos em vez de descartados).
+
+- `Event::RunStarted` passou a carregar `worktree` e `branch` — não são
+  deriváveis depois: o modo vem do perfil no momento em que o run começa, e o
+  perfil pode ter mudado desde então. Campos `#[serde(default)]`, logo um log
+  antigo continua a reproduzir (há teste que lê linhas antigas reais).
+- `Event::AgentSession { card_id, session_id }` novo, com
+  `Command::RecordSession`. Escrito quando o agente reporta a sessão (no init e
+  outra vez no resultado), e ignorado se já for a mesma.
+- `Card` ganhou `session_id`, `worktree`, `branch`.
+- O engine reconstrói o seu mapa `sessions` do log no arranque
+  (`restore_sessions`). Fica no engine e não no `Card` porque o que falta ao
+  domínio é o *relógio*: `started_ms` vem do `ts_ms` do evento guardado.
+
+### 43. Bug encontrado ao reordenar: um cartão ficava Running sem run
+`start_run` decidia `StartRun` (o que marca o cartão Running e persiste) e **só
+depois** criava a worktree. Se a worktree falhasse, a função devolvia erro com o
+cartão já marcado Running e sem run nenhum a correr — preso até ao próximo
+restart, onde a recuperação de crash o marcava como falhado.
+
+Como o log agora precisa da worktree no `RunStarted`, a ordem inverteu-se por
+necessidade: resolve-se o checkout primeiro, só depois se registra o run. O bug
+desapareceu de graça, e ficou com teste (`a_failed_worktree_leaves_the_card_alone`).
+
+### 44. A worktree partilhada era destruída a cada restart (bug ao lado)
+`CliGit::create_worktree` **remove e recria**: faz `worktree remove --force` e
+`branch -D` antes de criar. Para uma worktree por cartão isso é o que se quer —
+começa limpa. Para a **partilhada** é perda de dados: os commits daquele ramo
+ficam inalcançáveis.
+
+Dentro de uma sessão não acontecia, porque o engine guardava `shared_worktree`
+em memória. Depois de reiniciar, esse campo voltava a `None` e o primeiro run
+partilhado apagava o ramo com o trabalho todo.
+
+Corrigido com um método novo no `GitPort`, `worktree_path(name)` — "onde é que
+isto viveria" — para o engine poder adoptar um checkout existente em vez de o
+reconstruir. Não há adivinhação por nomes de ramo, e há teste: dois engines
+sobre o mesmo log, `create_worktree` chamado exactamente uma vez.
+
+Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
+uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
+que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
+
 ## Dívida técnica conhecida (atualizada)
 
 - Compaction do event log (o botão do design não existe).
@@ -366,3 +457,231 @@ Em vez de fingir, o dock passou a mostrar o progresso que **todos** os modelos
 dão: as chamadas de ferramenta ("reading the diff…", "opening the screen…"). O
 texto continua a chegar em deltas para todos os modelos.
 
+## Conversas que sobrevivem ao restart (2026-08-23)
+
+### 32. O chat do Director era um caminho paralelo ao engine
+`ask_director` no `workspace.rs` era uma cópia à mão do ciclo de reencaminhamento
+do engine: lançava o agente, reencaminhava eventos, publicava `RunUpdate`, com um
+`RunId` descartável por mensagem e **sem escrever em log nenhum**. A transcrição
+existia apenas no array `chat` do React, limpo a cada troca de projeto. Ou seja: o
+frontend era a fonte da verdade da conversa, exactamente o que a arquitectura diz
+que não deve acontecer.
+
+Corrigido criando `src-tauri/src/chat.rs` — um runner de conversas que substitui
+aquele bloco. Continua ao nível do workspace (decisão #19: o engine não tem
+noção de conversa), mas agora persiste. Não é uma camada nova: é o mesmo trabalho,
+num sítio só.
+
+### 33. O `session_id` perdia-se em três sítios ao mesmo tempo
+A razão pela qual reiniciar o Harness matava a conversa não era uma: eram três.
+
+1. `resume_session: None` fixo no código — cada mensagem abria uma sessão Claude
+   nova. A conversa nunca foi contínua, nem dentro da mesma execução.
+2. O `session_id` devolvido pelo SDK era descartado: o `match` do forward tratava
+   `Delta/Thinking/Text/ToolUse/Failed` e deixava cair o resto em `_ => {}`, logo
+   `Started { session_id }` nunca chegava; o `Done` era republicado com
+   `session_id: None`.
+3. Nada era persistido — sem índice, sem log de chat.
+
+### 34. Índice de conversas, não uma segunda base de dados
+`crates/app/src/conversations.rs`: id do Harness, `session_id` nativo do Claude,
+perfil, projeto opcional, título, timestamps, arquivado. Puro — sem I/O e sem
+relógio, o shell injecta ids e tempos. Persistido em `conversations.json` ao lado
+do `settings.json`, com o mesmo `write_json` atómico.
+
+As **palavras** não estão lá: uma conversa é um `RunLogPort` como qualquer outro
+run (decisão #11), um JSONL por conversa em `<appdata>/conversations/`. Isso
+implicou uma variante nova em `RunEvent`, `UserMessage`, para que o turno do
+operador viva no mesmo ficheiro que a resposta — é aditiva, logo logs antigos
+continuam a ler. Duas cópias da mesma transcrição era o que havia a evitar: o
+índice diz qual a sessão e qual o ficheiro, o ficheiro tem o texto.
+
+Empírico, do SDK (`sdk.d.ts`): `sessionId` **não** pode ser combinado com
+`resume` sem `forkSession`, por isso nunca cunhamos o id — deixamos o SDK
+cunhá-lo e guardamos o que vem. E `total_cost_usd` documenta
+"resumed sessions start fresh", logo o custo por mensagem soma-se ao total da
+conversa em vez de o substituir.
+
+### 35. Um resume que falha diz-se, não se esconde
+Se pedimos resume e o run falha **antes** de qualquer `session_id` chegar, a
+sessão nativa desapareceu. Nesse caso: o `session_id` é limpo, `resume_failed`
+fica marcado, e vai um `Notice` para a transcrição a dizer que o texto acima
+continua legível mas o modelo já não se lembra dele. A alternativa — tentar o
+mesmo id para sempre — falharia em silêncio a cada mensagem.
+
+### 36. O Director deixa de ser um gestor de software
+O prompt dizia "You are the Director of Harness... you never write code
+yourself", e com zero projetos abria a conversa a perguntar que repositório
+adicionar. Isso fazia dele um gestor de tickets, não um assistente.
+
+`chat_prompt` agora: identidade geral (software, investigação, negócio, planos,
+projetos pessoais), regra explícita de **responder** em vez de fabricar trabalho,
+e sem projetos é dito que isso "não é um problema a resolver antes de ser útil" —
+sugerir um projeto é uma oferta, não um pré-requisito. O mesmo construtor serve
+um especialista em chat directo, com `Speaker` diferente, para não haver dois
+sítios a decidir como abre uma conversa.
+
+Numa sessão retomada o prompt é só a mensagem mais um refresh dos quadros: a
+identidade já está na sessão, reenviá-la fazia o modelo começar de novo.
+
+Migração: o `brief` que **nós** shipámos ("Own the board...") é substituído no
+`normalise`; um brief que o operador editou fica intocado.
+
+### 37. O Director sabia de todos os projetos mas só podia agir em um
+Assimetria real, encontrada a responder a uma pergunta do operador: `ask_director`
+construía um brief de **todos** os quadros, mas `director_tools` recebia um único
+`project_id` (o aberto) e as ferramentas no sidecar não tinham argumento de
+projeto nenhum. Lia em todo o lado, escrevia onde a pessoa estava, e não
+conseguia criar projetos.
+
+Agora cada ferramenta de quadro aceita `project_id` opcional (default: o projeto
+a que a conversa está fixada) e existem `list_projects` e `create_project`. Ambas
+as novas passam pelas regras de #29: listar é leitura, criar altera e portanto
+pede autorização.
+
+### 38. "Always allow" guardava o nome nu da ferramenta (bug de segurança)
+`settings.allow_always(&pending.tool)` gravava `"Bash"`. Aprovar um
+`git status` uma vez autorizava **todos** os comandos de shell para sempre. A
+revisão de segurança da sessão anterior olhou para o `respond_approval` e
+validou-o contra *spoofing* do nome da ferramenta, mas não viu o âmbito.
+
+`crates/app/src/allow.rs`: uma regra é a ferramenta **e** o prefixo do comando
+(`Bash(git push …)`). Três invariantes, com testes:
+
+1. uma chamada que traz comando só é coberta por uma regra que nomeia comando —
+   logo uma entrada `Bash` nua não cobre nada;
+2. o prefixo tem de terminar em fronteira de palavra (`git push` não cobre
+   `git pushall`);
+3. um comando com metacaracteres de shell nunca é coberto **nem** gera regra, por
+   isso `git status; rm -rf /` não entra ao colo do `git status`.
+
+Ficheiros antigos continuam a carregar (deserializador aceita string ou objecto).
+Decisão tomada com o operador: uma entrada de shell sem âmbito — precisamente o
+que o bug escrevia — passa a **inerte** e aparece riscada como "revoked" nas
+Settings, em vez de ser honrada. Uma permissão que ninguém deu conscientemente
+não se herda.
+
+### 39. Duas dívidas da revisão de segurança anterior, fechadas
+- `remove_worktree` usava `Path::starts_with`, que compara componente a
+  componente: `<esperado>/../../outro` passava. Agora ambos os lados são
+  canonicalizados antes de comparar, e um caminho que não resolve é recusado.
+- `open_terminal_in` fora do Windows fazia `argv.join(" ")` para
+  `x-terminal-emulator -e`, o que deixaria um `session_id` com espaços partir-se
+  ou injectar. Passa a argumentos separados, sem o invólucro `cmd /K` que ali não
+  significa nada.
+
+### 40. Perfis: dois modos, e templates que não se instalam sozinhos
+`AgentProfile` ganhou `team`, `chat_enabled`, `tasks_enabled`, `max_concurrent`,
+`skills`, `reports_to`, `can_delegate`, `expected_output`, `escalate_to` — todos
+`#[serde(default)]`, logo um `agents.json` antigo carrega e comporta-se como
+antes (falar e receber cartões ficam ligados por omissão).
+
+Os dois modos são: **chat directo** (conversa persistente com o especialista) e
+**trabalho atribuído** (um cartão, com a worktree, orçamento e revisor do
+perfil). `can_delegate` decide se as ferramentas que alteram quadros existem
+para aquele perfil.
+
+`templates()` devolve doze perfis (Director, PM, Researcher, Designer, Senior
+Engineer, Builder, Editor, SEO, Ads, Analytics, Finance, Compliance). São um
+**menu**: só um `agent_create_from_template` explícito instala algum. Uma
+instalação nova continua com três perfis, não doze. O Director continua
+obrigatório; `agent_remove` recusa-o.
+
+### 41. Um resultado de erro tinha exactamente a forma de um sucesso (bug)
+Descoberto ao verificar #35 com o SDK a correr, em vez de assumir. Retomar uma
+sessão que já não existe **não falha**: o SDK emite uma mensagem `result` normal
+com `is_error: true`, `num_turns: 0`, custo 0 e texto nenhum — e só lança a
+excepção *depois*, quando o nosso `case "result"` já fez `return`. Resultado
+medido antes da correcção:
+
+```
+{"kind":"done","session_id":"00000000-dead-...","cost_usd":0,"turns":0,"result":null}
+```
+
+Ou seja: a conversa aparecia respondida com uma resposta vazia. E não era só no
+chat — **qualquer** run com resultado de erro (orçamento excedido, max turns,
+erro de API) era reportado como `Completed`, o cartão era commitado e o Director
+revia um diff de nada.
+
+Corrigido na origem: o sidecar lê `is_error`/`subtype`/`errors` da mensagem
+`result` e envia um campo `error` novo no evento `done` (aditivo, com
+`#[serde(default)]`); o adapter transforma um `done` com erro em
+`RunOutcome::Failed`. Depois disto, o mesmo teste devolve a razão verdadeira:
+
+```
+"error":"No conversation found with session ID: 00000000-dead-..."
+```
+
+A detecção de resume perdido no `chat.rs` passou a olhar para *este* run — houve
+`started` ou texto? — em vez de para o estado guardado, que numa retoma está
+sempre preenchido, e portanto nunca detectaria nada.
+
+Verificado ao vivo, dois processos separados (que é o que um restart é): a mesma
+sessão retomada lembra-se do que foi dito no processo anterior; um chat novo
+recebe um `session_id` diferente e não sabe nada; uma sessão morta diz porquê.
+
+### 42. Sessões de cartão também sobrevivem ao restart
+Pergunta do operador ao ler #41: "não é para isto que serve o encerramento
+gracioso, o commit wip?". Não — são metades diferentes do mesmo problema:
+
+- o **commit wip** guarda o *trabalho*: os ficheiros ficam em git, nada se perde;
+- o **session_id** guarda a *memória* do agente sobre esse trabalho.
+
+Sem o segundo, depois de reiniciar o Harness o run seguinte no mesmo cartão
+começava do zero: relia tudo, redecidia tudo, pagava tudo outra vez, e podia
+refazer de maneira diferente aquilo que já estava meio feito. E o botão "agent
+terminal" (`claude --resume <sid>`) respondia "no agent session for this card
+yet", porque o mapa `sessions` do engine só existia em memória.
+
+Aplicado o mesmo padrão das conversas, mas no sítio próprio: o **log de eventos**,
+que já é a fonte da verdade do quadro (precedente da #10, onde custo e turnos
+passaram a ser persistidos em vez de descartados).
+
+- `Event::RunStarted` passou a carregar `worktree` e `branch` — não são
+  deriváveis depois: o modo vem do perfil no momento em que o run começa, e o
+  perfil pode ter mudado desde então. Campos `#[serde(default)]`, logo um log
+  antigo continua a reproduzir (há teste que lê linhas antigas reais).
+- `Event::AgentSession { card_id, session_id }` novo, com
+  `Command::RecordSession`. Escrito quando o agente reporta a sessão (no init e
+  outra vez no resultado), e ignorado se já for a mesma.
+- `Card` ganhou `session_id`, `worktree`, `branch`.
+- O engine reconstrói o seu mapa `sessions` do log no arranque
+  (`restore_sessions`). Fica no engine e não no `Card` porque o que falta ao
+  domínio é o *relógio*: `started_ms` vem do `ts_ms` do evento guardado.
+
+### 43. Bug encontrado ao reordenar: um cartão ficava Running sem run
+`start_run` decidia `StartRun` (o que marca o cartão Running e persiste) e **só
+depois** criava a worktree. Se a worktree falhasse, a função devolvia erro com o
+cartão já marcado Running e sem run nenhum a correr — preso até ao próximo
+restart, onde a recuperação de crash o marcava como falhado.
+
+Como o log agora precisa da worktree no `RunStarted`, a ordem inverteu-se por
+necessidade: resolve-se o checkout primeiro, só depois se registra o run. O bug
+desapareceu de graça, e ficou com teste (`a_failed_worktree_leaves_the_card_alone`).
+
+### 44. A worktree partilhada era destruída a cada restart (bug ao lado)
+`CliGit::create_worktree` **remove e recria**: faz `worktree remove --force` e
+`branch -D` antes de criar. Para uma worktree por cartão isso é o que se quer —
+começa limpa. Para a **partilhada** é perda de dados: os commits daquele ramo
+ficam inalcançáveis.
+
+Dentro de uma sessão não acontecia, porque o engine guardava `shared_worktree`
+em memória. Depois de reiniciar, esse campo voltava a `None` e o primeiro run
+partilhado apagava o ramo com o trabalho todo.
+
+Corrigido com um método novo no `GitPort`, `worktree_path(name)` — "onde é que
+isto viveria" — para o engine poder adoptar um checkout existente em vez de o
+reconstruir. Não há adivinhação por nomes de ramo, e há teste: dois engines
+sobre o mesmo log, `create_worktree` chamado exactamente uma vez.
+
+Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
+uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
+que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
+
+## Dívida técnica conhecida (atualizada)
+
+- Compaction do event log.
+- Sem diff viewer dentro da UI.
+- `max_concurrent` é guardado e mostrado, mas ainda não limita runs em paralelo.
+- Continua não verificado com o modelo a correr: um Builder a levar um cartão de
+  ready a review dentro da app (herdado da sessão anterior).

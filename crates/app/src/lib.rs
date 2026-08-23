@@ -5,7 +5,9 @@
 //! live here, so they can be tested without a webview.
 
 pub mod agents;
+pub mod allow;
 pub mod approvals;
+pub mod conversations;
 pub mod checks;
 pub mod director;
 pub mod insights;
