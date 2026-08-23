@@ -24,7 +24,7 @@ export function Card({
       className={className}
       style={{
         border: "1px solid var(--line)",
-        borderRadius: 18,
+        borderRadius: "var(--r-lg)",
         background: "var(--surface)",
         overflow: "hidden",
         padding: pad,
@@ -54,8 +54,8 @@ export function CardHead({
   note?: string;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "15px 17px 13px" }}>
-      <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "17px 20px 14px" }}>
+      <span style={{ fontSize: "var(--t-lg)", fontWeight: 700 }}>{title}</span>
       {count != null && (
         <span
           style={{
@@ -63,7 +63,7 @@ export function CardHead({
             borderRadius: 999,
             background: countSoft ?? "var(--surface2)",
             color: countColor ?? "var(--text3)",
-            fontSize: 11,
+            fontSize: "var(--t-xs)",
             fontWeight: 700,
           }}
         >
@@ -71,7 +71,7 @@ export function CardHead({
         </span>
       )}
       <div style={{ flex: 1 }} />
-      {note && <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{note}</span>}
+      {note && <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{note}</span>}
       {right}
     </div>
   );
@@ -88,7 +88,7 @@ export function HeadLink({ label, onClick }: { label: string; onClick: () => voi
         background: "transparent",
         border: "none",
         color: "var(--text3)",
-        fontSize: 12,
+        fontSize: "var(--t-sm)",
         cursor: "pointer",
         padding: 0,
       }}
@@ -198,12 +198,12 @@ export function StrongButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: "8px 15px",
+        padding: "9px 17px",
         border: "none",
         borderRadius: 999,
         background: "var(--text)",
         color: "var(--bg)",
-        fontSize: 12,
+        fontSize: "var(--t-sm)",
         fontWeight: 700,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
@@ -235,12 +235,12 @@ export function QuietButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: "8px 13px",
+        padding: "9px 15px",
         border: tone ? "1px solid transparent" : "1px solid var(--line)",
         borderRadius: 999,
         background: tone?.soft ?? "transparent",
         color: tone?.color ?? "var(--text2)",
-        fontSize: 12,
+        fontSize: "var(--t-sm)",
         fontWeight: tone ? 700 : 500,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
@@ -496,9 +496,9 @@ export function EmptyNote({ children, bordered = true }: { children: ReactNode; 
   return (
     <div
       style={{
-        padding: 20,
+        padding: 24,
         textAlign: "center",
-        fontSize: 12.5,
+        fontSize: "var(--t-sm)",
         color: "var(--text3)",
         borderTop: bordered ? "1px solid var(--line2)" : undefined,
       }}
@@ -518,7 +518,7 @@ export function Loading({ what }: { what: string }) {
         gap: 10,
         padding: 44,
         color: "var(--text3)",
-        fontSize: 12.5,
+        fontSize: "var(--t-sm)",
       }}
     >
       <span
@@ -549,13 +549,32 @@ export function PageHead({
   children?: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>{title}</h1>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+      <h1
+        style={{
+          margin: 0,
+          fontSize: "var(--t-xl)",
+          fontWeight: 800,
+          letterSpacing: "-.03em",
+          lineHeight: 1.2,
+        }}
+      >
+        {title}
+      </h1>
       {crumb && (
-        <>
-          <span style={{ color: "var(--text3)", fontSize: 12 }}>›</span>
-          <span style={{ fontSize: 12.5, color: "var(--text3)" }}>{crumb}</span>
-        </>
+        <span
+          style={{
+            padding: "4px 11px",
+            borderRadius: 999,
+            background: "var(--surface2)",
+            border: "1px solid var(--line)",
+            fontSize: "var(--t-xs)",
+            fontWeight: 600,
+            color: "var(--text2)",
+          }}
+        >
+          {crumb}
+        </span>
       )}
       {children}
       <div style={{ flex: 1 }} />

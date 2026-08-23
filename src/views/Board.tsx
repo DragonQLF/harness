@@ -2,7 +2,7 @@ import { useState } from "react";
 import { money, plural } from "../lib/format";
 import { STATUS_NAME, STATUS_ORDER, STATUS_TONE, type Status } from "../lib/types";
 import { useStore } from "../state/store";
-import { Loading } from "../components/ui";
+import { Icon, Loading } from "../components/ui";
 
 /** Moves the board offers by hand; anything else needs an override. */
 const LEGAL: Record<Status, Status[]> = {
@@ -49,9 +49,19 @@ export function Board({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Work</h1>
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          Drag a card to move it — every move is recorded
+        <h1
+          style={{
+            margin: 0,
+            fontSize: "var(--t-xl)",
+            fontWeight: 800,
+            letterSpacing: "-.03em",
+            lineHeight: 1.2,
+          }}
+        >
+          Work
+        </h1>
+        <span style={{ fontSize: "var(--t-sm)", color: "var(--text3)" }}>
+          Drag a card to move it
         </span>
       </div>
 
@@ -96,8 +106,18 @@ export function Board({
                 <span
                   style={{ width: 7, height: 7, borderRadius: "50%", background: t.color }}
                 />
-                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{STATUS_NAME[status]}</span>
-                <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{list.length}</span>
+                <span
+                  style={{
+                    fontSize: "var(--t-xs)",
+                    fontWeight: 700,
+                    letterSpacing: ".06em",
+                    textTransform: "uppercase",
+                    color: "var(--text2)",
+                  }}
+                >
+                  {STATUS_NAME[status]}
+                </span>
+                <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{list.length}</span>
               </div>
 
               <div
@@ -174,7 +194,7 @@ export function Board({
                             margin: 0,
                             flex: 1,
                             minWidth: 0,
-                            fontSize: 13,
+                            fontSize: "var(--t-md)",
                             fontWeight: 500,
                             lineHeight: 1.45,
                           }}
@@ -185,7 +205,7 @@ export function Board({
                           <button
                             type="button"
                             className="hv-danger"
-                            title="Delete this card and its worktree"
+                            title="Delete this card"
                             onClick={(e) => {
                               e.stopPropagation();
                               discard(card.id);
@@ -198,13 +218,15 @@ export function Board({
                               borderRadius: 6,
                               background: "transparent",
                               color: "var(--text3)",
-                              fontSize: 11,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
                               lineHeight: 1,
                               cursor: "pointer",
                               transition: "all .16s ease",
                             }}
                           >
-                            ✕
+                            <Icon.close />
                           </button>
                         )}
                       </div>
@@ -217,7 +239,10 @@ export function Board({
                           color: "var(--text3)",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--mono)", letterSpacing: "-.01em" }}>
+                        <span
+                          className="card-id"
+                          style={{ fontFamily: "var(--mono)", letterSpacing: "-.01em" }}
+                        >
                           {card.id}
                         </span>
                         {badge && (
@@ -285,7 +310,7 @@ export function Board({
                               borderRadius: 9,
                               background: actionSoft,
                               color: actionColor,
-                              fontSize: 11.5,
+                              fontSize: "var(--t-sm)",
                               fontWeight: 700,
                               cursor: "pointer",
                               transition: "filter .18s ease",
@@ -307,7 +332,7 @@ export function Board({
                               borderRadius: 9,
                               background: "transparent",
                               color: "var(--text3)",
-                              fontSize: 11.5,
+                              fontSize: "var(--t-sm)",
                               cursor: "pointer",
                               transition: "all .18s ease",
                             }}
@@ -325,7 +350,7 @@ export function Board({
                     style={{
                       padding: "14px 8px",
                       textAlign: "center",
-                      fontSize: 11.5,
+                      fontSize: "var(--t-sm)",
                       color: "var(--text3)",
                       border: "1px dashed var(--line)",
                       borderRadius: 13,

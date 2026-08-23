@@ -7,73 +7,108 @@
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  --recess: #ebebf2;
-  --desk: #eceaf3;
-  --bg: #f6f6f9;
-  --surface: #ffffff;
-  --surface2: #f4f4f8;
+  /* Type scale. Sizes used to be picked ad hoc (11.5 / 12.5 / 13.5 …), which
+     is what made every screen read as one flat wall. Six steps, nothing else. */
+  --t-xs: 11px;
+  --t-sm: 12.5px;
+  --t-md: 14px;
+  --t-lg: 16px;
+  --t-xl: 21px;
+  --t-2xl: 30px;
+  --t-3xl: 42px;
+
+  /* Radii and rhythm, so panels stop being nine identical rectangles. */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --gap: 14px;
+  --pad: 18px;
+
+  /* Warm paper rather than blue-grey: the reference's calm, not a console's. */
+  --recess: #edeae4;
+  --desk: #e9e5de;
+  --bg: #f7f5f1;
+  --surface: #fffefc;
+  --surface2: #f2efe9;
   --elev: #ffffff;
-  --hover: #f0eff6;
-  --line: #eaeaf1;
-  --line2: #f1f1f6;
+  --hover: #ece8e1;
+  --line: #e7e2d9;
+  --line2: #f0ece5;
 
-  --text: #17171f;
-  --text2: #6b6b7b;
-  --text3: #9c9cad;
+  --text: #191712;
+  --text2: #6a6558;
+  --text3: #9a9487;
 
-  --accent: #6b5cf6;
-  --accent2: #8b7dff;
-  --accentSoft: #efedff;
-  --accentLine: #ddd9ff;
+  --accent: #5b53d8;
+  --accent2: #7d74f0;
+  --accentSoft: #eeecfd;
+  --accentLine: #d9d5f8;
   --onAccent: #ffffff;
 
-  --ok: #0fa47f;
-  --okSoft: #e6f7f1;
-  --warn: #d68a12;
-  --warnSoft: #fdf3e2;
-  --bad: #e0455f;
-  --badSoft: #fdecef;
-  --info: #3b7ff0;
-  --infoSoft: #eaf1fe;
+  --ok: #12866a;
+  --okSoft: #e4f4ee;
+  --warn: #b5751a;
+  --warnSoft: #fbf0dd;
+  --bad: #cf4257;
+  --badSoft: #fbe9ec;
+  --info: #3272d8;
+  --infoSoft: #e8effc;
 
-  --ink: linear-gradient(122deg, #26262f 0%, #1a1a21 58%, #141419 100%);
-  --shadow: 0 40px 90px -32px rgba(30, 26, 60, 0.3), 0 0 0 1px rgba(20, 20, 40, 0.05);
-  --lift: 0 12px 26px -18px rgba(30, 26, 60, 0.35);
+  /* The banner. Deep and slightly green, like the reference's dusk photo,
+     so the one thing that should dominate a screen actually does. */
+  --ink: linear-gradient(122deg, #26302a 0%, #1a201c 58%, #141715 100%);
+  --banner: radial-gradient(120% 150% at 12% 8%, #2f3b33 0%, #1d2420 45%, #141715 100%);
+  --bannerGlow: radial-gradient(circle, rgba(125, 116, 240, 0.34), transparent 68%);
+  --onBanner: #f6f4ef;
+  --onBanner2: rgba(246, 244, 239, 0.66);
+  --onBanner3: rgba(246, 244, 239, 0.44);
+
+  --shadow: 0 40px 90px -32px rgba(45, 38, 24, 0.26), 0 0 0 1px rgba(30, 26, 16, 0.05);
+  --lift: 0 12px 26px -18px rgba(45, 38, 24, 0.3);
+  --bannerShadow: 0 30px 70px -34px rgba(20, 23, 21, 0.6);
 }
 
 :root[data-theme="dark"] {
-  --recess: #121216;
-  --desk: #0a0a0c;
-  --bg: #0f0f12;
-  --surface: #17171b;
-  --surface2: #1d1d22;
-  --elev: #1d1d22;
-  --hover: #232329;
-  --line: #26262d;
-  --line2: #1f1f25;
+  --recess: #16150f;
+  --desk: #0c0b08;
+  --bg: #121110;
+  --surface: #1a1917;
+  --surface2: #211f1c;
+  --elev: #211f1c;
+  --hover: #292723;
+  --line: #2b2925;
+  --line2: #232120;
 
-  --text: #f3f3f6;
-  --text2: #a0a0af;
-  --text3: #71717f;
+  --text: #f4f2ed;
+  --text2: #a8a396;
+  --text3: #78736a;
 
-  --accent: #8b7dff;
-  --accent2: #a79dff;
-  --accentSoft: rgba(139, 125, 255, 0.14);
-  --accentLine: rgba(139, 125, 255, 0.32);
-  --onAccent: #12121a;
+  --accent: #9a90ff;
+  --accent2: #b4acff;
+  --accentSoft: rgba(154, 144, 255, 0.15);
+  --accentLine: rgba(154, 144, 255, 0.32);
+  --onAccent: #16141f;
 
-  --ok: #3ecfa4;
-  --okSoft: rgba(62, 207, 164, 0.13);
-  --warn: #e8ab45;
-  --warnSoft: rgba(232, 171, 69, 0.13);
-  --bad: #f2607a;
-  --badSoft: rgba(242, 96, 122, 0.13);
-  --info: #6da2ff;
-  --infoSoft: rgba(109, 162, 255, 0.13);
+  --ok: #4cd0a5;
+  --okSoft: rgba(76, 208, 165, 0.14);
+  --warn: #e6ad54;
+  --warnSoft: rgba(230, 173, 84, 0.14);
+  --bad: #f26f80;
+  --badSoft: rgba(242, 111, 128, 0.14);
+  --info: #7fabff;
+  --infoSoft: rgba(127, 171, 255, 0.14);
 
-  --ink: linear-gradient(122deg, #25252d 0%, #1a1a20 60%, #141418 100%);
+  --ink: linear-gradient(122deg, #27302b 0%, #1c221e 60%, #151816 100%);
+  --banner: radial-gradient(120% 150% at 12% 8%, #314036 0%, #1e2621 45%, #15100e 100%);
+  --bannerGlow: radial-gradient(circle, rgba(180, 172, 255, 0.3), transparent 68%);
+  --onBanner: #f6f4ef;
+  --onBanner2: rgba(246, 244, 239, 0.66);
+  --onBanner3: rgba(246, 244, 239, 0.44);
+
   --shadow: 0 44px 100px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04);
   --lift: 0 14px 30px -20px rgba(0, 0, 0, 0.7);
+  --bannerShadow: 0 30px 70px -34px rgba(0, 0, 0, 0.75);
 }
 
 * {
@@ -91,8 +126,23 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
+  font-size: var(--t-md);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
+}
+
+/* Motion here is decoration — bars growing, panels rising. None of it carries
+   meaning, so all of it goes when the operator has asked for stillness. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 a {
@@ -282,4 +332,100 @@ textarea::placeholder {
 /* Only structural repetition worth a class: the scrolling log body. */
 .logscroll {
   scrollbar-gutter: stable;
+}
+
+/* ---- the banner ----
+   One dominant element per screen instead of nine equal panels. It carries the
+   greeting, the state of things, the field you type into, and a strip of the
+   four numbers that used to be four separate tiles above it. */
+
+.banner {
+  position: relative;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--banner);
+  box-shadow: var(--bannerShadow);
+  color: var(--onBanner);
+  isolation: isolate;
+}
+.banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(246, 244, 239, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  pointer-events: none;
+  z-index: 0;
+}
+.banner > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The field lives inside the banner, so it needs its own light-on-dark shell. */
+.banner-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 18px;
+  border: 1px solid rgba(246, 244, 239, 0.18);
+  border-radius: 999px;
+  background: rgba(246, 244, 239, 0.07);
+  backdrop-filter: blur(6px);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.banner-field:focus-within {
+  border-color: rgba(246, 244, 239, 0.42);
+  background: rgba(246, 244, 239, 0.11);
+}
+.banner-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--onBanner);
+  font-size: var(--t-md);
+  padding: 10px 0;
+}
+.banner-field input::placeholder {
+  color: var(--onBanner3);
+}
+
+/* The stat strip along the foot of the banner. */
+.banner-stat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 18px;
+  border: none;
+  border-left: 1px solid rgba(246, 244, 239, 0.13);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+.banner-stat:first-child {
+  border-left: none;
+}
+.banner-stat:hover {
+  background: rgba(246, 244, 239, 0.06);
+}
+
+.hv-onbanner:hover {
+  background: rgba(246, 244, 239, 0.16);
+}
+
+/* A card id is how you name a card to the Director, and noise the rest of the
+   time. It keeps its space in the layout and shows itself when you look. */
+.card-id {
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.hv-tile:hover .card-id,
+.hv-tile:focus-within .card-id {
+  opacity: 1;
 }
