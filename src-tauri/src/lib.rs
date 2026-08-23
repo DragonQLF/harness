@@ -1,347 +1,98 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+//! Tauri shell: wires the app-data layout, the project engines and the IPC
+//! surface together. All state lives in `Workspace`; this file only assembles.
+
+mod commands;
+mod director_tools;
+mod sidecar;
+mod workspace;
+
 use std::sync::Arc;
 
-use harness_agent_sidecar::SidecarAgent;
-use harness_domain::{CardId, Command, Status};
-use harness_engine::{Engine, EngineConfig, EngineHandle, Snapshot};
-use harness_git_cli::{CliGit, ensure_workspace};
-use harness_ports::{ClockPort, StorePort};
-use harness_store_jsonl::JsonlStore;
-use serde::Serialize;
-use tauri::{Emitter, Manager, State};
-use tokio::sync::oneshot;
-
-struct EngineState(EngineHandle);
-
-struct WorkspaceDir(PathBuf);
-
-struct ApprovalRouter {
-    next: AtomicU64,
-    pending: std::sync::Mutex<HashMap<String, oneshot::Sender<bool>>>,
-}
-
-impl ApprovalRouter {
-    fn new() -> Self {
-        Self {
-            next: AtomicU64::new(1),
-            pending: std::sync::Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn make_approver(self: &Arc<Self>) -> harness_ports::Approver {
-        let me = Arc::clone(self);
-        Arc::new(move |_tool, _input| {
-            let me = Arc::clone(&me);
-            Box::pin(async move {
-                let id = format!("apr-{}", me.next.fetch_add(1, Ordering::SeqCst));
-                let (tx, rx) = oneshot::channel();
-                me.pending.lock().unwrap().insert(id.clone(), tx);
-                let decision = tokio::time::timeout(std::time::Duration::from_secs(300), rx).await;
-                me.pending.lock().unwrap().remove(&id);
-                matches!(decision, Ok(Ok(true)))
-            })
-        })
-    }
-
-    fn resolve(&self, request_id: &str, allow: bool) -> Result<(), String> {
-        match self.pending.lock().unwrap().remove(request_id) {
-            Some(tx) => {
-                let _ = tx.send(allow);
-                Ok(())
-            }
-            None => Err(format!("unknown or already-answered request {request_id}")),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct AgentStatus {
-    pub cli_found: bool,
-    pub logged_in: bool,
-}
-
-fn credentials_present() -> bool {
-    if std::env::var_os("ANTHROPIC_API_KEY").is_some_and(|v| !v.is_empty()) {
-        return true;
-    }
-    let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join(".claude")));
-    config_dir
-        .map(|d| d.join(".credentials.json").exists())
-        .unwrap_or(false)
-}
-
-fn open_terminal_in(dir: &Path, argv: &[&str]) -> Result<(), String> {
-    let dir_str = dir.to_string_lossy().to_string();
-    let mut wt_args: Vec<&str> = vec!["-d", &dir_str];
-    wt_args.extend_from_slice(argv);
-    if std::process::Command::new("wt")
-        .args(&wt_args)
-        .spawn()
-        .is_ok()
-    {
-        return Ok(());
-    }
-    std::process::Command::new("cmd")
-        .arg("/C")
-        .arg("start")
-        .arg("harness")
-        .arg("/D")
-        .arg(&dir_str)
-        .arg("cmd")
-        .arg("/K")
-        .args(argv)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("failed to open a terminal window: {e}"))
-}
-
-struct SystemClock;
-
-impl ClockPort for SystemClock {
-    fn now_millis(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-}
-
-#[tauri::command]
-async fn create_card(title: String, state: State<'_, EngineState>) -> Result<u64, String> {
-    let cmd = Command::CreateCard {
-        card_id: CardId::new(uuid::Uuid::new_v4().to_string()),
-        title,
-    };
-    state.0.execute(cmd).await
-}
-
-#[tauri::command]
-async fn move_card(
-    card_id: String,
-    to: Status,
-    state: State<'_, EngineState>,
-) -> Result<u64, String> {
-    state
-        .0
-        .execute(Command::MoveCard {
-            card_id: CardId::new(card_id),
-            to,
-        })
-        .await
-}
-
-#[tauri::command]
-async fn override_card(
-    card_id: String,
-    to: Status,
-    reason: String,
-    state: State<'_, EngineState>,
-) -> Result<u64, String> {
-    state
-        .0
-        .execute(Command::OverrideCard {
-            card_id: CardId::new(card_id),
-            to,
-            reason,
-        })
-        .await
-}
-
-#[tauri::command]
-async fn approve_card(card_id: String, state: State<'_, EngineState>) -> Result<u64, String> {
-    state
-        .0
-        .execute(Command::ApproveCard {
-            card_id: CardId::new(card_id),
-        })
-        .await
-}
-
-#[tauri::command]
-async fn reject_card(
-    card_id: String,
-    reason: String,
-    state: State<'_, EngineState>,
-) -> Result<u64, String> {
-    state
-        .0
-        .execute(Command::RejectCard {
-            card_id: CardId::new(card_id),
-            reason,
-        })
-        .await
-}
-
-#[tauri::command]
-async fn start_run(card_id: String, prompt: String, state: State<'_, EngineState>) -> Result<String, String> {
-    state
-        .0
-        .start_run(CardId::new(card_id), prompt)
-        .await
-        .map(|run_id| run_id.0)
-}
-
-#[tauri::command]
-async fn cancel_run(card_id: String, state: State<'_, EngineState>) -> Result<(), String> {
-    state.0.cancel_run(CardId::new(card_id)).await
-}
-
-#[tauri::command]
-async fn director_chat(text: String, state: State<'_, EngineState>) -> Result<(), String> {
-    state.0.director_chat(text).await
-}
-
-#[tauri::command]
-async fn respond_approval(
-    request_id: String,
-    allow: bool,
-    router: State<'_, ApprovalRouter>,
-) -> Result<(), String> {
-    router.resolve(&request_id, allow)
-}
-
-#[tauri::command]
-async fn snapshot(state: State<'_, EngineState>) -> Result<Snapshot, String> {
-    state.0.snapshot().await
-}
-
-#[tauri::command]
-async fn agent_status() -> Result<AgentStatus, String> {
-    let cli_found = std::process::Command::new("claude")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    Ok(AgentStatus {
-        cli_found,
-        logged_in: credentials_present(),
-    })
-}
-
-#[tauri::command]
-async fn open_claude_terminal(
-    workspace: State<'_, WorkspaceDir>,
-) -> Result<(), String> {
-    open_terminal_in(&workspace.0, &["cmd", "/K", "claude"])
-}
-
-#[tauri::command]
-async fn open_agent_terminal(
-    card_id: String,
-    state: State<'_, EngineState>,
-) -> Result<(), String> {
-    let snap = state.0.snapshot().await?;
-    let session = snap
-        .sessions
-        .iter()
-        .find(|s| s.card_id.as_str() == card_id)
-        .ok_or_else(|| "no agent session known for this card".to_string())?;
-    let dir = PathBuf::from(&session.worktree);
-    match &session.session_id {
-        Some(sid) => open_terminal_in(&dir, &["cmd", "/K", "claude", "--resume", sid]),
-        None => open_terminal_in(&dir, &["cmd", "/K", "claude"]),
-    }
-}
-
-fn sidecar_script() -> PathBuf {
-    if let Ok(p) = std::env::var("HARNESS_SIDECAR") {
-        return PathBuf::from(p);
-    }
-    let mut dir = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(PathBuf::from));
-    while let Some(d) = dir {
-        let candidate = d.join("sidecar").join("index.mjs");
-        if candidate.exists() {
-            return candidate;
-        }
-        dir = d.parent().map(PathBuf::from);
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sidecar/index.mjs")
-}
+use harness_app::paths::AppPaths;
+use tauri::{Manager, WindowEvent};
+use workspace::Workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-
-            let workspace_dir = data_dir.join("workspace");
-            let store = Arc::new(JsonlStore::open(data_dir.join("events.jsonl"))?);
-            let git = Arc::new(CliGit::new(&workspace_dir));
-            ensure_workspace(&workspace_dir)?;
-
-            let history = store.read_all()?;
-            let agent = Arc::new(SidecarAgent::new("node", sidecar_script()));
-            let director = Arc::new(SidecarAgent::new("node", sidecar_script()));
-            let router = Arc::new(ApprovalRouter::new());
-            let config = EngineConfig {
-                repo_root: workspace_dir.clone(),
-                base_branch: "main".to_string(),
-                permission_mode: "acceptEdits".to_string(),
-                worker_allowed_tools: vec![
-                    "Read".to_string(),
-                    "Edit".to_string(),
-                    "Write".to_string(),
-                    "Glob".to_string(),
-                    "Grep".to_string(),
-                    "Bash(git *)".to_string(),
-                ],
-            };
-
-            let (engine, mut logged_rx, mut runs_rx) =
-                tauri::async_runtime::block_on(async {
-                    Engine::spawn(
-                        store,
-                        Arc::new(SystemClock),
-                        agent,
-                        director,
-                        Some(router.make_approver()),
-                        git,
-                        config,
-                        history,
-                    )
-                });
-            app.manage(EngineState(engine));
-            app.manage(WorkspaceDir(workspace_dir));
-            app.manage(router);
-
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                while let Ok(envelope) = logged_rx.recv().await {
-                    let _ = app_handle.emit("engine://event", &envelope);
-                }
-            });
-
-            let app_handle2 = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                while let Ok(update) = runs_rx.recv().await {
-                    let _ = app_handle2.emit("engine://run", &update);
-                }
-            });
-
+            let paths = AppPaths::new(app.path().app_data_dir()?)?;
+            let workspace = Workspace::load(app.handle().clone(), paths);
+            // Engines spawn tokio tasks, so bring them up inside the runtime.
+            // Starting them all now lets the overview count work across
+            // projects without visiting each board first.
+            let warming = workspace.clone();
+            tauri::async_runtime::block_on(async move { warming.warm_all() });
+            app.manage(workspace);
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let Some(workspace) = window.try_state::<Arc<Workspace>>() else {
+                    return;
+                };
+                let workspace = Arc::clone(&workspace);
+                if !workspace.settings().commit_wip_on_close {
+                    return;
+                }
+                // Hold the window open just long enough for running agents to
+                // leave a wip commit behind.
+                api.prevent_close();
+                let window = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    workspace.shutdown().await;
+                    let _ = window.destroy();
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
-            create_card,
-            move_card,
-            override_card,
-            start_run,
-            cancel_run,
-            approve_card,
-            reject_card,
-            director_chat,
-            respond_approval,
-            snapshot,
-            agent_status,
-            open_claude_terminal,
-            open_agent_terminal
+            // board
+            commands::board::snapshot,
+            commands::board::create_card,
+            commands::board::move_card,
+            commands::board::override_card,
+            commands::board::assign_agent,
+            commands::board::approve_card,
+            commands::board::reject_card,
+            commands::board::discard_card,
+            commands::board::start_run,
+            commands::board::cancel_run,
+            commands::board::active_runs,
+            commands::board::run_log,
+            commands::board::director_ask,
+            commands::board::activity,
+            commands::board::project_stats,
+            // projects
+            commands::project::projects_list,
+            commands::project::project_pick_folder,
+            commands::project::project_inspect,
+            commands::project::project_add,
+            commands::project::project_create,
+            commands::project::project_update,
+            commands::project::project_remove,
+            commands::project::project_detail,
+            commands::project::worktrees,
+            commands::project::remove_worktree,
+            commands::project::reveal_path,
+            commands::project::project_checks,
+            commands::project::project_set_checks,
+            commands::project::project_run_checks,
+            // system
+            commands::system::bootstrap,
+            commands::system::status,
+            commands::system::settings_get,
+            commands::system::settings_update,
+            commands::system::agents_get,
+            commands::system::agents_save,
+            commands::system::agents_stats,
+            commands::system::approvals_pending,
+            commands::system::respond_approval,
+            commands::system::sidecar_install,
+            commands::system::open_claude_terminal,
+            commands::system::open_agent_terminal,
+            commands::system::prepare_shutdown,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,15 +5,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use harness_domain::Event;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub type JsonValue = serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One event as it sits in the log: sequence number, wall clock, payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoredEvent {
     pub seq: u64,
+    #[serde(default)]
+    pub ts_ms: u64,
     pub event: Event,
 }
 
@@ -41,12 +44,26 @@ impl From<std::io::Error> for StoreError {
 }
 
 pub trait StorePort: Send + Sync {
-    fn append_event(&self, e: &Event) -> Result<StoredEvent, StoreError>;
+    fn append_event(&self, e: &Event, ts_ms: u64) -> Result<StoredEvent, StoreError>;
     fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError>;
 }
 
 pub trait ClockPort: Send + Sync {
     fn now_millis(&self) -> u64;
+}
+
+/// Append-only transcript of a single run, kept next to the event log so the
+/// Sessions view survives a restart.
+pub trait RunLogPort: Send + Sync {
+    fn append(&self, run_id: &str, line: &RunLogLine) -> Result<(), StoreError>;
+    fn read(&self, run_id: &str) -> Result<Vec<RunLogLine>, StoreError>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunLogLine {
+    pub ts_ms: u64,
+    #[serde(flatten)]
+    pub event: RunEvent,
 }
 
 #[derive(Debug, Clone)]
@@ -84,11 +101,102 @@ pub trait GitPort: Send + Sync {
     fn commit_wip(&self, wt: &WorktreePath) -> Result<Option<String>, GitError>;
     fn remove_worktree(&self, wt: &WorktreePath) -> Result<(), GitError>;
     fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError>;
+    /// Lines added / removed on this worktree against `base`.
+    fn diff_numstat(&self, wt: &WorktreePath, base: &str) -> Result<(u64, u64), GitError>;
 }
 
-pub type Approver = Arc<
-    dyn Fn(String, JsonValue) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync,
->;
+/// A tool call the agent cannot make on its own authority.
+#[derive(Debug, Clone, Serialize)]
+pub struct ApprovalRequest {
+    /// Identifier minted by the agent adapter; the UI answers with this exact id.
+    pub request_id: String,
+    pub tool: String,
+    pub summary: String,
+    pub input: JsonValue,
+}
+
+pub type Approver =
+    Arc<dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
+/// A tool the agent calls that Harness itself implements — moving a card,
+/// opening a screen, reading a diff. The adapter forwards the call; the shell
+/// carries it out. Like any other tool the agent does not already hold, it goes
+/// through the approval flow first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub name: String,
+    pub input: JsonValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolReply {
+    pub ok: bool,
+    /// What the agent is told: the result, or why it could not be done.
+    pub text: String,
+}
+
+impl ToolReply {
+    pub fn ok(text: impl Into<String>) -> Self {
+        Self { ok: true, text: text.into() }
+    }
+
+    pub fn refused(text: impl Into<String>) -> Self {
+        Self { ok: false, text: text.into() }
+    }
+}
+
+pub type ToolRunner =
+    Arc<dyn Fn(ToolCall) -> Pin<Box<dyn Future<Output = ToolReply> + Send>> + Send + Sync>;
+
+/// Where an agent does its work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeMode {
+    /// A fresh branch and worktree per card.
+    PerCard,
+    /// One long-lived shared branch for the whole project.
+    Shared,
+    /// Reads the main checkout, never writes.
+    None,
+}
+
+impl Default for WorktreeMode {
+    fn default() -> Self {
+        Self::PerCard
+    }
+}
+
+/// Everything the engine needs to know about the agent it is about to run.
+/// Resolved from the stored agent profile before the run starts, so the engine
+/// itself carries no policy.
+#[derive(Debug, Clone)]
+pub struct RunProfile {
+    pub agent_id: String,
+    pub model: Option<String>,
+    pub allowed_tools: Option<Vec<String>>,
+    pub permission_mode: Option<String>,
+    pub max_budget_usd: Option<f64>,
+    pub worktree: WorktreeMode,
+    /// Who reads the diff when the run finishes.
+    pub reviewer: Reviewer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reviewer {
+    /// The Director reads the diff and approves or sends it back.
+    Director,
+    /// Every finished run lands in the human review queue.
+    Human,
+    /// Finished runs go straight to Done.
+    Nobody,
+}
+
+impl Default for Reviewer {
+    fn default() -> Self {
+        Self::Director
+    }
+}
 
 #[derive(Clone)]
 pub struct RunSpec {
@@ -99,15 +207,48 @@ pub struct RunSpec {
     pub max_budget_usd: Option<f64>,
     pub permission_mode: Option<String>,
     pub approver: Option<Approver>,
+    /// Session to resume instead of starting fresh.
+    pub resume_session: Option<String>,
+    /// Harness's own tools, when this run is allowed to act on the app.
+    pub tools: Option<ToolRunner>,
+    /// Room for the model to reason before answering. Without it there is no
+    /// thinking to stream.
+    pub thinking_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+impl RunSpec {
+    pub fn new(prompt: impl Into<String>, cwd: PathBuf) -> Self {
+        Self {
+            prompt: prompt.into(),
+            cwd,
+            model: None,
+            allowed_tools: None,
+            max_budget_usd: None,
+            permission_mode: None,
+            approver: None,
+            resume_session: None,
+            tools: None,
+            thinking_tokens: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunEvent {
     Started {
         session_id: String,
     },
     Text {
+        text: String,
+    },
+    /// A slice of the answer as it is written. Ephemeral: shown live, never
+    /// written to the run log — the `Text` event that follows is the record.
+    Delta {
+        text: String,
+    },
+    /// A slice of the model's reasoning, same rules as `Delta`.
+    Thinking {
         text: String,
     },
     ToolUse {
@@ -117,6 +258,8 @@ pub enum RunEvent {
     Done {
         session_id: Option<String>,
         cost_usd: Option<f64>,
+        #[serde(default)]
+        turns: Option<u32>,
         result: Option<String>,
     },
     Failed {
@@ -127,6 +270,22 @@ pub enum RunEvent {
         tool: String,
         summary: String,
     },
+    ApprovalAnswered {
+        request_id: String,
+        allow: bool,
+    },
+    /// A note from the harness itself rather than the model (verdicts, cancels).
+    Notice {
+        text: String,
+    },
+}
+
+impl RunEvent {
+    /// Deltas exist to make the UI feel live; keeping thousands of them in the
+    /// transcript would bury the record they add up to.
+    pub fn is_ephemeral(&self) -> bool {
+        matches!(self, RunEvent::Delta { .. } | RunEvent::Thinking { .. })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -134,9 +293,20 @@ pub enum RunOutcome {
     Completed {
         session_id: Option<String>,
         cost_usd: Option<f64>,
+        turns: Option<u32>,
     },
     Cancelled,
     Failed(String),
+}
+
+impl RunOutcome {
+    pub fn completed(session_id: Option<String>, cost_usd: Option<f64>) -> Self {
+        Self::Completed {
+            session_id,
+            cost_usd,
+            turns: None,
+        }
+    }
 }
 
 type BoxFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
