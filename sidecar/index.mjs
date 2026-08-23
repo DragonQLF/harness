@@ -1,9 +1,12 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import readline from "node:readline";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 const controllers = new Map();
 const approvals = new Map();
+/** Harness tool calls waiting on an answer from the Rust side. */
+const toolCalls = new Map();
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
@@ -21,6 +24,158 @@ function summarize(input) {
     .join(" | ");
 }
 
+/** Ask the app to do something, and wait for it to answer. */
+function callHarness(runId, name, input) {
+  const request_id = randomUUID();
+  const answer = new Promise((resolve) => toolCalls.set(request_id, resolve));
+  send({ type: "tool_request", request_id, run_id: runId, name, input });
+  return answer.then((reply) => {
+    toolCalls.delete(request_id);
+    return {
+      content: [{ type: "text", text: reply?.text ?? "no answer from Harness" }],
+      isError: reply?.ok === false,
+    };
+  });
+}
+
+/** The board actions and navigation the Director is allowed to perform. Every
+ *  one of these is a tool the agent does not hold by default, so it goes through
+ *  `canUseTool` — the operator sees it before it happens. */
+function harnessTools(runId) {
+  const call = (name) => (args) => callHarness(runId, name, args);
+  return createSdkMcpServer({
+    name: "harness",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "move_card",
+        "Move a card to another column on the board: later, ready, running, review or done.",
+        {
+          card_id: z.string().describe("The card id, for example c_7b30"),
+          to: z.enum(["later", "ready", "running", "review", "done"]),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("move_card"),
+      ),
+      tool(
+        "create_card",
+        "Add a card to the board. Keep it small enough for one agent run.",
+        {
+          title: z.string().describe("What should happen, in one line"),
+          agent_id: z.string().optional().describe("Which agent takes it, default builder"),
+          start: z.boolean().optional().describe("Hand it to the agent immediately"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("create_card"),
+      ),
+      tool(
+        "approve_card",
+        "Approve a card that is waiting for review, sending it to done.",
+        {
+          card_id: z.string(),
+          reason: z.string().describe("Why it holds up"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("approve_card"),
+      ),
+      tool(
+        "reject_card",
+        "Send a card in review back to ready, with a reason the agent will read.",
+        {
+          card_id: z.string(),
+          reason: z.string().describe("What has to change"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("reject_card"),
+      ),
+      tool(
+        "delete_card",
+        "Delete a card and its worktree for good. Refuses while a card is running.",
+        {
+          card_id: z.string(),
+          reason: z.string().optional().describe("Why it is going"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("delete_card"),
+      ),
+      tool(
+        "read_diff",
+        "Read what a card's run actually changed. Use this instead of guessing.",
+        {
+          card_id: z.string(),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("read_diff"),
+      ),
+      tool(
+        "list_projects",
+        "List every project Harness knows about, with the id to use for the other tools. " +
+          "Use this rather than guessing an id, and before saying a project does or does not exist.",
+        {},
+        call("list_projects"),
+      ),
+      tool(
+        "create_project",
+        "Create a new project: a git repository with its own board, initialised at " +
+          "<parent_path>/<name>. Ask where it should live rather than choosing for them.",
+        {
+          name: z.string().describe("What the project is called"),
+          parent_path: z
+            .string()
+            .describe("The existing folder to create it inside, as an absolute path"),
+        },
+        call("create_project"),
+      ),
+      tool(
+        "open_screen",
+        "Take the operator to a place in the app — this navigates their window immediately. " +
+          "Whenever they ask to see, show, find or open anything, call this FIRST and then say " +
+          "what they are looking at. Never describe which buttons to click instead: pointing at " +
+          "the screen IS the answer. Changes nothing, so use it freely.",
+        {
+          screen: z
+            .enum([
+              "home",
+              "work",
+              "board",
+              "sessions",
+              "runs",
+              "code",
+              "worktrees",
+              "activity",
+              "agents",
+              "projects",
+              "settings",
+              "director",
+            ])
+            .describe("Which screen to open"),
+          card_id: z.string().optional().describe("A card to select, for board or runs"),
+          why: z.string().optional().describe("One line shown to the operator"),
+        },
+        call("open_screen"),
+      ),
+    ],
+  });
+}
+
 async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
@@ -28,6 +183,15 @@ async function handleRun({ id, spec }) {
   const options = {
     cwd: spec.cwd,
     abortController: ac,
+    // Token-level events, so the app can show the answer as it is written
+    // instead of in one lump when the turn ends.
+    includePartialMessages: true,
+    // Harness runs are isolated: no filesystem settings, and only the MCP
+    // servers we pass (none). Without this the operator's account connectors
+    // load and the model starts talking about authorising Linear or Notion.
+    settingSources: [],
+    mcpServers: spec.harness_tools ? { harness: harnessTools(id) } : {},
+    strictMcpConfig: true,
     canUseTool: async (toolName, input) => {
       const request_id = randomUUID();
       const decision = new Promise((resolve) => approvals.set(request_id, resolve));
@@ -54,6 +218,8 @@ async function handleRun({ id, spec }) {
   }
   if (spec.model) options.model = spec.model;
   if (spec.max_budget_usd != null) options.maxBudgetUsd = spec.max_budget_usd;
+  // No room to reason means no thinking to stream.
+  if (spec.thinking_tokens != null) options.maxThinkingTokens = spec.thinking_tokens;
   if (spec.resume_session) options.resume = spec.resume_session;
 
   try {
@@ -61,6 +227,25 @@ async function handleRun({ id, spec }) {
     for await (const message of q) {
       if (ac.signal.aborted) break;
       switch (message.type) {
+        case "stream_event": {
+          // Raw Anthropic deltas: text as it is written, and the thinking that
+          // precedes it. Ephemeral — the final assistant message is what gets
+          // logged.
+          const ev = message.event;
+          if (ev?.type === "content_block_delta") {
+            const d = ev.delta;
+            if (d?.type === "text_delta" && d.text) {
+              send({ type: "event", run_id: id, event: { kind: "delta", text: d.text } });
+            } else if (d?.type === "thinking_delta" && d.thinking) {
+              send({
+                type: "event",
+                run_id: id,
+                event: { kind: "thinking", text: d.thinking },
+              });
+            }
+          }
+          break;
+        }
         case "system":
           if (message.subtype === "init" && message.session_id) {
             send({
@@ -90,6 +275,20 @@ async function handleRun({ id, spec }) {
         }
         case "result": {
           controllers.delete(id);
+          // An error result looks like a normal one from the outside: same
+          // `result` message, cost 0, no text. A resume of a session that no
+          // longer exists arrives exactly this way, and the SDK only throws
+          // afterwards — by which time we have already returned. So the
+          // failure has to be read off this message, or it passes for success.
+          const failed = message.is_error === true || message.subtype !== "success";
+          const errors = Array.isArray(message.errors)
+            ? message.errors.map((e) => String(e).trim()).filter(Boolean).join("; ")
+            : "";
+          const detail =
+            errors ||
+            (typeof message.result === "string" && message.result.trim()) ||
+            message.subtype ||
+            "the run ended with an error";
           send({
             type: "event",
             run_id: id,
@@ -97,7 +296,9 @@ async function handleRun({ id, spec }) {
               kind: "done",
               session_id: message.session_id ?? null,
               cost_usd: message.total_cost_usd ?? null,
+              turns: typeof message.num_turns === "number" ? message.num_turns : null,
               result: typeof message.result === "string" ? message.result : null,
+              error: failed ? detail : null,
             },
           });
           return;
@@ -143,6 +344,10 @@ rl.on("line", (line) => {
     }
     case "approval_response": {
       approvals.get(msg.request_id)?.(!!msg.allow);
+      break;
+    }
+    case "tool_response": {
+      toolCalls.get(msg.request_id)?.({ ok: msg.ok !== false, text: msg.text ?? "" });
       break;
     }
   }

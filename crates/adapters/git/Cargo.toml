@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 harness-ports = { path = "../../ports" }
+serde = { version = "1", features = ["derive"] }

@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Tests replay real log lines to prove an older file still loads.
+serde_json = "1"

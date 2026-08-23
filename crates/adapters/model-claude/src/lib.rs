@@ -64,6 +64,7 @@ async fn pump_lines(
     let mut lines = BufReader::new(&mut stdout).lines();
     let mut session_id: Option<String> = None;
     let mut cost_usd: Option<f64> = None;
+    let mut turns: Option<u32> = None;
     let mut failure: Option<String> = None;
     let mut done_seen = false;
     let mut final_result: Option<String> = None;
@@ -132,6 +133,9 @@ async fn pump_lines(
                         if let Some(c) = v.get("total_cost_usd").and_then(|c| c.as_f64()) {
                             cost_usd = Some(c);
                         }
+                        if let Some(t) = v.get("num_turns").and_then(|t| t.as_u64()) {
+                            turns = Some(t as u32);
+                        }
                         if v.get("result").and_then(|r| r.as_str()).is_some() {
                             final_result =
                                 Some(v.get("result").unwrap().as_str().unwrap().to_string());
@@ -166,7 +170,11 @@ async fn pump_lines(
         RunEvent::Done {
             session_id: session_id.clone(),
             cost_usd,
+            turns,
             result: final_result.clone(),
+            // The command line adapter reports a failure as a non-zero exit,
+            // not as an error result, so there is nothing to carry here.
+            error: None,
         },
     )
     .await;
@@ -200,6 +208,9 @@ impl AgentPort for ClaudeCliAgent {
             if let Some(model) = &spec.model {
                 cmd.arg("--model").arg(model);
             }
+            if let Some(session) = &spec.resume_session {
+                cmd.arg("--resume").arg(session);
+            }
             if let Some(budget) = spec.max_budget_usd {
                 cmd.arg("--max-budget-usd").arg(budget.to_string());
             }
@@ -219,10 +230,7 @@ impl AgentPort for ClaudeCliAgent {
 
             match pump_lines(&mut child, tx, cancel).await? {
                 None => Ok(RunOutcome::Cancelled),
-                Some((_sid, cost, _result, None)) => Ok(RunOutcome::Completed {
-                    session_id: _sid,
-                    cost_usd: cost,
-                }),
+                Some((_sid, cost, _result, None)) => Ok(RunOutcome::completed(_sid, cost)),
                 Some((_sid, _cost, _result, Some(msg))) => Ok(RunOutcome::Failed(msg)),
             }
         })

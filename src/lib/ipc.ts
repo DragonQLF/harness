@@ -1,0 +1,180 @@
+/** Every call into the backend, in one place and typed.
+ *  Nothing else in the frontend imports `invoke`. */
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  ActiveRun,
+  ActivityRow,
+  AgentProfile,
+  AgentStats,
+  Bootstrap,
+  CheckRow,
+  Conversation,
+  CreatedCard,
+  Envelope,
+  Navigation,
+  PendingApproval,
+  Project,
+  FolderInfo,
+  ProjectDetail,
+  ProjectStats,
+  ProjectView,
+  RunLogLine,
+  RunUpdate,
+  Settings,
+  Snapshot,
+  Status,
+  SystemStatus,
+  WorktreeRow,
+} from "./types";
+
+/** Minutes the operator's clock is behind UTC, for day bucketing. */
+export const tzOffsetMinutes = () => new Date().getTimezoneOffset();
+
+export const api = {
+  bootstrap: () => invoke<Bootstrap>("bootstrap"),
+  status: () => invoke<SystemStatus>("status"),
+
+  settingsGet: () => invoke<Settings>("settings_get"),
+  settingsUpdate: (settings: Settings) => invoke<Settings>("settings_update", { settings }),
+
+  agentsGet: () => invoke<AgentProfile[]>("agents_get"),
+  agentsSave: (agents: AgentProfile[]) => invoke<AgentProfile[]>("agents_save", { agents }),
+  agentsStats: () =>
+    invoke<AgentStats[]>("agents_stats", { tzOffsetMinutes: tzOffsetMinutes() }),
+
+  projects: () =>
+    invoke<ProjectView[]>("projects_list", { tzOffsetMinutes: tzOffsetMinutes() }),
+  pickFolder: () => invoke<string | null>("project_pick_folder"),
+  inspectFolder: (path: string) => invoke<FolderInfo>("project_inspect", { path }),
+  projectAdd: (path: string, name?: string, init = false) =>
+    invoke<Project>("project_add", { path, name: name ?? null, init }),
+  projectCreate: (parent: string, name: string) =>
+    invoke<Project>("project_create", { parent, name }),
+  projectUpdate: (project: Project) => invoke<Project>("project_update", { project }),
+  projectRemove: (projectId: string, deleteData: boolean) =>
+    invoke<void>("project_remove", { projectId, deleteData }),
+  projectDetail: (projectId: string, commitLimit = 14) =>
+    invoke<ProjectDetail>("project_detail", { projectId, commitLimit }),
+  projectStats: (projectId: string) =>
+    invoke<ProjectStats>("project_stats", { projectId, tzOffsetMinutes: tzOffsetMinutes() }),
+  checks: (projectId: string) => invoke<CheckRow[]>("project_checks", { projectId }),
+  setChecks: (projectId: string, checks: CheckRow[]) =>
+    invoke<CheckRow[]>("project_set_checks", { projectId, checks }),
+  runChecks: (projectId: string) => invoke<CheckRow[]>("project_run_checks", { projectId }),
+
+  worktrees: (projectId: string) => invoke<WorktreeRow[]>("worktrees", { projectId }),
+  removeWorktree: (projectId: string, path: string) =>
+    invoke<void>("remove_worktree", { projectId, path }),
+  reveal: (path: string) => invoke<void>("reveal_path", { path }),
+
+  snapshot: (projectId: string) => invoke<Snapshot>("snapshot", { projectId }),
+  createCard: (projectId: string, title: string, agentId: string, start: boolean, ready: boolean) =>
+    invoke<CreatedCard>("create_card", { projectId, title, agentId, start, ready }),
+  moveCard: (projectId: string, cardId: string, to: Status) =>
+    invoke<number>("move_card", { projectId, cardId, to }),
+  overrideCard: (projectId: string, cardId: string, to: Status, reason: string) =>
+    invoke<number>("override_card", { projectId, cardId, to, reason }),
+  assignAgent: (projectId: string, cardId: string, agentId: string) =>
+    invoke<number>("assign_agent", { projectId, cardId, agentId }),
+  approveCard: (projectId: string, cardId: string, reason?: string) =>
+    invoke<number>("approve_card", { projectId, cardId, reason: reason ?? null }),
+  rejectCard: (projectId: string, cardId: string, reason: string) =>
+    invoke<number>("reject_card", { projectId, cardId, reason }),
+  discardCard: (projectId: string, cardId: string, reason?: string) =>
+    invoke<number>("discard_card", { projectId, cardId, reason: reason ?? null }),
+  startRun: (projectId: string, cardId: string, prompt?: string) =>
+    invoke<string>("start_run", { projectId, cardId, prompt: prompt ?? null }),
+  cancelRun: (projectId: string, cardId: string) =>
+    invoke<void>("cancel_run", { projectId, cardId }),
+  activeRuns: (projectId: string) => invoke<ActiveRun[]>("active_runs", { projectId }),
+  runLog: (projectId: string, runId: string) =>
+    invoke<RunLogLine[]>("run_log", { projectId, runId }),
+  // ---- conversations ----
+  /** Every chat, newest first. Archived ones only when asked for. */
+  conversations: (includeArchived = false) =>
+    invoke<Conversation[]>("conversations_list", { includeArchived }),
+  /** A new chat, which means a new Claude session: nothing is resumed. */
+  conversationNew: (profileId?: string | null, projectId?: string | null) =>
+    invoke<Conversation>("conversation_new", {
+      profileId: profileId ?? null,
+      projectId: projectId ?? null,
+    }),
+  /** The chat to talk in: the last one for this profile, or a new one. */
+  conversationOpen: (profileId?: string | null, projectId?: string | null) =>
+    invoke<Conversation>("conversation_open", {
+      profileId: profileId ?? null,
+      projectId: projectId ?? null,
+    }),
+  conversationSelect: (conversationId: string) =>
+    invoke<Conversation>("conversation_select", { conversationId }),
+  conversationRename: (conversationId: string, title: string) =>
+    invoke<Conversation>("conversation_rename", { conversationId, title }),
+  conversationArchive: (conversationId: string, archived: boolean) =>
+    invoke<Conversation>("conversation_archive", { conversationId, archived }),
+  conversationDelete: (conversationId: string) =>
+    invoke<void>("conversation_delete", { conversationId }),
+  /** Pin a chat to a project: that is the code it can read while answering. */
+  conversationPin: (conversationId: string, projectId: string | null) =>
+    invoke<Conversation>("conversation_pin", { conversationId, projectId }),
+  /** The stored transcript, readable whether or not the session resumes. */
+  conversationTranscript: (conversationId: string) =>
+    invoke<RunLogLine[]>("conversation_transcript", { conversationId }),
+  /** Send a message. The answer streams back on the run channel, keyed by the
+   *  conversation id. */
+  chatSend: (text: string, conversationId?: string | null) =>
+    invoke<Conversation>("chat_send", { text, conversationId: conversationId ?? null }),
+
+  /** Profiles you can create from. Fetched on request: a template is a menu
+   *  entry, never something Harness installs by itself. */
+  agentTemplates: () => invoke<AgentProfile[]>("agent_templates"),
+  agentCreateFromTemplate: (templateId: string) =>
+    invoke<AgentProfile>("agent_create_from_template", { templateId }),
+  agentDuplicate: (agentId: string) => invoke<AgentProfile>("agent_duplicate", { agentId }),
+  agentRemove: (agentId: string) => invoke<AgentProfile[]>("agent_remove", { agentId }),
+  activity: (projectId: string, limit = 200) =>
+    invoke<ActivityRow[]>("activity", { projectId, limit }),
+
+  approvalsPending: () => invoke<PendingApproval[]>("approvals_pending"),
+  /** Answer a permission request. With `always`, the returned label is the
+   *  scoped rule that was recorded — null when the call could not be scoped
+   *  safely and will be asked about again. */
+  respondApproval: (requestId: string, allow: boolean, always: boolean) =>
+    invoke<string | null>("respond_approval", { requestId, allow, always }),
+
+  sidecarInstall: () => invoke<string>("sidecar_install"),
+  openClaudeTerminal: (projectId?: string) =>
+    invoke<void>("open_claude_terminal", { projectId: projectId ?? null }),
+  openAgentTerminal: (projectId: string, cardId: string) =>
+    invoke<void>("open_agent_terminal", { projectId, cardId }),
+};
+
+/** Backend push channels. Every one is unsubscribed on teardown. */
+export const events = {
+  onEngineEvent: (fn: (e: Envelope) => void) =>
+    listen<Envelope>("engine://event", (evt) => fn(evt.payload)),
+  onRunUpdate: (fn: (u: RunUpdate) => void) =>
+    listen<RunUpdate>("engine://run", (evt) => fn(evt.payload)),
+  onApprovalAsked: (fn: (a: PendingApproval) => void) =>
+    listen<PendingApproval>("approvals://asked", (evt) => fn(evt.payload)),
+  onApprovalQueue: (fn: (a: PendingApproval[]) => void) =>
+    listen<PendingApproval[]>("approvals://pending", (evt) => fn(evt.payload)),
+  /** The Director asked to take the operator somewhere. */
+  onNavigate: (fn: (n: Navigation) => void) =>
+    listen<Navigation>("ui://navigate", (evt) => fn(evt.payload)),
+  /** The conversation list changed on the backend. */
+  onConversations: (fn: (list: Conversation[]) => void) =>
+    listen<Conversation[]>("chat://conversations", (evt) => fn(evt.payload)),
+  onSidecarLog: (fn: (line: string) => void) =>
+    listen<string>("sidecar://log", (evt) => fn(evt.payload)),
+};
+
+export type { UnlistenFn };
+
+/** Turn any thrown value into something worth showing an operator. */
+export function reason(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
