@@ -19,7 +19,6 @@ import {
   EmptyNote,
   HeadLink,
   Loading,
-  PageHead,
   QuietButton,
   StrongButton,
   WeekBars,
@@ -36,12 +35,12 @@ function NoCardsYet({ onPick }: { onPick: (text: string) => void }) {
     "Explain how auth works in this repo",
   ];
   return (
-    <div style={{ padding: "18px 17px 20px", borderTop: "1px solid var(--line2)" }}>
-      <div style={{ fontSize: 12.5, color: "var(--text2)", lineHeight: 1.6 }}>
+    <div style={{ padding: "18px 20px 22px", borderTop: "1px solid var(--line2)" }}>
+      <div style={{ fontSize: "var(--t-sm)", color: "var(--text2)", lineHeight: 1.6 }}>
         Nothing on the board yet. Describe the first thing you want done in the field above — or
         start from one of these:
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 11 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 12 }}>
         {examples.map((e) => (
           <button
             key={e}
@@ -49,12 +48,12 @@ function NoCardsYet({ onPick }: { onPick: (text: string) => void }) {
             className="hv-soft"
             onClick={() => onPick(e)}
             style={{
-              padding: "6px 12px",
+              padding: "7px 13px",
               border: "1px solid var(--line)",
               borderRadius: 999,
               background: "transparent",
               color: "var(--text2)",
-              fontSize: 11.5,
+              fontSize: "var(--t-sm)",
               cursor: "pointer",
               transition: "all .18s ease",
             }}
@@ -66,6 +65,7 @@ function NoCardsYet({ onPick }: { onPick: (text: string) => void }) {
     </div>
   );
 }
+
 type Mode = "plan" | "start" | "later";
 
 const MODES: { id: Mode; name: string }[] = [
@@ -132,52 +132,51 @@ export function Overview({
   const needsCount = approvals.length + inReview.length;
   const firstName = (settings?.user_name ?? "Operator").split(/\s+/)[0];
 
+  // One sentence, in the operator's language rather than the engine's. No
+  // worktrees, no sidecars, no card ids — those live on the screens that are
+  // actually about them.
   const homeSub = running.length
-    ? `The agents are working on ${running.length === 1 ? "one card" : `${running.length} cards`} in ${project.name}.` +
-      (needsCount ? ` ${plural(needsCount, "thing")} need${needsCount === 1 ? "s" : ""} you when you have a minute.` : "")
+    ? `The crew is working on ${running.length === 1 ? "one card" : `${running.length} cards`}.` +
+      (needsCount
+        ? ` ${plural(needsCount, "thing")} ${needsCount === 1 ? "needs" : "need"} a minute of yours.`
+        : " Nothing needs you yet.")
     : needsCount
       ? `${plural(needsCount, "thing")} ${needsCount === 1 ? "is" : "are"} waiting on you. Everything else is quiet.`
-      : "Nothing running, nothing waiting.";
+      : "All quiet. Nothing running, nothing waiting.";
 
-  const tiles = [
+  // The four numbers that used to be four separate tiles above the greeting.
+  // Inside the banner they read as one glance instead of four.
+  const stripe = [
     {
       key: "w",
       label: "Working now",
-      value: stats.running,
-      delta: stats.running ? "live" : "idle",
-      deltaColor: stats.running ? "var(--accent)" : "var(--text3)",
-      deltaSoft: stats.running ? "var(--accentSoft)" : "var(--surface2)",
-      note: plural(snapshot.sessions.filter((s) => s.live).length, "worktree open"),
+      value: String(stats.running),
+      note: stats.running ? "live" : "idle",
+      live: stats.running > 0,
       go: () => go("runs"),
     },
     {
-      key: "r",
-      label: "For your review",
-      value: stats.review,
-      delta: stats.review ? "waiting" : "clear",
-      deltaColor: stats.review ? "var(--warn)" : "var(--ok)",
-      deltaSoft: stats.review ? "var(--warnSoft)" : "var(--okSoft)",
-      note: `in ${project.name}`,
-      go: () => go("board"),
+      key: "n",
+      label: "Needs you",
+      value: String(needsCount),
+      note: needsCount ? "waiting" : "clear",
+      live: false,
+      go: () => (approvals.length ? openApprovals() : go("board")),
     },
     {
       key: "d",
-      label: "Cards done",
-      value: stats.done,
-      delta: stats.done_today ? `+${stats.done_today}` : "—",
-      deltaColor: "var(--ok)",
-      deltaSoft: "var(--okSoft)",
-      note: `${stats.done_today} today`,
+      label: "Done today",
+      value: String(stats.done_today),
+      note: `${stats.done} all together`,
+      live: false,
       go: () => go("board"),
     },
     {
-      key: "c",
-      label: "Cost per card",
-      value: money(stats.cost_per_card),
-      delta: `${plural(stats.runs_today, "run")}`,
-      deltaColor: "var(--text3)",
-      deltaSoft: "var(--surface2)",
-      note: `${money(stats.spend_total)} all time`,
+      key: "s",
+      label: "Spent today",
+      value: money(stats.spend_today),
+      note: `of ${money(budget)}`,
+      live: false,
       go: () => go("log"),
     },
   ];
@@ -214,295 +213,149 @@ export function Overview({
     }),
   ];
 
+  const submit = () => {
+    if (!intent.trim()) return;
+    createCard(intent, agentId, mode);
+    setIntent("");
+  };
+
   return (
-    <div style={{ padding: "22px 26px 28px" }}>
-      <PageHead
-        title="Overview"
-        crumb={project.name}
-        right={<span style={{ fontSize: 12.5, color: "var(--text3)" }}>{today()}</span>}
-      />
+    <div style={{ padding: "20px 26px 30px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* ---------------- the banner ---------------- */}
+      <section className="banner" style={{ animation: "fadeUp .5s ease both" }}>
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            right: -80,
+            top: -120,
+            width: 420,
+            height: 420,
+            borderRadius: "50%",
+            background: "var(--bannerGlow)",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-          gap: 12,
-          animation: "fadeUp .45s ease both",
-        }}
-      >
-        {tiles.map((k) => (
-          <button
-            key={k.key}
-            type="button"
-            className="hv-tile"
-            onClick={k.go}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              padding: "16px 17px",
-              border: "1px solid var(--line)",
-              borderRadius: 18,
-              background: "var(--surface)",
-              cursor: "pointer",
-              textAlign: "left",
-              transition: "all .2s cubic-bezier(.2,.8,.2,1)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                width: "100%",
-                gap: 10,
-              }}
-            >
-              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{k.label}</span>
-              <span
-                style={{
-                  padding: "3px 9px",
-                  borderRadius: 999,
-                  background: k.deltaSoft,
-                  color: k.deltaColor,
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                }}
-              >
-                {k.delta}
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 9, marginTop: 14 }}>
-              <span
-                style={{
-                  fontSize: 28,
-                  fontWeight: 800,
-                  letterSpacing: "-.03em",
-                  lineHeight: 1,
-                  ...tabular,
-                }}
-              >
-                {k.value}
-              </span>
-              <span style={{ fontSize: 11.5, color: "var(--text3)", paddingBottom: 2 }}>{k.note}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.55fr 1fr",
-          gap: 12,
-          marginTop: 12,
-          alignItems: "start",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* greeting hero */}
+        <div style={{ padding: "26px 30px 22px" }}>
+          {/* eyebrow: where you are and when, so no page title is needed */}
           <div
-            style={{
-              position: "relative",
-              borderRadius: 20,
-              overflow: "hidden",
-              background: "var(--ink)",
-              boxShadow: "var(--lift)",
-              animation: "fadeUp .5s .04s ease both",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                right: -60,
-                top: -80,
-                width: 240,
-                height: 240,
-                borderRadius: "50%",
-                background: "radial-gradient(circle,rgba(139,125,255,.3),transparent 68%)",
-                pointerEvents: "none",
-              }}
-            />
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                gap: 24,
-                padding: "22px 24px",
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 21, fontWeight: 800, color: "#fff", letterSpacing: "-.02em" }}>
-                  {greeting()}, {firstName}
-                </div>
-                <div
-                  style={{
-                    marginTop: 6,
-                    fontSize: 13,
-                    lineHeight: 1.55,
-                    color: "rgba(255,255,255,.62)",
-                    maxWidth: "44ch",
-                  }}
-                >
-                  {homeSub}
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 15 }}>
-                  <button
-                    type="button"
-                    className="hv-rise"
-                    onClick={() => go("board")}
-                    style={{
-                      padding: "9px 16px",
-                      border: "none",
-                      borderRadius: 999,
-                      background: "#fff",
-                      color: "#17171f",
-                      fontSize: 12.5,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      transition: "transform .18s ease",
-                    }}
-                  >
-                    Open board
-                  </button>
-                  <button
-                    type="button"
-                    className="hv-white"
-                    onClick={() => go("agents")}
-                    style={{
-                      padding: "9px 16px",
-                      border: "1px solid rgba(255,255,255,.2)",
-                      borderRadius: 999,
-                      background: "rgba(255,255,255,.07)",
-                      color: "#fff",
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      transition: "background .18s ease",
-                    }}
-                  >
-                    Agents
-                  </button>
-                </div>
-              </div>
-              <div
-                style={{
-                  flex: "none",
-                  width: 190,
-                  paddingLeft: 22,
-                  borderLeft: "1px solid rgba(255,255,255,.14)",
-                }}
-              >
-                <div style={{ fontSize: 11.5, color: "rgba(255,255,255,.6)" }}>Spend today</div>
-                <div
-                  style={{
-                    marginTop: 4,
-                    fontSize: 30,
-                    fontWeight: 800,
-                    color: "#fff",
-                    letterSpacing: "-.03em",
-                    ...tabular,
-                  }}
-                >
-                  {money(stats.spend_today)}
-                </div>
-                <div
-                  style={{
-                    marginTop: 9,
-                    height: 5,
-                    borderRadius: 5,
-                    background: "rgba(255,255,255,.16)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${Math.min(100, (stats.spend_today / Math.max(0.01, budget)) * 100)}%`,
-                      background: "var(--accent2)",
-                      transformOrigin: "left",
-                      animation: "barGrow .9s cubic-bezier(.2,.8,.2,1) both",
-                      transition: "width .5s ease",
-                    }}
-                  />
-                </div>
-                <div style={{ marginTop: 7, fontSize: 11.5, color: "rgba(255,255,255,.55)" }}>
-                  {plural(stats.runs_today, "run")} today
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* intent bar */}
-          <div
-            className="hv-border"
             style={{
               display: "flex",
               alignItems: "center",
               gap: 10,
-              padding: "7px 8px 7px 16px",
-              border: "1px solid var(--line)",
-              borderRadius: 16,
-              background: "var(--surface)",
-              transition: "border-color .2s ease",
+              fontSize: "var(--t-xs)",
+              color: "var(--onBanner3)",
             }}
           >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "5px 12px",
+                borderRadius: 999,
+                background: "rgba(246,244,239,.1)",
+                color: "var(--onBanner2)",
+                fontWeight: 700,
+                letterSpacing: ".01em",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: running.length ? "var(--accent2)" : "var(--onBanner3)",
+                  animation: running.length ? "breathe 2s ease-in-out infinite" : undefined,
+                }}
+              />
+              {project.name}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span>{today()}</span>
+          </div>
+
+          <h1
+            style={{
+              margin: "18px 0 0",
+              fontSize: "var(--t-3xl)",
+              lineHeight: 1.05,
+              fontWeight: 800,
+              letterSpacing: "-.035em",
+              color: "var(--onBanner)",
+            }}
+          >
+            {greeting()}, {firstName}
+          </h1>
+          <p
+            style={{
+              margin: "10px 0 0",
+              maxWidth: "52ch",
+              fontSize: "var(--t-lg)",
+              lineHeight: 1.5,
+              color: "var(--onBanner2)",
+            }}
+          >
+            {homeSub}
+          </p>
+
+          {/* the one field the screen is built around */}
+          <div className="banner-field" style={{ marginTop: 22, maxWidth: 760 }}>
             <input
               value={intent}
               onChange={(e) => setIntent(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  createCard(intent, agentId, mode);
-                  setIntent("");
-                }
-              }}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
               placeholder="Describe what should happen next…"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                border: "none",
-                background: "transparent",
-                fontSize: 13.5,
-                outline: "none",
-                padding: "9px 0",
-              }}
+              aria-label="Describe what should happen next"
             />
             <select
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
-              title="Which agent takes it"
+              aria-label="Which agent takes it"
               style={{
                 flex: "none",
                 border: "none",
                 background: "transparent",
-                color: "var(--text2)",
-                fontSize: 12.5,
+                color: "var(--onBanner2)",
+                fontSize: "var(--t-sm)",
                 fontWeight: 600,
                 cursor: "pointer",
                 outline: "none",
               }}
             >
               {workers.map((a) => (
-                <option key={a.id} value={a.id}>
+                <option key={a.id} value={a.id} style={{ color: "var(--text)" }}>
                   {a.name}
                 </option>
               ))}
             </select>
-            <div style={{ display: "flex", gap: 2, flex: "none" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 2,
+                flex: "none",
+                padding: 3,
+                borderRadius: 999,
+                background: "rgba(246,244,239,.08)",
+              }}
+            >
               {MODES.map((m) => (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => setMode(m.id)}
+                  aria-pressed={mode === m.id}
                   style={{
-                    padding: "6px 12px",
+                    padding: "6px 13px",
                     border: "none",
                     borderRadius: 999,
-                    fontSize: 12.5,
+                    fontSize: "var(--t-sm)",
                     cursor: "pointer",
                     transition: "all .18s ease",
-                    background: mode === m.id ? "var(--accentSoft)" : "transparent",
-                    color: mode === m.id ? "var(--accent)" : "var(--text3)",
+                    background: mode === m.id ? "var(--onBanner)" : "transparent",
+                    color: mode === m.id ? "#191712" : "var(--onBanner3)",
                     fontWeight: mode === m.id ? 700 : 500,
                   }}
                 >
@@ -512,33 +365,82 @@ export function Overview({
             </div>
             <button
               type="button"
-              className="hv-bright"
-              onClick={() => {
-                createCard(intent, agentId, mode);
-                setIntent("");
-              }}
+              className="hv-rise"
+              onClick={submit}
+              disabled={!intent.trim()}
               style={{
                 flex: "none",
-                padding: "9px 18px",
+                padding: "10px 20px",
                 border: "none",
                 borderRadius: 999,
-                background: intent.trim() ? "var(--accent)" : "var(--surface2)",
-                color: intent.trim() ? "var(--onAccent)" : "var(--text3)",
-                fontSize: 13,
+                background: intent.trim() ? "var(--accent2)" : "rgba(246,244,239,.1)",
+                color: intent.trim() ? "#16141f" : "var(--onBanner3)",
+                fontSize: "var(--t-md)",
                 fontWeight: 700,
                 cursor: intent.trim() ? "pointer" : "not-allowed",
-                transition: "filter .18s ease",
+                transition: "transform .18s ease, background .18s ease",
               }}
             >
               {mode === "start" ? "Start" : "Add"}
             </button>
           </div>
+        </div>
 
-          {/* waiting on you */}
-          <Card animation="fadeUp .55s .08s ease both">
+        {/* the stat strip along the foot */}
+        <div
+          style={{
+            display: "flex",
+            borderTop: "1px solid rgba(246,244,239,.13)",
+            background: "rgba(20,23,21,.28)",
+          }}
+        >
+          {stripe.map((s) => (
+            <button key={s.key} type="button" className="banner-stat" onClick={s.go}>
+              <span
+                style={{
+                  fontSize: "var(--t-xs)",
+                  color: "var(--onBanner3)",
+                  fontWeight: 600,
+                  letterSpacing: ".04em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {s.label}
+              </span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: "var(--t-2xl)",
+                    fontWeight: 800,
+                    letterSpacing: "-.03em",
+                    lineHeight: 1.1,
+                    color: "var(--onBanner)",
+                    ...tabular,
+                  }}
+                >
+                  {s.value}
+                </span>
+                <span style={{ fontSize: "var(--t-xs)", color: "var(--onBanner3)" }}>{s.note}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------------- below the fold: two columns, four panels ---------------- */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0,1.6fr) minmax(300px,1fr)",
+          gap: 14,
+          alignItems: "start",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card animation="fadeUp .55s .06s ease both" style={{ borderRadius: "var(--r-lg)" }}>
             <CardHead
-              title="Waiting on you"
-              count={needsCount}
+              title="Needs you"
+              count={needsCount || undefined}
               countColor="var(--bad)"
               countSoft="var(--badSoft)"
               right={<HeadLink label="Board →" onClick={() => go("board")} />}
@@ -550,8 +452,8 @@ export function Overview({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 13,
-                  padding: "13px 17px",
+                  gap: 14,
+                  padding: "14px 20px",
                   borderTop: "1px solid var(--line2)",
                   transition: "background .18s ease",
                 }}
@@ -560,12 +462,21 @@ export function Overview({
                   {a.mark}
                 </Avatar>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, ...truncate }}>{a.title}</div>
-                  <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--text3)", ...truncate }}>
+                  <div style={{ fontSize: "var(--t-md)", fontWeight: 600, ...truncate }}>
+                    {a.title}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: 3,
+                      fontSize: "var(--t-sm)",
+                      color: "var(--text3)",
+                      ...truncate,
+                    }}
+                  >
                     {a.note}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, flex: "none" }}>
+                <div style={{ display: "flex", gap: 7, flex: "none" }}>
                   <StrongButton label={a.primaryLabel} onClick={a.primary} />
                   <QuietButton label={a.secondaryLabel} onClick={a.secondary} />
                 </div>
@@ -579,10 +490,9 @@ export function Overview({
               ))}
           </Card>
 
-          {/* in progress */}
-          <Card animation="fadeUp .6s .12s ease both">
+          <Card animation="fadeUp .6s .1s ease both" style={{ borderRadius: "var(--r-lg)" }}>
             <CardHead
-              title="In progress"
+              title="Running now"
               right={<HeadLink label="All sessions →" onClick={() => go("runs")} />}
             />
             {running.map((c) => {
@@ -597,8 +507,8 @@ export function Overview({
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 13,
-                    padding: "13px 17px",
+                    gap: 14,
+                    padding: "14px 20px",
                     borderTop: "1px solid var(--line2)",
                     transition: "background .18s ease",
                   }}
@@ -619,15 +529,21 @@ export function Overview({
                       cursor: "pointer",
                     }}
                   >
-                    <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, ...truncate }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: "var(--t-md)",
+                        fontWeight: 600,
+                        ...truncate,
+                      }}
+                    >
                       {c.title}
                     </span>
                     <span
                       style={{
                         display: "block",
                         marginTop: 4,
-                        fontFamily: "var(--mono)",
-                        fontSize: 11,
+                        fontSize: "var(--t-xs)",
                         color: "var(--text3)",
                         ...truncate,
                       }}
@@ -641,7 +557,7 @@ export function Overview({
                       display: "flex",
                       alignItems: "center",
                       gap: 12,
-                      fontSize: 12,
+                      fontSize: "var(--t-sm)",
                       color: "var(--text3)",
                       ...tabular,
                     }}
@@ -668,55 +584,10 @@ export function Overview({
           </Card>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* code written */}
-          <Card pad="16px 17px" animation="fadeUp .5s .06s ease both" style={{ overflow: "visible" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Code written</span>
-              <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 11.5, color: "var(--text3)" }}>Last 7 days</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 9 }}>
-              <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.03em", ...tabular }}>
-                {num(code.added + code.removed)}
-              </span>
-              <span style={{ fontSize: 11.5, color: "var(--text3)", paddingBottom: 3 }}>
-                lines changed
-              </span>
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <WeekBars values={code.bars} labels={weekLetters()} />
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              {[
-                { label: "Added", value: `+${num(code.added)}`, color: "var(--ok)" },
-                { label: "Removed", value: `−${num(code.removed)}`, color: "var(--bad)" },
-              ].map((c) => (
-                <span
-                  key={c.label}
-                  style={{
-                    flex: 1,
-                    padding: "10px 12px",
-                    borderRadius: 13,
-                    background: "var(--surface2)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 3,
-                  }}
-                >
-                  <span style={{ fontSize: 11, color: "var(--text3)" }}>{c.label}</span>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: c.color, ...tabular }}>
-                    {c.value}
-                  </span>
-                </span>
-              ))}
-            </div>
-          </Card>
-
-          {/* your agents */}
-          <Card animation="fadeUp .55s .1s ease both">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Card animation="fadeUp .55s .08s ease both" style={{ borderRadius: "var(--r-lg)" }}>
             <CardHead
-              title="Your agents"
+              title="The crew"
               right={<HeadLink label="Manage →" onClick={() => go("agents")} />}
             />
             {agents.map((a) => {
@@ -752,10 +623,10 @@ export function Overview({
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 11,
+                    gap: 12,
                     width: "100%",
                     textAlign: "left",
-                    padding: "12px 17px",
+                    padding: "13px 20px",
                     border: "none",
                     borderTop: "1px solid var(--line2)",
                     background: "transparent",
@@ -767,9 +638,16 @@ export function Overview({
                     {a.initial}
                   </Avatar>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: 13.5, fontWeight: 700 }}>{a.name}</span>
+                    <span style={{ display: "block", fontSize: "var(--t-md)", fontWeight: 700 }}>
+                      {a.name}
+                    </span>
                     <span
-                      style={{ display: "block", marginTop: 2, fontSize: 11.5, color: "var(--text3)" }}
+                      style={{
+                        display: "block",
+                        marginTop: 2,
+                        fontSize: "var(--t-sm)",
+                        color: "var(--text3)",
+                      }}
                     >
                       {a.title}
                     </span>
@@ -780,22 +658,79 @@ export function Overview({
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      padding: "4px 10px",
+                      padding: "5px 11px",
                       borderRadius: 999,
                       background: stateSoft,
                       color: stateFg,
-                      fontSize: 11,
+                      fontSize: "var(--t-xs)",
                       fontWeight: 700,
                     }}
                   >
-                    <span
-                      style={{ width: 5, height: 5, borderRadius: "50%", background: stateFg }}
-                    />
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: stateFg }} />
                     {state}
                   </span>
                 </button>
               );
             })}
+          </Card>
+
+          <Card
+            pad="18px 20px 20px"
+            animation="fadeUp .6s .12s ease both"
+            style={{ overflow: "visible", borderRadius: "var(--r-lg)" }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ fontSize: "var(--t-lg)", fontWeight: 700 }}>Code written</span>
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>Last 7 days</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: 8 }}>
+              <span
+                style={{
+                  fontSize: "var(--t-2xl)",
+                  fontWeight: 800,
+                  letterSpacing: "-.03em",
+                  ...tabular,
+                }}
+              >
+                {num(code.added + code.removed)}
+              </span>
+              <span style={{ fontSize: "var(--t-sm)", color: "var(--text3)" }}>lines changed</span>
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <WeekBars values={code.bars} labels={weekLetters()} />
+            </div>
+            <div style={{ display: "flex", gap: 9, marginTop: 16 }}>
+              {[
+                { label: "Added", value: `+${num(code.added)}`, color: "var(--ok)" },
+                { label: "Removed", value: `−${num(code.removed)}`, color: "var(--bad)" },
+              ].map((c) => (
+                <span
+                  key={c.label}
+                  style={{
+                    flex: 1,
+                    padding: "11px 13px",
+                    borderRadius: "var(--r-md)",
+                    background: "var(--surface2)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 3,
+                  }}
+                >
+                  <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{c.label}</span>
+                  <span
+                    style={{
+                      fontSize: "var(--t-lg)",
+                      fontWeight: 700,
+                      color: c.color,
+                      ...tabular,
+                    }}
+                  >
+                    {c.value}
+                  </span>
+                </span>
+              ))}
+            </div>
           </Card>
         </div>
       </div>

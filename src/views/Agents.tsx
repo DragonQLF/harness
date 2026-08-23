@@ -223,7 +223,7 @@ export function AgentList({
   /** Opens the conversation dock, for a direct chat with a profile. */
   openChat?: () => void;
 }) {
-  const { agents, agentStats, snapshot, projects, chatWithProfile, saveAgents, duplicateAgent, removeAgent } =
+  const { agents, agentStats, snapshot, chatWithProfile, saveAgents, duplicateAgent, removeAgent } =
     useStore();
   const running = snapshot?.cards.filter((c) => c.status === "running") ?? [];
   const [picking, setPicking] = useState(false);
@@ -272,26 +272,50 @@ export function AgentList({
 
   return (
     <div style={{ padding: "22px 26px 28px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Agents</h1>
-        <span
-          style={{
-            padding: "3px 9px",
-            borderRadius: 999,
-            background: "var(--surface)",
-            border: "1px solid var(--line)",
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--text2)",
-            ...tabular,
-          }}
-        >
-          {agents.length}
-        </span>
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          Shared across every project. Open one to see what it has been doing.
-        </span>
-        <div style={{ flex: 1 }} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 14,
+          marginBottom: 20,
+          flexWrap: "wrap",
+        }}
+      >
+        {/* Title and its sentence stack, so the actions get the whole right
+            side instead of squeezing the description into a gutter. */}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: "var(--t-xl)",
+                fontWeight: 800,
+                letterSpacing: "-.03em",
+                lineHeight: 1.2,
+              }}
+            >
+              Agents
+            </h1>
+            <span
+              style={{
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: "var(--surface)",
+                border: "1px solid var(--line)",
+                fontSize: "var(--t-xs)",
+                fontWeight: 700,
+                color: "var(--text2)",
+                ...tabular,
+              }}
+            >
+              {agents.length}
+            </span>
+          </div>
+          <p style={{ margin: "6px 0 0", fontSize: "var(--t-sm)", color: "var(--text3)" }}>
+            Shared across every project. Open one to see what it has been doing.
+          </p>
+        </div>
+        <div style={{ flex: 1, minWidth: 12 }} />
         <button
           type="button"
           className="hv-border"
@@ -302,10 +326,11 @@ export function AgentList({
             borderRadius: 999,
             background: "transparent",
             color: "var(--text2)",
-            fontSize: 12,
+            fontSize: "var(--t-sm)",
             fontWeight: 600,
             cursor: "pointer",
             marginRight: 7,
+            whiteSpace: "nowrap",
             transition: "all .18s ease",
           }}
         >
@@ -321,10 +346,11 @@ export function AgentList({
             borderRadius: 999,
             background: "var(--accent)",
             color: "var(--onAccent)",
-            fontSize: 12,
+            fontSize: "var(--t-sm)",
             fontWeight: 700,
             cursor: "pointer",
             marginRight: 7,
+            whiteSpace: "nowrap",
           }}
         >
           + From a template
@@ -342,9 +368,10 @@ export function AgentList({
             borderRadius: 999,
             background: "transparent",
             color: "var(--text2)",
-            fontSize: 12,
+            fontSize: "var(--t-sm)",
             fontWeight: 600,
             cursor: "pointer",
+            whiteSpace: "nowrap",
             transition: "all .18s ease",
           }}
         >
@@ -423,7 +450,8 @@ export function AgentList({
                   display: "flex",
                   alignItems: "flex-start",
                   gap: 14,
-                  padding: "20px 20px 0",
+                  padding: "18px 20px 0",
+                  paddingRight: 112,
                 }}
               >
                 <span
@@ -459,7 +487,12 @@ export function AgentList({
                 </span>
                 <span style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
                   <span
-                    style={{ display: "block", fontSize: 17, fontWeight: 800, letterSpacing: "-.02em" }}
+                    style={{
+                      display: "block",
+                      fontSize: "var(--t-lg)",
+                      fontWeight: 800,
+                      letterSpacing: "-.02em",
+                    }}
                   >
                     {a.name}
                   </span>
@@ -467,9 +500,9 @@ export function AgentList({
                     style={{
                       display: "block",
                       marginTop: 5,
-                      fontSize: 10.5,
+                      fontSize: "var(--t-xs)",
                       fontWeight: 800,
-                      letterSpacing: ".11em",
+                      letterSpacing: ".09em",
                       textTransform: "uppercase",
                       color: t.color,
                     }}
@@ -487,8 +520,10 @@ export function AgentList({
                     borderRadius: 999,
                     background: st.soft,
                     color: st.fg,
-                    fontSize: 11,
+                    fontSize: "var(--t-xs)",
                     fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    marginTop: 3,
                   }}
                 >
                   <span style={{ width: 5, height: 5, borderRadius: "50%", background: st.fg }} />
@@ -500,8 +535,8 @@ export function AgentList({
                 style={{
                   position: "relative",
                   display: "block",
-                  padding: "15px 20px 0",
-                  fontSize: 12.5,
+                  padding: "14px 20px 0",
+                  fontSize: "var(--t-sm)",
                   color: "var(--text2)",
                   lineHeight: 1.55,
                   minHeight: 64,
@@ -532,11 +567,16 @@ export function AgentList({
                   }}
                 >
                   <span
-                    style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...tabular }}
+                    style={{
+                      fontSize: "var(--t-lg)",
+                      fontWeight: 800,
+                      letterSpacing: "-.02em",
+                      ...tabular,
+                    }}
                   >
                     {metric}
                   </span>
-                  <span style={{ fontSize: 10.5, color: "var(--text3)" }}>{metricLabel}</span>
+                  <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{metricLabel}</span>
                 </span>
               </span>
 
@@ -549,15 +589,14 @@ export function AgentList({
                   marginTop: 18,
                   padding: "13px 20px",
                   borderTop: "1px solid var(--line2)",
-                  fontSize: 11.5,
+                  fontSize: "var(--t-sm)",
                   color: "var(--text3)",
+                  whiteSpace: "nowrap",
                 }}
               >
                 <span style={{ fontWeight: 700, color: "var(--text2)" }}>
                   {MODELS.find((m) => m.id === a.model)?.name ?? "auto"}
                 </span>
-                <span style={{ opacity: 0.5 }}>·</span>
-                <span>{plural(projects.length, "project")}</span>
                 <span style={{ opacity: 0.5 }}>·</span>
                 <span>{money(s?.spend ?? 0)}</span>
                 <span style={{ flex: 1 }} />
@@ -575,8 +614,8 @@ export function AgentList({
             <div
               style={{
                 position: "absolute",
-                top: 12,
-                right: 12,
+                top: 16,
+                right: 14,
                 display: "flex",
                 gap: 4,
               }}
