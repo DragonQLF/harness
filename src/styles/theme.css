@@ -1,0 +1,285 @@
+/* Tokens, keyframes and hover utilities — copied from the design file.
+   Everything else is inline on the elements, exactly as the design has it, so
+   the two stay comparable side by side. The only classes here are the ones a
+   `style-hover` attribute in the design needs to become real CSS. */
+
+:root {
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --recess: #ebebf2;
+  --desk: #eceaf3;
+  --bg: #f6f6f9;
+  --surface: #ffffff;
+  --surface2: #f4f4f8;
+  --elev: #ffffff;
+  --hover: #f0eff6;
+  --line: #eaeaf1;
+  --line2: #f1f1f6;
+
+  --text: #17171f;
+  --text2: #6b6b7b;
+  --text3: #9c9cad;
+
+  --accent: #6b5cf6;
+  --accent2: #8b7dff;
+  --accentSoft: #efedff;
+  --accentLine: #ddd9ff;
+  --onAccent: #ffffff;
+
+  --ok: #0fa47f;
+  --okSoft: #e6f7f1;
+  --warn: #d68a12;
+  --warnSoft: #fdf3e2;
+  --bad: #e0455f;
+  --badSoft: #fdecef;
+  --info: #3b7ff0;
+  --infoSoft: #eaf1fe;
+
+  --ink: linear-gradient(122deg, #26262f 0%, #1a1a21 58%, #141419 100%);
+  --shadow: 0 40px 90px -32px rgba(30, 26, 60, 0.3), 0 0 0 1px rgba(20, 20, 40, 0.05);
+  --lift: 0 12px 26px -18px rgba(30, 26, 60, 0.35);
+}
+
+:root[data-theme="dark"] {
+  --recess: #121216;
+  --desk: #0a0a0c;
+  --bg: #0f0f12;
+  --surface: #17171b;
+  --surface2: #1d1d22;
+  --elev: #1d1d22;
+  --hover: #232329;
+  --line: #26262d;
+  --line2: #1f1f25;
+
+  --text: #f3f3f6;
+  --text2: #a0a0af;
+  --text3: #71717f;
+
+  --accent: #8b7dff;
+  --accent2: #a79dff;
+  --accentSoft: rgba(139, 125, 255, 0.14);
+  --accentLine: rgba(139, 125, 255, 0.32);
+  --onAccent: #12121a;
+
+  --ok: #3ecfa4;
+  --okSoft: rgba(62, 207, 164, 0.13);
+  --warn: #e8ab45;
+  --warnSoft: rgba(232, 171, 69, 0.13);
+  --bad: #f2607a;
+  --badSoft: rgba(242, 96, 122, 0.13);
+  --info: #6da2ff;
+  --infoSoft: rgba(109, 162, 255, 0.13);
+
+  --ink: linear-gradient(122deg, #25252d 0%, #1a1a20 60%, #141418 100%);
+  --shadow: 0 44px 100px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --lift: 0 14px 30px -20px rgba(0, 0, 0, 0.7);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent2);
+}
+
+button,
+textarea,
+input,
+select {
+  font-family: inherit;
+  color: inherit;
+}
+
+:where(button, input, textarea, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 9px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text3);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text3);
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes drawerUp {
+  0% {
+    transform: translateY(101%);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes toastIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes riseBar {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* ---- hover states the design declares with style-hover ---- */
+
+.hv-tile:hover {
+  border-color: var(--accentLine);
+  transform: translateY(-2px);
+  box-shadow: var(--lift);
+}
+.hv-row:hover {
+  background: var(--surface2);
+}
+.hv-hover:hover {
+  background: var(--hover);
+}
+.hv-soft:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.hv-link:hover {
+  color: var(--text);
+}
+.hv-border:hover {
+  border-color: var(--accentLine);
+}
+.hv-pill:hover {
+  border-color: var(--accentLine);
+  background: var(--surface);
+}
+.hv-bright:hover {
+  filter: brightness(1.06);
+}
+.hv-brighter:hover {
+  filter: brightness(1.2);
+}
+.hv-rise:hover {
+  transform: translateY(-1px);
+}
+.hv-white:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.hv-text:hover {
+  color: var(--text);
+  border-color: var(--accentLine);
+}
+.hv-close:hover {
+  background: var(--bad);
+  color: #fff;
+}
+.hv-danger:hover {
+  background: var(--badSoft);
+  color: var(--bad);
+  border-color: transparent;
+}
+
+/* Only structural repetition worth a class: the scrolling log body. */
+.logscroll {
+  scrollbar-gutter: stable;
+}

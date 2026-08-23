@@ -1,0 +1,174 @@
+//! Every file Harness writes lives under the OS app-data directory, never next
+//! to the binary or inside a project the operator pointed us at.
+//!
+//! ```text
+//! %APPDATA%/com.harness.app/
+//!   settings.json
+//!   agents.json
+//!   projects.json
+//!   sidecar/               copy of the Node sidecar + its node_modules
+//!   projects/<id>/events.jsonl
+//!   projects/<id>/runs/<run_id>.jsonl
+//!   projects/<id>/checks.json
+//!   worktrees/<id>/<card>/ per-card checkouts, outside the repository
+//! ```
+
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone)]
+pub struct AppPaths {
+    root: PathBuf,
+}
+
+impl AppPaths {
+    pub fn new(root: impl Into<PathBuf>) -> std::io::Result<Self> {
+        let root = root.into();
+        std::fs::create_dir_all(&root)?;
+        let paths = Self { root };
+        std::fs::create_dir_all(paths.projects_dir())?;
+        std::fs::create_dir_all(paths.worktrees_dir())?;
+        Ok(paths)
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn settings_file(&self) -> PathBuf {
+        self.root.join("settings.json")
+    }
+
+    pub fn agents_file(&self) -> PathBuf {
+        self.root.join("agents.json")
+    }
+
+    pub fn projects_file(&self) -> PathBuf {
+        self.root.join("projects.json")
+    }
+
+    pub fn sidecar_dir(&self) -> PathBuf {
+        self.root.join("sidecar")
+    }
+
+    pub fn projects_dir(&self) -> PathBuf {
+        self.root.join("projects")
+    }
+
+    pub fn worktrees_dir(&self) -> PathBuf {
+        self.root.join("worktrees")
+    }
+
+    pub fn project_dir(&self, project_id: &str) -> PathBuf {
+        self.projects_dir().join(sanitize(project_id))
+    }
+
+    pub fn events_file(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("events.jsonl")
+    }
+
+    pub fn runs_dir(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("runs")
+    }
+
+    pub fn checks_file(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("checks.json")
+    }
+
+    pub fn project_worktrees(&self, project_id: &str) -> PathBuf {
+        self.worktrees_dir().join(sanitize(project_id))
+    }
+}
+
+/// Keep ids safe to use as a single path segment.
+pub fn sanitize(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('-').to_ascii_lowercase();
+    if trimmed.is_empty() {
+        "project".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// Read a JSON file, falling back to the default when it is missing or corrupt
+/// (a broken settings file must never stop the app from opening).
+pub fn read_json_or_default<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Err(_) => T::default(),
+    }
+}
+
+pub fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let raw = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    // Write beside the target and rename, so a crash mid-write cannot truncate
+    // the file we would read on the next start.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, raw).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids_become_safe_single_segments() {
+        assert_eq!(sanitize("My Repo/Thing"), "my-repo-thing");
+        assert_eq!(sanitize("../escape"), "escape");
+        assert_eq!(sanitize("///"), "project");
+        assert_eq!(sanitize("keep_this-1"), "keep_this-1");
+    }
+
+    #[test]
+    fn layout_keeps_everything_under_the_root() {
+        let root = std::env::temp_dir().join(format!("harness-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = AppPaths::new(&root).unwrap();
+        for p in [
+            paths.settings_file(),
+            paths.agents_file(),
+            paths.projects_file(),
+            paths.events_file("Some Project"),
+            paths.runs_dir("Some Project"),
+            paths.project_worktrees("Some Project"),
+            paths.sidecar_dir(),
+        ] {
+            assert!(p.starts_with(&root), "{p:?} escaped the app data root");
+        }
+        assert!(paths.projects_dir().is_dir());
+        assert!(paths.worktrees_dir().is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn json_roundtrips_and_survives_a_corrupt_file() {
+        let dir = std::env::temp_dir().join(format!("harness-json-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("thing.json");
+
+        assert_eq!(read_json_or_default::<Vec<String>>(&file), Vec::<String>::new());
+        write_json(&file, &vec!["a".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(
+            read_json_or_default::<Vec<String>>(&file),
+            vec!["a".to_string(), "b".to_string()]
+        );
+
+        std::fs::write(&file, "{not json").unwrap();
+        assert_eq!(read_json_or_default::<Vec<String>>(&file), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

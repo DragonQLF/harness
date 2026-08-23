@@ -1,0 +1,14 @@
+//! Everything Harness knows how to do that does not need a window.
+//!
+//! The Tauri shell is a thin adapter over this crate: app-data layout, operator
+//! settings, agent profiles, approval routing and the numbers the UI shows all
+//! live here, so they can be tested without a webview.
+
+pub mod agents;
+pub mod approvals;
+pub mod checks;
+pub mod director;
+pub mod insights;
+pub mod paths;
+pub mod projects;
+pub mod settings;

@@ -1,10 +1,22 @@
+//! The single writer. Every state change in Harness goes through this actor:
+//! a command is decided against the board, persisted, then broadcast. Runs and
+//! reviews happen in spawned tasks that report back through the same queue, so
+//! there is exactly one owner of the truth.
+
+mod director;
+mod runs;
+
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use harness_domain::{Board, Card, CardId, Command, Event, RunId, RunOutcome};
 use harness_ports::{
-    AgentPort, Approver, ClockPort, GitPort, RunEvent, RunSpec, StoredEvent, WorktreePath,
+    AgentPort, Approver, ClockPort, GitPort, RunEvent, RunLogLine, RunLogPort, RunProfile,
+    StorePort, StoredEvent, WorktreeMode, WorktreePath,
 };
 use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -17,12 +29,15 @@ const BROADCAST_CAPACITY: usize = 1024;
 pub struct Envelope {
     pub seq: u64,
     pub ts_ms: u64,
+    /// Which project this event belongs to; the UI keeps one board per project.
+    pub project_id: String,
     #[serde(flatten)]
     pub event: Event,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Snapshot {
+    pub project_id: String,
     pub last_seq: u64,
     pub cards: Vec<Card>,
     pub sessions: Vec<SessionView>,
@@ -30,8 +45,10 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RunUpdate {
+    pub project_id: String,
     pub card_id: CardId,
     pub run_id: RunId,
+    pub ts_ms: u64,
     #[serde(flatten)]
     pub event: RunEvent,
 }
@@ -39,16 +56,76 @@ pub struct RunUpdate {
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionView {
     pub card_id: CardId,
+    pub run_id: Option<RunId>,
     pub worktree: String,
+    pub branch: Option<String>,
     pub session_id: Option<String>,
+    pub agent_id: String,
+    pub started_ms: u64,
+    pub live: bool,
 }
 
+/// Static wiring for one project's engine.
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
+    pub project_id: String,
     pub repo_root: PathBuf,
     pub base_branch: String,
+    /// Fallbacks used when an agent profile leaves them unset.
     pub permission_mode: String,
     pub worker_allowed_tools: Vec<String>,
+    pub director_allowed_tools: Vec<String>,
+    pub director_model: Option<String>,
+}
+
+impl EngineConfig {
+    pub fn new(project_id: impl Into<String>, repo_root: PathBuf) -> Self {
+        Self {
+            project_id: project_id.into(),
+            repo_root,
+            base_branch: "main".to_string(),
+            permission_mode: "acceptEdits".to_string(),
+            worker_allowed_tools: vec![
+                "Read".into(),
+                "Edit".into(),
+                "Write".into(),
+                "Glob".into(),
+                "Grep".into(),
+                "Bash(git *)".into(),
+            ],
+            director_allowed_tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
+            director_model: None,
+        }
+    }
+}
+
+/// Operator settings the engine re-reads on every run, so toggling them in the
+/// UI takes effect without a restart.
+#[derive(Debug, Clone)]
+pub struct EnginePolicy {
+    /// The Director reads every finished diff before it reaches the operator.
+    pub director_reviews_first: bool,
+    /// Cancel and commit work in progress when the app is closing.
+    pub commit_wip_on_close: bool,
+}
+
+impl Default for EnginePolicy {
+    fn default() -> Self {
+        Self {
+            director_reviews_first: true,
+            commit_wip_on_close: true,
+        }
+    }
+}
+
+/// A run the engine is currently driving.
+#[derive(Debug, Clone, Serialize)]
+pub struct ActiveRun {
+    pub card_id: CardId,
+    pub run_id: RunId,
+    pub agent_id: String,
+    pub worktree: String,
+    pub started_ms: u64,
 }
 
 #[derive(Debug)]
@@ -63,24 +140,34 @@ enum Msg {
     StartRun {
         card_id: CardId,
         prompt: String,
+        profile: Box<RunProfile>,
         reply: oneshot::Sender<Result<RunId, String>>,
     },
     CancelRun {
         card_id: CardId,
         reply: oneshot::Sender<Result<(), String>>,
     },
+    ActiveRuns {
+        reply: oneshot::Sender<Vec<ActiveRun>>,
+    },
+    Shutdown {
+        reply: oneshot::Sender<()>,
+    },
+    SetPolicy {
+        policy: EnginePolicy,
+        reply: oneshot::Sender<()>,
+    },
     RunDone {
         card_id: CardId,
         run_id: RunId,
-        outcome: harness_ports::RunOutcome,
+        outcome: Box<harness_ports::RunOutcome>,
+        profile: Box<RunProfile>,
+        /// The work could not be committed, so there is no diff to review.
+        commit_failed: bool,
     },
     AgentSession {
         card_id: CardId,
         session_id: String,
-    },
-    DirectorChat {
-        text: String,
-        reply: oneshot::Sender<Result<(), String>>,
     },
     DirectorDone {
         card_id: CardId,
@@ -94,70 +181,60 @@ pub struct EngineHandle {
     tx: mpsc::Sender<Msg>,
 }
 
+/// Every handle method is a round trip to the actor; nothing mutates state here.
 impl EngineHandle {
-    pub async fn execute(&self, cmd: Command) -> Result<u64, String> {
+    async fn ask<T>(
+        &self,
+        make: impl FnOnce(oneshot::Sender<T>) -> Msg,
+    ) -> Result<T, String> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
-            .send(Msg::Command { cmd, reply: reply_tx })
+            .send(make(reply_tx))
             .await
             .map_err(|_| "engine is not running".to_string())?;
-        match reply_rx.await {
-            Ok(outcome) => outcome,
-            Err(_) => Err("engine dropped the reply".to_string()),
-        }
+        reply_rx.await.map_err(|_| "engine dropped the reply".to_string())
+    }
+
+    pub async fn execute(&self, cmd: Command) -> Result<u64, String> {
+        self.ask(|reply| Msg::Command { cmd, reply }).await?
     }
 
     pub async fn snapshot(&self) -> Result<Snapshot, String> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(Msg::Snapshot { reply: reply_tx })
-            .await
-            .map_err(|_| "engine is not running".to_string())?;
-        match reply_rx.await {
-            Ok(snap) => Ok(snap),
-            Err(_) => Err("engine dropped the reply".to_string()),
-        }
+        self.ask(|reply| Msg::Snapshot { reply }).await
     }
 
-    pub async fn start_run(&self, card_id: CardId, prompt: String) -> Result<RunId, String> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(Msg::StartRun {
-                card_id,
-                prompt,
-                reply: reply_tx,
-            })
-            .await
-            .map_err(|_| "engine is not running".to_string())?;
-        match reply_rx.await {
-            Ok(outcome) => outcome,
-            Err(_) => Err("engine dropped the reply".to_string()),
-        }
+    pub async fn start_run(
+        &self,
+        card_id: CardId,
+        prompt: String,
+        profile: RunProfile,
+    ) -> Result<RunId, String> {
+        self.ask(|reply| Msg::StartRun {
+            card_id,
+            prompt,
+            profile: Box::new(profile),
+            reply,
+        })
+        .await?
     }
 
     pub async fn cancel_run(&self, card_id: CardId) -> Result<(), String> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(Msg::CancelRun { card_id, reply: reply_tx })
-            .await
-            .map_err(|_| "engine is not running".to_string())?;
-        match reply_rx.await {
-            Ok(outcome) => outcome,
-            Err(_) => Err("engine dropped the reply".to_string()),
-        }
+        self.ask(|reply| Msg::CancelRun { card_id, reply }).await?
     }
 
-    pub async fn director_chat(&self, text: String) -> Result<(), String> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(Msg::DirectorChat { text, reply: reply_tx })
-            .await
-            .map_err(|_| "engine is not running".to_string())?;
-        match reply_rx.await {
-            Ok(outcome) => outcome,
-            Err(_) => Err("engine dropped the reply".to_string()),
-        }
+    pub async fn active_runs(&self) -> Result<Vec<ActiveRun>, String> {
+        self.ask(|reply| Msg::ActiveRuns { reply }).await
     }
+
+    /// Cancel everything and let the worktrees commit their work in progress.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        self.ask(|reply| Msg::Shutdown { reply }).await
+    }
+
+    pub async fn set_policy(&self, policy: EnginePolicy) -> Result<(), String> {
+        self.ask(|reply| Msg::SetPolicy { policy, reply }).await
+    }
+
 }
 
 pub fn rebuild(history: &[StoredEvent]) -> Board {
@@ -169,54 +246,60 @@ pub fn rebuild(history: &[StoredEvent]) -> Board {
 }
 
 struct RunEntry {
+    run_id: RunId,
     token: CancellationToken,
-    _worktree: WorktreePath,
+    worktree: WorktreePath,
+    agent_id: String,
+    started_ms: u64,
 }
 
-pub struct Engine<S, C, A, D, G>
-where
-    S: StorePort + 'static,
-    C: ClockPort + 'static,
-    A: AgentPort + 'static,
-    D: AgentPort + 'static,
-    G: GitPort + 'static,
-{
+struct SessionEntry {
+    run_id: Option<RunId>,
+    worktree: PathBuf,
+    branch: Option<String>,
+    session_id: Option<String>,
+    agent_id: String,
+    started_ms: u64,
+}
+
+pub struct Engine {
     rx: mpsc::Receiver<Msg>,
     self_tx: mpsc::Sender<Msg>,
     board: Board,
     last_seq: u64,
-    store: Arc<S>,
-    clock: Arc<C>,
-    agent: Arc<A>,
-    director: Arc<D>,
+    store: Arc<dyn StorePort>,
+    clock: Arc<dyn ClockPort>,
+    agent: Arc<dyn AgentPort>,
+    director: Arc<dyn AgentPort>,
     approver: Option<Approver>,
-git: Arc<G>,
+    git: Arc<dyn GitPort>,
+    run_log: Option<Arc<dyn RunLogPort>>,
     config: EngineConfig,
+    policy: EnginePolicy,
     runs: HashMap<CardId, RunEntry>,
-    sessions: HashMap<CardId, (PathBuf, Option<String>)>,
+    sessions: HashMap<CardId, SessionEntry>,
+    /// Worktree reused by agents configured for a shared branch.
+    shared_worktree: Option<WorktreePath>,
     logged_tx: broadcast::Sender<Envelope>,
     runs_tx: broadcast::Sender<RunUpdate>,
 }
 
-use harness_ports::StorePort;
+/// Everything the engine needs, grouped so `spawn` stays readable.
+pub struct EngineDeps {
+    pub store: Arc<dyn StorePort>,
+    pub clock: Arc<dyn ClockPort>,
+    pub agent: Arc<dyn AgentPort>,
+    pub director: Arc<dyn AgentPort>,
+    pub git: Arc<dyn GitPort>,
+    pub approver: Option<Approver>,
+    pub run_log: Option<Arc<dyn RunLogPort>>,
+}
 
-impl<S, C, A, D, G> Engine<S, C, A, D, G>
-where
-    S: StorePort + 'static,
-    C: ClockPort + 'static,
-    A: AgentPort + 'static,
-    D: AgentPort + 'static,
-    G: GitPort + 'static,
-{
-    #[allow(clippy::type_complexity)]
+impl Engine {
     pub fn spawn(
-        store: Arc<S>,
-        clock: Arc<C>,
-        agent: Arc<A>,
-        director: Arc<D>,
-        approver: Option<Approver>,
-git: Arc<G>,
+        deps: EngineDeps,
         config: EngineConfig,
+        policy: EnginePolicy,
         history: Vec<StoredEvent>,
     ) -> (
         EngineHandle,
@@ -226,6 +309,7 @@ git: Arc<G>,
         let board = rebuild(&history);
         let last_seq = history.last().map(|s| s.seq).unwrap_or(0);
 
+        // Anything still marked Running belongs to a process that died with us.
         let interrupted: Vec<(CardId, RunId)> = board
             .cards()
             .into_iter()
@@ -243,15 +327,18 @@ git: Arc<G>,
             self_tx: tx.clone(),
             board,
             last_seq,
-            store,
-            clock,
-            agent,
-            director,
-            approver,
-            git,
+            store: deps.store,
+            clock: deps.clock,
+            agent: deps.agent,
+            director: deps.director,
+            approver: deps.approver,
+            git: deps.git,
+            run_log: deps.run_log,
             config,
+            policy,
             runs: HashMap::new(),
             sessions: HashMap::new(),
+            shared_worktree: None,
             logged_tx,
             runs_tx,
         };
@@ -261,6 +348,8 @@ git: Arc<G>,
                 card_id: card_id.clone(),
                 run_id: run_id.clone(),
                 outcome: RunOutcome::Failed,
+                cost_usd: None,
+                turns: None,
             });
             if let Ok(events) = events {
                 if let Err(e) = engine.persist_sync(events) {
@@ -276,14 +365,23 @@ git: Arc<G>,
         (EngineHandle { tx }, logged_rx, runs_rx)
     }
 
+    fn now(&self) -> u64 {
+        self.clock.now_millis()
+    }
+
     fn persist_sync(&mut self, events: Vec<Event>) -> Result<u64, String> {
+        let ts = self.now();
         for event in events {
-            let stored = self.store.append_event(&event).map_err(|e| e.to_string())?;
+            let stored = self
+                .store
+                .append_event(&event, ts)
+                .map_err(|e| e.to_string())?;
             self.board.apply(&stored.event);
             self.last_seq = stored.seq;
             let _ = self.logged_tx.send(Envelope {
                 seq: stored.seq,
-                ts_ms: 0,
+                ts_ms: stored.ts_ms,
+                project_id: self.config.project_id.clone(),
                 event: stored.event,
             });
         }
@@ -291,21 +389,65 @@ git: Arc<G>,
     }
 
     async fn persist(&mut self, events: Vec<Event>) -> Result<u64, String> {
+        let ts = self.now();
         for event in events {
             let store = Arc::clone(&self.store);
             let ev = event.clone();
-            let stored = tokio::task::block_in_place(move || store.append_event(&ev))
+            let stored = tokio::task::block_in_place(move || store.append_event(&ev, ts))
                 .map_err(|e| e.to_string())?;
             self.board.apply(&stored.event);
             self.last_seq = stored.seq;
-            let envelope = Envelope {
+            let _ = self.logged_tx.send(Envelope {
                 seq: stored.seq,
-                ts_ms: self.clock.now_millis(),
+                ts_ms: stored.ts_ms,
+                project_id: self.config.project_id.clone(),
                 event: stored.event,
-            };
-            let _ = self.logged_tx.send(envelope);
+            });
         }
         Ok(self.last_seq)
+    }
+
+    /// Broadcast a run event and, when a log is configured, keep it on disk.
+    fn emit_run(&self, card_id: &CardId, run_id: &RunId, event: RunEvent) {
+        let ts_ms = self.now();
+        if let (Some(log), false) = (&self.run_log, event.is_ephemeral()) {
+            let _ = log.append(
+                run_id.0.as_str(),
+                &RunLogLine {
+                    ts_ms,
+                    event: event.clone(),
+                },
+            );
+        }
+        let _ = self.runs_tx.send(RunUpdate {
+            project_id: self.config.project_id.clone(),
+            card_id: card_id.clone(),
+            run_id: run_id.clone(),
+            ts_ms,
+            event,
+        });
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            project_id: self.config.project_id.clone(),
+            last_seq: self.last_seq,
+            cards: self.board.cards().into_iter().cloned().collect(),
+            sessions: self
+                .sessions
+                .iter()
+                .map(|(card_id, s)| SessionView {
+                    card_id: card_id.clone(),
+                    run_id: s.run_id.clone(),
+                    worktree: s.worktree.to_string_lossy().to_string(),
+                    branch: s.branch.clone(),
+                    session_id: s.session_id.clone(),
+                    agent_id: s.agent_id.clone(),
+                    started_ms: s.started_ms,
+                    live: self.runs.contains_key(card_id),
+                })
+                .collect(),
+        }
     }
 
     async fn run(mut self) {
@@ -316,52 +458,47 @@ git: Arc<G>,
                     let _ = reply.send(outcome);
                 }
                 Msg::Snapshot { reply } => {
-                    let snap = Snapshot {
-                        last_seq: self.last_seq,
-                        cards: self.board.cards().into_iter().cloned().collect(),
-                        sessions: self
-                            .sessions
-                            .iter()
-                            .map(|(card_id, (worktree, sid))| SessionView {
-                                card_id: card_id.clone(),
-                                worktree: worktree.to_string_lossy().to_string(),
-                                session_id: sid.clone(),
-                            })
-                            .collect(),
-                    };
-                    #[cfg(test)]
-                    eprintln!(
-                        "[probe] snapshot seq={} statuses={:?}",
-                        snap.last_seq,
-                        snap.cards.iter().map(|c| (c.id.to_string(), c.status)).collect::<Vec<_>>()
-                    );
-                    let _ = reply.send(snap);
+                    let _ = reply.send(self.snapshot());
                 }
                 Msg::StartRun {
                     card_id,
                     prompt,
+                    profile,
                     reply,
                 } => {
-                    let outcome = self.start_run(card_id, prompt).await;
+                    let outcome = self.start_run(card_id, prompt, *profile).await;
                     let _ = reply.send(outcome);
                 }
                 Msg::CancelRun { card_id, reply } => {
-                    let outcome = self.cancel_run(&card_id);
-                    let _ = reply.send(outcome);
+                    let _ = reply.send(self.cancel_run(&card_id));
+                }
+                Msg::ActiveRuns { reply } => {
+                    let _ = reply.send(self.active_runs());
+                }
+                Msg::Shutdown { reply } => {
+                    self.shutdown().await;
+                    let _ = reply.send(());
+                }
+                Msg::SetPolicy { policy, reply } => {
+                    self.policy = policy;
+                    let _ = reply.send(());
                 }
                 Msg::RunDone {
                     card_id,
                     run_id,
                     outcome,
+                    profile,
+                    commit_failed,
                 } => {
-                    self.finish_run(card_id, run_id, outcome).await;
+                    self.finish_run(card_id, run_id, *outcome, *profile, commit_failed)
+                        .await;
                 }
                 Msg::AgentSession {
                     card_id,
                     session_id,
                 } => {
-                    if let Some((_, sid)) = self.sessions.get_mut(&card_id) {
-                        *sid = Some(session_id);
+                    if let Some(entry) = self.sessions.get_mut(&card_id) {
+                        entry.session_id = Some(session_id);
                     }
                 }
                 Msg::DirectorDone {
@@ -371,356 +508,65 @@ git: Arc<G>,
                 } => {
                     self.handle_director_done(card_id, *outcome, verdict).await;
                 }
-                Msg::DirectorChat { text, reply } => {
-                    let outcome = self.director_chat(text).await;
-                    let _ = reply.send(outcome);
-                }
             }
         }
     }
 
     async fn execute(&mut self, cmd: Command) -> Result<u64, String> {
-        let events = match self.board.decide(&cmd) {
-            Ok(events) => events,
-            Err(e) => return Err(e.to_string()),
-        };
-        self.persist(events).await
+        let events = self.board.decide(&cmd).map_err(|e| e.to_string())?;
+        let seq = self.persist(events).await?;
+        // A discarded card leaves a branch and a checkout behind; the board no
+        // longer knows about it, so nothing else would ever clean it up.
+        if let Command::DiscardCard { card_id, .. } = &cmd {
+            if let Some(session) = self.sessions.remove(card_id) {
+                let git = Arc::clone(&self.git);
+                let worktree = WorktreePath(session.worktree);
+                let removed =
+                    tokio::task::block_in_place(move || git.remove_worktree(&worktree));
+                if let Err(e) = removed {
+                    eprintln!("could not remove the worktree for {card_id}: {e}");
+                }
+            }
+        }
+        Ok(seq)
     }
 
-    async fn start_run(&mut self, card_id: CardId, prompt: String) -> Result<RunId, String> {
-        if self.runs.contains_key(&card_id) {
-            return Err("card already has an active run".to_string());
-        }
-        let run_id = RunId(uuid::Uuid::new_v4().to_string());
-        let events = self
-            .board
-            .decide(&Command::StartRun {
+    fn active_runs(&self) -> Vec<ActiveRun> {
+        self.runs
+            .iter()
+            .map(|(card_id, entry)| ActiveRun {
                 card_id: card_id.clone(),
-                run_id: run_id.clone(),
+                run_id: entry.run_id.clone(),
+                agent_id: entry.agent_id.clone(),
+                worktree: entry.worktree.0.to_string_lossy().to_string(),
+                started_ms: entry.started_ms,
             })
-            .map_err(|e| e.to_string())?;
-        self.persist(events).await?;
-        #[cfg(test)]
-        eprintln!(
-            "[probe] start_run persisted ok card={card_id} status={:?}",
-            self.board.get(&card_id).map(|c| c.status)
-        );
+            .collect()
+    }
 
-        let worktree = {
+    /// Cancel every run, then (when configured) leave a wip commit behind so
+    /// closing the window never loses work.
+    async fn shutdown(&mut self) {
+        let entries: Vec<(CancellationToken, WorktreePath)> = self
+            .runs
+            .values()
+            .map(|e| (e.token.clone(), e.worktree.clone()))
+            .collect();
+        for (token, _) in &entries {
+            token.cancel();
+        }
+        if !self.policy.commit_wip_on_close {
+            return;
+        }
+        for (_, worktree) in entries {
             let git = Arc::clone(&self.git);
-            let cid = card_id.to_string();
-            let base = self.config.base_branch.clone();
-            tokio::task::block_in_place(move || git.create_worktree(&cid, &base))
-                .map_err(|e| e.to_string())?
-        };
-
-        let token = CancellationToken::new();
-        self.runs.insert(
-            card_id.clone(),
-            RunEntry {
-                token: token.clone(),
-                _worktree: worktree.clone(),
-            },
-        );
-        self.sessions
-            .insert(card_id.clone(), (worktree.0.clone(), None));
-
-        let spec = RunSpec {
-            prompt,
-            cwd: worktree.0.clone(),
-            model: None,
-            allowed_tools: Some(self.config.worker_allowed_tools.clone()),
-            max_budget_usd: None,
-            permission_mode: Some(self.config.permission_mode.clone()),
-            approver: self.approver.clone(),
-        };
-
-        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(256);
-        let fut = self.agent.run(spec, ev_tx, token);
-
-        let upd_tx = self.runs_tx.clone();
-        let self_tx = self.self_tx.clone();
-        let upd_card = card_id.clone();
-        let upd_run = run_id.clone();
-        let done_card = card_id;
-        let done_run = run_id.clone();
-        let git = Arc::clone(&self.git);
-        let wt_for_wip = worktree;
-
-        tokio::spawn(async move {
-            let forward = async {
-                while let Some(ev) = ev_rx.recv().await {
-                    if let RunEvent::Started { session_id } = &ev {
-                        let _ = self_tx.send(Msg::AgentSession {
-                            card_id: upd_card.clone(),
-                            session_id: session_id.clone(),
-                        })
-                        .await;
-                    }
-                    let _ = upd_tx.send(RunUpdate {
-                        card_id: upd_card.clone(),
-                        run_id: upd_run.clone(),
-                        event: ev,
-                    });
-                }
-            };
-            let (result, _) = tokio::join!(fut, forward);
-            let outcome = result.unwrap_or_else(harness_ports::RunOutcome::Failed);
-            match &outcome {
-                harness_ports::RunOutcome::Completed { .. } => {
-                    let trailers = harness_ports::Trailers(vec![
-                        ("Harness-Card".to_string(), done_card.to_string()),
-                        ("Harness-Run".to_string(), done_run.to_string()),
-                    ]);
-                    let _ = tokio::task::block_in_place(|| {
-                        git.commit(
-                            &wt_for_wip,
-                            &format!("work for card {done_card}"),
-                            &trailers,
-                        )
-                    });
-                }
-                harness_ports::RunOutcome::Cancelled | harness_ports::RunOutcome::Failed(_) => {
-                    let _ = tokio::task::block_in_place(|| git.commit_wip(&wt_for_wip));
-                }
-            }
-            let _ = self_tx
-                .send(Msg::RunDone {
-                    card_id: done_card,
-                    run_id: done_run,
-                    outcome,
-                })
-                .await;
-        });
-
-        Ok(run_id)
-    }
-
-    fn cancel_run(&mut self, card_id: &CardId) -> Result<(), String> {
-        match self.runs.get(card_id) {
-            Some(entry) => {
-                entry.token.cancel();
-                Ok(())
-            }
-            None => Err("no active run for this card".to_string()),
-        }
-    }
-
-    async fn finish_run(
-        &mut self,
-        card_id: CardId,
-        run_id: RunId,
-        outcome: harness_ports::RunOutcome,
-    ) {
-        self.runs.remove(&card_id);
-        let domain_outcome = match outcome {
-            harness_ports::RunOutcome::Completed { .. } => RunOutcome::Completed,
-            harness_ports::RunOutcome::Cancelled => RunOutcome::Cancelled,
-            harness_ports::RunOutcome::Failed(ref msg) => {
-                eprintln!("run on card {card_id} failed: {msg}");
-                RunOutcome::Failed
-            }
-        };
-        let events = match self.board.decide(&Command::FinishRun {
-            card_id: card_id.clone(),
-            run_id: run_id.clone(),
-            outcome: domain_outcome,
-        }) {
-            Ok(events) => events,
-            Err(e) => {
-                eprintln!("finish_run rejected for {card_id}/{run_id}: {e}");
-                return;
-            }
-        };
-        if let Err(e) = self.persist(events).await {
-            eprintln!("finish_run persist failed for {card_id}: {e}");
-            return;
-        }
-        if matches!(outcome, harness_ports::RunOutcome::Completed { .. }) {
-            self.run_director(card_id).await;
-        }
-    }
-
-    async fn director_chat(&mut self, text: String) -> Result<(), String> {
-        let board_summary = self
-            .board
-            .cards()
-            .into_iter()
-            .map(|c| format!("- [{:?}] {}", c.status, c.title))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let prompt = format!(
-            "You are the Director of an agent harness. The kanban board currently holds:\n\
-             {board_summary}\n\n\
-             The operator writes to you directly. Answer concisely and practically.\n\
-             You may read files under the current workspace if needed.\n\n\
-             Operator: {text}"
-        );
-
-        let spec = RunSpec {
-            prompt,
-            cwd: self.config.repo_root.clone(),
-            model: None,
-            allowed_tools: Some(vec!["Read".into(), "Glob".into(), "Grep".into()]),
-            max_budget_usd: None,
-            permission_mode: Some("dontAsk".to_string()),
-            approver: None,
-        };
-
-        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-        let token = CancellationToken::new();
-        let fut = self.director.run(spec, ev_tx, token);
-
-        let upd_tx = self.runs_tx.clone();
-        let chat_card = CardId::new("director");
-        let chat_run = RunId(uuid::Uuid::new_v4().to_string());
-
-        tokio::spawn(async move {
-            let forward = async {
-                while let Some(ev) = ev_rx.recv().await {
-                    match &ev {
-                        RunEvent::Text { text } => {
-                            let _ = upd_tx.send(RunUpdate {
-                                card_id: chat_card.clone(),
-                                run_id: chat_run.clone(),
-                                event: RunEvent::Text { text: text.clone() },
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            };
-            let _ = tokio::join!(fut, forward);
-        });
-
-        Ok(())
-    }
-
-    async fn run_director(&mut self, card_id: CardId) {        let (worktree, _) = match self.sessions.get(&card_id) {
-            Some(v) => v.clone(),
-            None => return,
-        };
-        let git = Arc::clone(&self.git);
-        let wt = WorktreePath(worktree.clone());
-        let base = self.config.base_branch.clone();
-        let diff = tokio::task::block_in_place(move || git.diff_summary(&wt, &base))
-            .unwrap_or_else(|_| "(diff unavailable)".to_string());
-
-        let prompt = format!(
-            "You are the Director reviewing work done for kanban card '{card_id}'.\n\n\
-             Review the following git diff summary produced by the agent in its worktree.\n\
-             Judge whether the work fulfills the task reasonably.\n\n\
-             Respond with ONLY a JSON object, no other text:\n\
-             {{\"decision\": \"approve\"|\"reject\", \"reason\": \"<short explanation>\"}}\n\n\
-             DIFF:\n{diff}"
-        );
-
-        let run_id = RunId(uuid::Uuid::new_v4().to_string());
-        let spec = RunSpec {
-            prompt,
-            cwd: worktree,
-            model: None,
-            allowed_tools: Some(vec!["Read".into(), "Glob".into(), "Grep".into()]),
-            max_budget_usd: None,
-            permission_mode: Some("dontAsk".to_string()),
-            approver: None,
-        };
-
-        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-        let token = CancellationToken::new();
-        let fut = self.director.run(spec, ev_tx, token);
-
-        let upd_tx = self.runs_tx.clone();
-        let self_tx = self.self_tx.clone();
-        let upd_card = card_id;
-        let director_run = run_id;
-        let last_result = Arc::new(std::sync::Mutex::new(None::<String>));
-        let lr = Arc::clone(&last_result);
-
-        tokio::spawn(async move {
-            let forward = async {
-                while let Some(ev) = ev_rx.recv().await {
-                    match &ev {
-                        RunEvent::Done { result: Some(r), .. } => {
-                            *lr.lock().unwrap() = Some(r.clone());
-                        }
-                        RunEvent::Text { text } => {
-                            let _ = upd_tx.send(RunUpdate {
-                                card_id: upd_card.clone(),
-                                run_id: director_run.clone(),
-                                event: RunEvent::Text {
-                                    text: format!("[director] {text}"),
-                                },
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            };
-            let (res, _) = tokio::join!(fut, forward);
-            let outcome = res.unwrap_or_else(harness_ports::RunOutcome::Failed);
-            let verdict = last_result.lock().unwrap().clone();
-            let _ = self_tx
-                .send(Msg::DirectorDone {
-                    card_id: upd_card,
-                    outcome: Box::new(outcome),
-                    verdict,
-                })
-                .await;
-        });
-    }
-
-    async fn handle_director_done(
-        &mut self,
-        card_id: CardId,
-        outcome: harness_ports::RunOutcome,
-        verdict: Option<String>,
-    ) {
-        if !matches!(outcome, harness_ports::RunOutcome::Completed { .. }) {
-            eprintln!("director run failed for {card_id}; leaving card in Review");
-            return;
-        }
-        let raw = verdict.unwrap_or_default();
-        let parsed = extract_json_object(&raw)
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| {
-                let decision = v.get("decision")?.as_str()?.to_string();
-                let reason = v
-                    .get("reason")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                Some((decision, reason))
-            });
-
-        let cmd = match parsed {
-            Some((d, reason)) if d == "approve" => Command::ApproveCard {
-                card_id: card_id.clone(),
-            },
-            Some((d, reason)) if d == "reject" => Command::RejectCard {
-                card_id: card_id.clone(),
-                reason: format!("director: {reason}"),
-            },
-            _ => {
-                eprintln!("director verdict unparsable for {card_id}; leaving card in Review");
-                return;
-            }
-        };
-        let events = match self.board.decide(&cmd) {
-            Ok(events) => events,
-            Err(e) => {
-                eprintln!("director decision rejected for {card_id}: {e}");
-                return;
-            }
-        };
-        if let Err(e) = self.persist(events).await {
-            eprintln!("director persist failed for {card_id}: {e}");
+            let _ = tokio::task::block_in_place(move || git.commit_wip(&worktree));
         }
     }
 }
 
-fn extract_json_object(s: &str) -> Option<String> {
+/// Pull a JSON object out of a model reply that may be wrapped in prose.
+pub(crate) fn extract_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
     let end = s.rfind('}')?;
     if end < start {
@@ -729,480 +575,10 @@ fn extract_json_object(s: &str) -> Option<String> {
     Some(s[start..=end].to_string())
 }
 
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Mutex;
-    use std::time::Duration;
-
-    use harness_domain::{CardId, Status};
-    use harness_ports::{GitError, RunOutcome, StoreError, StorePort, Trailers};
-
-    use super::*;
-
-    struct MemStore {
-        records: Mutex<Vec<StoredEvent>>,
-        next: AtomicU64,
-    }
-
-    impl Default for MemStore {
-        fn default() -> Self {
-            Self {
-                records: Mutex::new(Vec::new()),
-                next: AtomicU64::new(1),
-            }
-        }
-    }
-
-    impl MemStore {
-        fn count(&self) -> usize {
-            self.records.lock().unwrap().len()
-        }
-    }
-
-    impl StorePort for MemStore {
-        fn append_event(&self, e: &Event) -> Result<StoredEvent, StoreError> {
-            let seq = self.next.fetch_add(1, Ordering::SeqCst);
-            self.records.lock().unwrap().push(StoredEvent {
-                seq,
-                event: e.clone(),
-            });
-            Ok(StoredEvent { seq, event: e.clone() })
-        }
-
-        fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError> {
-            Ok(self.records.lock().unwrap().clone())
-        }
-    }
-
-    struct FixedClock;
-
-    impl ClockPort for FixedClock {
-        fn now_millis(&self) -> u64 {
-            42
-        }
-    }
-
-    enum FakeMode {
-        Complete,
-        WaitCancelled,
-        DirectApprove,
-        DirectReject,
-    }
-
-    struct FakeAgent(FakeMode);
-
-    type PinBox<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>>;
-
-    impl AgentPort for FakeAgent {
-        fn run(
-            &self,
-            _spec: RunSpec,
-            tx: mpsc::Sender<RunEvent>,
-            cancel: CancellationToken,
-        ) -> PinBox<Result<RunOutcome, String>> {
-            match self.0 {
-                FakeMode::Complete => Box::pin(async move {
-                    let _ = tx.send(RunEvent::Started { session_id: "sess-42".into() }).await;
-                    let _ = tx.send(RunEvent::Text { text: "working".into() }).await;
-                    drop(tx);
-                    Ok(RunOutcome::Completed {
-                        session_id: Some("s1".into()),
-                        cost_usd: Some(0.01),
-                    })
-                }),
-                FakeMode::WaitCancelled => Box::pin(async move {
-                    cancel.cancelled().await;
-                    drop(tx);
-                    Ok(RunOutcome::Cancelled)
-                }),
-                FakeMode::DirectApprove => Box::pin(async move {
-                    let _ = tx
-                        .send(RunEvent::Done {
-                            session_id: None,
-                            cost_usd: Some(0.0),
-                            result: Some(
-                                "{\"decision\":\"approve\",\"reason\":\"fine\"}".into(),
-                            ),
-                        })
-                        .await;
-                    drop(tx);
-                    Ok(RunOutcome::Completed {
-                        session_id: None,
-                        cost_usd: Some(0.0),
-                    })
-                }),
-                FakeMode::DirectReject => Box::pin(async move {
-                    let _ = tx
-                        .send(RunEvent::Done {
-                            session_id: None,
-                            cost_usd: Some(0.0),
-                            result: Some(
-                                "{\"decision\":\"reject\",\"reason\":\"not good enough\"}"
-                                    .into(),
-                            ),
-                        })
-                        .await;
-                    drop(tx);
-                    Ok(RunOutcome::Completed {
-                        session_id: None,
-                        cost_usd: Some(0.0),
-                    })
-                }),
-            }
-        }
-    }
-
-    struct FakeGit {
-        calls: Mutex<Vec<String>>,
-    }
-
-    impl FakeGit {
-        fn new() -> Self {
-            Self {
-                calls: Mutex::new(Vec::new()),
-            }
-        }
-
-        fn calls(&self) -> Vec<String> {
-            self.calls.lock().unwrap().clone()
-        }
-    }
-
-    impl GitPort for FakeGit {
-        fn create_worktree(&self, card_id: &str, _base: &str) -> Result<WorktreePath, GitError> {
-            self.calls.lock().unwrap().push(format!("create:{card_id}"));
-            Ok(WorktreePath(std::env::temp_dir()))
-        }
-
-        fn commit(&self, _wt: &WorktreePath, msg: &str, _t: &Trailers) -> Result<String, GitError> {
-            self.calls.lock().unwrap().push(format!("commit:{msg}"));
-            Ok("deadbeef".into())
-        }
-
-        fn commit_wip(&self, _wt: &WorktreePath) -> Result<Option<String>, GitError> {
-            self.calls.lock().unwrap().push("wip".into());
-            Ok(Some("wipbeef".into()))
-        }
-
-        fn remove_worktree(&self, _wt: &WorktreePath) -> Result<(), GitError> {
-            Ok(())
-        }
-
-        fn diff_summary(
-            &self,
-            _wt: &WorktreePath,
-            _base: &str,
-        ) -> Result<String, GitError> {
-            Ok("diff --git a/eggs.md b/eggs.md\n+egg content".to_string())
-        }
-    }
-
-    async fn wait_for(label: &str, mut check: impl AsyncFnMut() -> bool) {
-        let mut check = check;
-        for _ in 0..300 {
-            if check().await {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("timeout: {label}");
-    }
-
-    fn test_config() -> EngineConfig {
-        EngineConfig {
-            repo_root: std::env::temp_dir(),
-            base_branch: "main".into(),
-            permission_mode: "acceptEdits".into(),
-            worker_allowed_tools: vec![
-                "Read".into(),
-                "Edit".into(),
-                "Write".into(),
-                "Glob".into(),
-                "Grep".into(),
-                "Bash(git *)".into(),
-            ],
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn accepted_commands_persist_and_update_state() {
-        let store = Arc::new(MemStore::default());
-        let (handle, mut sub, _runs) = Engine::spawn(
-            store.clone(),
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            None,
-            Arc::new(FakeGit::new()),
-            test_config(),
-            vec![],
-        );
-
-        let id = CardId::new("c1");
-        let seq = handle
-            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-            .await
-            .unwrap();
-        assert_eq!(seq, 1);
-
-        handle
-            .execute(Command::MoveCard { card_id: id.clone(), to: Status::Ready })
-            .await
-            .unwrap();
-
-        let snap = handle.snapshot().await.unwrap();
-        assert_eq!(snap.last_seq, 2);
-        assert_eq!(snap.cards[0].status, Status::Ready);
-        assert_eq!(store.count(), 2);
-        assert_eq!(sub.try_recv().unwrap().seq, 1);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn start_run_streams_events_creates_worktree_and_finishes_in_review() {
-        let store = Arc::new(MemStore::default());
-        let git = Arc::new(FakeGit::new());
-        let (handle, _logged, mut runs) = Engine::spawn(
-            store.clone(),
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            None,
-            git.clone(),
-            test_config(),
-            vec![],
-        );
-        let id = CardId::new("c1");
-
-        handle
-            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-            .await
-            .unwrap();
-
-        let err = handle.start_run(id.clone(), "do it".into()).await.unwrap_err();
-        assert!(err.contains("must be Ready"), "got: {err}");
-
-        handle
-            .execute(Command::OverrideCard {
-                card_id: id.clone(),
-                to: Status::Ready,
-                reason: "test".into(),
-            })
-            .await
-            .unwrap();
-
-        handle.start_run(id.clone(), "do it".into()).await.unwrap();
-
-        wait_for(
-            "card reaches Running",
-            async || handle.snapshot().await.unwrap().cards[0].status == Status::Running,
-        )
-        .await;
-
-        wait_for(
-            "session captured",
-            async || {
-                handle
-                    .snapshot()
-                    .await
-                    .unwrap()
-                    .sessions
-                    .iter()
-                    .any(|s| s.session_id.as_deref() == Some("sess-42"))
-            },
-        )
-        .await;
-
-        let upd = runs.recv().await.unwrap();
-        assert_eq!(upd.card_id, id);
-        assert!(matches!(upd.event, RunEvent::Started { .. }));
-        let upd = runs.recv().await.unwrap();
-        assert!(matches!(upd.event, RunEvent::Text { .. }));
-
-        wait_for("card reaches Review", async || handle.snapshot().await.unwrap().cards[0].status == Status::Review).await;
-
-        assert!(git.calls().iter().any(|c| c.starts_with("create:")));
-        assert_eq!(store.count(), 4);
-        assert!(handle.cancel_run(id.clone()).await.is_err());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn cancelled_run_returns_card_to_ready_and_commits_wip() {
-        let git = Arc::new(FakeGit::new());
-        let (handle, _logged, _runs) = Engine::spawn(
-            Arc::new(MemStore::default()),
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::WaitCancelled)),
-            Arc::new(FakeAgent(FakeMode::WaitCancelled)),
-            None,
-            git.clone(),
-            test_config(),
-            vec![],
-        );
-        let id = CardId::new("c2");
-
-        handle
-            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-            .await
-            .unwrap();
-        handle
-            .execute(Command::OverrideCard {
-                card_id: id.clone(),
-                to: Status::Ready,
-                reason: "test".into(),
-            })
-            .await
-            .unwrap();
-        handle.start_run(id.clone(), "go".into()).await.unwrap();
-
-        handle.cancel_run(id.clone()).await.unwrap();
-
-        wait_for("card returns to Ready", async || handle.snapshot().await.unwrap().cards[0].status == Status::Ready).await;
-        assert!(git.calls().contains(&"wip".to_string()));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn interrupted_run_recovered_as_failed_on_restart() {
-        let store = Arc::new(MemStore::default());
-        let id = CardId::new("seed");
-
-        {
-            let (handle, _, _) = Engine::spawn(
-                store.clone(),
-                Arc::new(FixedClock),
-                Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-                None,
-                Arc::new(FakeGit::new()),
-                test_config(),
-                vec![],
-            );
-            handle
-                .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-                .await
-                .unwrap();
-            handle
-                .execute(Command::MoveCard { card_id: id.clone(), to: Status::Ready })
-                .await
-                .unwrap();
-        }
-
-        let mut history = store.read_all().unwrap();
-        history.push(StoredEvent {
-            seq: 3,
-            event: Event::RunStarted {
-                card_id: id.clone(),
-                run_id: RunId("ghost".into()),
-            },
-        });
-
-        let (handle, _, _) = Engine::spawn(
-            store,
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            None,
-            Arc::new(FakeGit::new()),
-            test_config(),
-            history,
-        );
-        let snap = handle.snapshot().await.unwrap();
-        assert_eq!(snap.cards[0].status, Status::Ready);
-        assert_eq!(snap.cards[0].current_run, None);
-
-        let seq = handle
-            .execute(Command::MoveCard { card_id: id, to: Status::Running })
-            .await
-            .unwrap();
-        assert_eq!(seq, 4);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn rejected_commands_leave_no_trace() {
-        let store = Arc::new(MemStore::default());
-        let (handle, _sub, _runs) = Engine::spawn(
-            store.clone(),
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            None,
-            Arc::new(FakeGit::new()),
-            test_config(),
-            vec![],
-        );
-        let id = CardId::new("c1");
-        handle
-            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-            .await
-            .unwrap();
-
-        let err = handle
-            .execute(Command::MoveCard { card_id: id, to: Status::Done })
-            .await
-            .unwrap_err();
-        assert!(err.contains("illegal"), "got: {err}");
-        assert_eq!(store.count(), 1);
-    }
-
-    async fn driven_to_review(mode: FakeMode, director: FakeMode) -> (EngineHandle, Arc<MemStore>, Arc<FakeGit>) {
-        let store = Arc::new(MemStore::default());
-        let git = Arc::new(FakeGit::new());
-        let (handle, _logged, _runs) = Engine::spawn(
-            store.clone(),
-            Arc::new(FixedClock),
-            Arc::new(FakeAgent(FakeMode::Complete)),
-            Arc::new(FakeAgent(director)),
-            None,
-            git.clone(),
-            test_config(),
-            vec![],
-        );
-        let id = CardId::new("d1");
-        handle
-            .execute(Command::CreateCard { card_id: id.clone(), title: "t".into() })
-            .await
-            .unwrap();
-        handle
-            .execute(Command::OverrideCard {
-                card_id: id.clone(),
-                to: Status::Ready,
-                reason: "setup".into(),
-            })
-            .await
-            .unwrap();
-        let _ = (mode,);
-        handle.start_run(id.clone(), "work".into()).await.unwrap();
-        (handle, store, git)
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn director_approval_moves_card_to_done() {
-        let (handle, store, git) =
-            driven_to_review(FakeMode::Complete, FakeMode::DirectApprove).await;
-        wait_for(
-            "card reaches Done via director",
-            async || handle.snapshot().await.unwrap().cards[0].status == Status::Done,
-        )
-        .await;
-        assert_eq!(store.count(), 5);
-        assert!(git.calls().iter().any(|c| c.starts_with("commit:")));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn director_rejection_sends_card_back_to_ready() {
-        let (handle, store, _git) =
-            driven_to_review(FakeMode::Complete, FakeMode::DirectReject).await;
-        wait_for(
-            "card returns to Ready via director rejection",
-            async || handle.snapshot().await.unwrap().cards[0].status == Status::Ready,
-        )
-        .await;
-        assert_eq!(store.count(), 5);
-        let history = store.read_all().unwrap();
-        assert!(matches!(
-            history.last().unwrap().event,
-            Event::CardRejected { .. }
-        ));
+pub(crate) fn worktree_label(mode: WorktreeMode) -> &'static str {
+    match mode {
+        WorktreeMode::PerCard => "per card",
+        WorktreeMode::Shared => "shared",
+        WorktreeMode::None => "main checkout",
     }
 }

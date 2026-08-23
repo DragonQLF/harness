@@ -1,555 +1,379 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import "./App.css";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TitleBar } from "./components/TitleBar";
+import { NavRail } from "./components/NavRail";
+import {
+  ApprovalSheet,
+  CommandPalette,
+  DirectorDock,
+  DirectorRail,
+  RejectSheet,
+  Toasts,
+  type PaletteAction,
+} from "./components/Overlays";
+import { Loading } from "./components/ui";
+import { api } from "./lib/ipc";
+import { STATUS_TONE, tone } from "./lib/types";
+import { StoreProvider, useStore } from "./state/store";
+import { Overview } from "./views/Overview";
+import { FirstRun } from "./views/FirstRun";
+import { Board } from "./views/Board";
+import { Sessions } from "./views/Sessions";
+import { AgentDrawer, AgentList } from "./views/Agents";
+import { ProjectPage, Projects } from "./views/Projects";
+import { Activity, DirectorPage, Settings, Worktrees } from "./views/Misc";
+import { VIEW_TITLES, type View } from "./views/views";
+import "./styles/theme.css";
 
-type Status = "backlog" | "ready" | "running" | "review" | "done";
+function Shell() {
+  const {
+    ready,
+    fatal,
+    project,
+    projects,
+    snapshot,
+    status,
+    agents,
+    approvals,
+    addProject,
+    selectProject,
+    installSidecar,
+    startRun,
+    navigation,
+    clearNavigation,
+  } = useStore();
 
-interface Card {
-  id: string;
-  title: string;
-  status: Status;
-  current_run: string | null;
-}
+  const [view, setView] = useState<View>("home");
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
+  const [approvalSheet, setApprovalSheet] = useState(false);
+  const [dock, setDock] = useState(false);
 
-interface Snapshot {
-  last_seq: number;
-  cards: Card[];
-  sessions: { card_id: string; worktree: string; session_id: string | null }[];
-}
+  const go = useCallback((v: View) => setView(v), []);
 
-interface Envelope {
-  seq: number;
-  type: string;
-  card_id?: string;
-  title?: string;
-  to?: Status;
-  reason?: string;
-}
-
-interface RunUpdate {
-  card_id: string;
-  run_id: string;
-  kind?: string;
-  session_id?: string;
-  text?: string;
-  tool?: string;
-  summary?: string;
-  request_id?: string;
-  cost_usd?: number;
-  message?: string;
-}
-
-interface AgentStatus {
-  cli_found: boolean;
-  logged_in: boolean;
-}
-
-interface ChatMsg {
-  role: "user" | "director";
-  text: string;
-}
-
-interface PendingApproval {
-  request_id: string;
-  card_id: string;
-  tool: string;
-  summary: string;
-}
-
-const COLUMNS: Status[] = ["backlog", "ready", "running", "review", "done"];
-const DIRECTOR_ID = "director";
-const appWindow = getCurrentWindow();
-
-function applyEnvelope(cards: Card[], env: Envelope): Card[] {
-  switch (env.type) {
-    case "card_created":
-      return [
-        ...cards,
-        { id: env.card_id!, title: env.title ?? "", status: "backlog", current_run: null },
-      ];
-    case "card_moved":
-    case "card_overridden":
-      return cards.map((c) =>
-        c.id === env.card_id && env.to ? { ...c, status: env.to } : c,
-      );
-    case "run_started":
-      return cards.map((c) =>
-        c.id === env.card_id ? { ...c, status: "running", current_run: env.card_id } : c,
-      );
-    case "run_finished":
-    case "card_approved":
-    case "card_rejected":
-      return cards.map((c) => (c.id === env.card_id ? { ...c, current_run: null } : c));
-    default:
-      return cards;
-  }
-}
-
-function runLine(u: RunUpdate): string | null {
-  switch (u.kind) {
-    case "started":
-      return `> session started (${u.session_id})`;
-    case "text":
-      return u.text ?? null;
-    case "tool_use":
-      return `[${u.tool}] ${u.summary ?? ""}`;
-    case "done":
-      return `done${u.cost_usd != null ? ` - cost $${u.cost_usd.toFixed(4)}` : ""}`;
-    case "failed":
-      return `FAILED: ${u.message ?? "unknown"}`;
-    default:
-      return null;
-  }
-}
-
-function TitleBar({ status }: { status: AgentStatus | null }) {
-  const [maximized, setMaximized] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    appWindow.isMaximized().then((m) => alive && setMaximized(m)).catch(() => {});
-    return () => {
-      alive = false;
-    };
+  const openRun = useCallback((cardId: string) => {
+    setSelectedCard(cardId);
+    setView("runs");
   }, []);
 
-  return (
-    <header className="titlebar">
-      <div className="titlebar-drag">
-        <span className="brand">harness</span>
-        <span
-          className={`dot ${
-            status == null ? "" : status.cli_found && status.logged_in ? "ok" : "bad"
-          }`}
-          title={
-            status == null
-              ? "checking claude..."
-              : !status.cli_found
-                ? "claude CLI not found"
-                : status.logged_in
-                  ? "claude ready"
-                  : "claude not logged in"
-          }
-        />
-      </div>
-      <div className="titlebar-controls">
-        <button className="tb-btn" onClick={() => appWindow.minimize()} aria-label="minimize">
-          &#x2500;
-        </button>
-        <button
-          className="tb-btn"
-          onClick={() => (maximized ? appWindow.unmaximize() : appWindow.maximize())}
-          aria-label="maximize"
-        >
-          {maximized ? "\u2750" : "\u25A1"}
-        </button>
-        <button className="tb-btn close" onClick={() => appWindow.close()} aria-label="close">
-          &#x2715;
-        </button>
-      </div>
-    </header>
-  );
-}
+  const openAgent = useCallback((id: string) => {
+    setAgentId(id);
+    setView("agent");
+  }, []);
 
-function DirectorSidebar({
-  messages,
-  input,
-  setInput,
-  onSend,
-  busy,
-}: {
-  messages: ChatMsg[];
-  input: string;
-  setInput: (v: string) => void;
-  onSend: () => void;
-  busy: boolean;
-}) {
-  const endRef = useRef<HTMLDivElement | null>(null);
+  // The Director can take the operator somewhere: it calls open_screen, the
+  // shell follows. Screen names are its vocabulary, mapped to real views here.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!navigation) return;
+    const map: Record<string, View> = {
+      home: "home",
+      board: "board",
+      work: "board",
+      runs: "runs",
+      sessions: "runs",
+      code: "project",
+      project: "project",
+      trees: "trees",
+      worktrees: "trees",
+      sessions_list: "runs",
+      log: "log",
+      activity: "log",
+      agents: "agents",
+      projects: "projects",
+      settings: "settings",
+      director: "director",
+    };
+    const view = map[navigation.screen.toLowerCase()];
+    if (view) {
+      if (navigation.card_id) setSelectedCard(navigation.card_id);
+      setView(view);
+    }
+    clearNavigation();
+  }, [navigation, clearNavigation]);
+
+  // A permission request takes the front when nothing else is open.
+  useEffect(() => {
+    if (approvals.length > 0 && !palette && !rejecting) setApprovalSheet(true);
+    if (approvals.length === 0) setApprovalSheet(false);
+  }, [approvals.length, palette, rejecting]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+        return;
+      }
+      if (e.key !== "Escape") return;
+      if (palette) setPalette(false);
+      else if (rejecting) setRejecting(null);
+      else if (approvalSheet) setApprovalSheet(false);
+      else if (view === "agent") setView("agents");
+      else if (dock) setDock(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [approvalSheet, dock, palette, rejecting, view]);
+
+  const actions = useMemo<PaletteAction[]>(() => {
+    const screens: View[] = [
+      "home",
+      "director",
+      "project",
+      "projects",
+      "agents",
+      "board",
+      "runs",
+      "trees",
+      "log",
+      "settings",
+    ];
+    const list: PaletteAction[] = screens.map((v) => ({
+      name: VIEW_TITLES[v],
+      hint: "screen",
+      color: "var(--accent)",
+      run: () => setView(v),
+    }));
+
+    list.push({
+      name: "Ask the Director",
+      hint: "panel",
+      color: "var(--info)",
+      run: () => setDock(true),
+    });
+    list.push({ name: "Add a project", hint: "action", color: "var(--ok)", run: addProject });
+
+    projects.forEach((p) =>
+      list.push({
+        name: p.name,
+        hint: "project",
+        color: tone(p.tone).color,
+        run: () => {
+          selectProject(p.id);
+          setView("board");
+        },
+      }),
+    );
+    agents.forEach((a) =>
+      list.push({
+        name: a.name,
+        hint: "agent",
+        color: tone(a.tone).color,
+        run: () => openAgent(a.id),
+      }),
+    );
+    (snapshot?.cards ?? []).forEach((c) =>
+      list.push({
+        name: c.title,
+        hint: c.id,
+        color: STATUS_TONE[c.status].color,
+        run: () => openRun(c.id),
+      }),
+    );
+    (snapshot?.cards ?? [])
+      .filter((c) => c.status === "ready")
+      .forEach((c) =>
+        list.push({
+          name: `Start: ${c.title}`,
+          hint: "run",
+          color: "var(--info)",
+          run: () => startRun(c.id),
+        }),
+      );
+    return list;
+  }, [addProject, agents, openAgent, openRun, projects, selectProject, snapshot, startRun]);
+
+  if (fatal) {
+    return (
+      <div style={{ padding: 40, maxWidth: 640 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
+          Harness could not start
+        </h1>
+        <pre
+          style={{
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "var(--surface2)",
+            border: "1px solid var(--line)",
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {fatal}
+        </pre>
+        <p style={{ fontSize: 12.5, color: "var(--text3)" }}>
+          The backend refused the first call. Check the terminal Harness was started from.
+        </p>
+      </div>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Loading what="Starting Harness" />
+      </div>
+    );
+  }
+
+  // With no project there is no board, no history and no sessions: every one of
+  // those screens becomes the on-ramp instead of an empty panel.
+  const needsProject =
+    view === "home" ||
+    view === "board" ||
+    view === "runs" ||
+    view === "log" ||
+    view === "trees" ||
+    view === "project";
+  const firstRun = !project && needsProject;
 
   return (
-    <aside className="sidebar">
-      <h1 className="sidebar-title">Director</h1>
-      <div className="chat-scroll">
-        {messages.length === 0 && (
-          <p className="chat-empty">
-            Talk to the Director. It sees the board and the workspace.
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>
-            {m.text}
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-      <form
-        className="chat-input"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!input.trim() || busy) return;
-          onSend();
-        }}
-      >
-        <textarea
-          rows={2}
-          value={input}
-          placeholder={busy ? "Director is thinking..." : "Message the director..."}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (input.trim() && !busy) onSend();
-            }
+    <div
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--bg)",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      <TitleBar onPalette={() => setPalette(true)} onApprovals={() => setApprovalSheet(true)} />
+
+      {status && !status.ready && status.blocker && (
+        <div
+          style={{
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "9px 26px",
+            background: status.claude.logged_in ? "var(--warnSoft)" : "var(--badSoft)",
+            color: status.claude.logged_in ? "var(--warn)" : "var(--bad)",
+            borderBottom: "1px solid var(--line)",
+            fontSize: 12.5,
+            fontWeight: 600,
           }}
-        />
-        <button type="submit" disabled={!input.trim() || busy}>
-          send
-        </button>
-      </form>
-    </aside>
+        >
+          <span>{status.blocker}</span>
+          <span style={{ flex: 1 }} />
+          {!status.claude.logged_in && (
+            <button
+              type="button"
+              className="hv-bright"
+              onClick={() => api.openClaudeTerminal().catch(() => {})}
+              style={{
+                padding: "6px 13px",
+                border: "1px solid currentColor",
+                borderRadius: 999,
+                background: "transparent",
+                color: "inherit",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Open a terminal
+            </button>
+          )}
+          {status.claude.logged_in && !status.sidecar.ready && status.sidecar.node_found && (
+            <button
+              type="button"
+              className="hv-bright"
+              onClick={installSidecar}
+              style={{
+                padding: "6px 13px",
+                border: "1px solid currentColor",
+                borderRadius: 999,
+                background: "transparent",
+                color: "inherit",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Install the sidecar
+            </button>
+          )}
+        </div>
+      )}
+
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <NavRail view={view} go={go} />
+
+        <main
+          style={{
+            position: "relative",
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            background: "var(--bg)",
+            overflow: "hidden",
+          }}
+        >
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            {firstRun ? (
+              <FirstRun openChat={() => setDock(true)} />
+            ) : (
+              <>
+                {view === "home" && (
+                  <Overview
+                    go={go}
+                    openRun={openRun}
+                    openAgent={openAgent}
+                    openReject={setRejecting}
+                    openApprovals={() => setApprovalSheet(true)}
+                  />
+                )}
+                {view === "director" && <DirectorPage go={go} openChat={() => setDock(true)} />}
+                {view === "projects" && <Projects go={go} />}
+                {view === "project" && <ProjectPage go={go} />}
+                {(view === "agents" || view === "agent") && (
+                  <AgentList open={openAgent} go={go} />
+                )}
+                {view === "board" && <Board openRun={openRun} openReject={setRejecting} />}
+                {view === "runs" && (
+                  <Sessions
+                    selected={selectedCard}
+                    select={setSelectedCard}
+                    openReject={setRejecting}
+                  />
+                )}
+                {view === "trees" && <Worktrees />}
+                {view === "log" && <Activity openRun={openRun} />}
+                {view === "settings" && <Settings />}
+              </>
+            )}
+          </div>
+
+          {view === "agent" && agentId && (
+            <AgentDrawer
+              agentId={agentId}
+              close={() => setView("agents")}
+              openRun={openRun}
+              go={go}
+            />
+          )}
+        </main>
+
+        {dock ? <DirectorDock close={() => setDock(false)} /> : <DirectorRail open={() => setDock(true)} />}
+      </div>
+
+      <CommandPalette open={palette} close={() => setPalette(false)} actions={actions} />
+      {approvalSheet && <ApprovalSheet close={() => setApprovalSheet(false)} />}
+      <RejectSheet cardId={rejecting} close={() => setRejecting(null)} />
+      <Toasts />
+    </div>
   );
 }
 
 export default function App() {
-  const [cards, setCards] = useState<Card[]>([]);
-  const [sessions, setSessions] = useState<Snapshot["sessions"]>([]);
-  const [outputs, setOutputs] = useState<Record<string, string[]>>({});
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [chat, setChat] = useState<ChatMsg[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatBusy, setChatBusy] = useState(false);
-  const [approval, setApproval] = useState<PendingApproval | null>(null);
-  const seqRef = useRef(-1);
-
-  const refresh = useCallback(async () => {
-    try {
-      const snap = await invoke<Snapshot>("snapshot");
-      setCards(snap.cards);
-      setSessions(snap.sessions ?? []);
-      seqRef.current = snap.last_seq;
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, []);
-
-  const refreshStatus = useCallback(async () => {
-    try {
-      setStatus(await invoke<AgentStatus>("agent_status"));
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshStatus();
-    const t = setInterval(refreshStatus, 15000);
-    return () => clearInterval(t);
-  }, [refreshStatus]);
-
-  const sendChat = async () => {
-    const text = chatInput.trim();
-    if (!text || chatBusy) return;
-    setChat((cs) => [...cs, { role: "user", text }]);
-    setChatInput("");
-    setChatBusy(true);
-    try {
-      await invoke("director_chat", { text });
-    } catch (e) {
-      setChat((cs) => [...cs, { role: "director", text: `(error) ${String(e)}` }]);
-    } finally {
-      setChatBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    const unlistens: UnlistenFn[] = [];
-
-    refresh();
-
-    listen<Envelope>("engine://event", (evt) => {
-      if (cancelled) return;
-      const env = evt.payload;
-      const prev = seqRef.current;
-      if (prev >= 0 && env.seq !== prev + 1) {
-        refresh();
-        return;
-      }
-      seqRef.current = env.seq;
-      setCards((cs) => applyEnvelope(cs, env));
-      const verdictLine =
-        env.type === "card_approved"
-          ? "[director] approved - moving to done"
-          : env.type === "card_rejected"
-            ? `[director] rejected: ${env.reason ?? "no reason given"}`
-            : null;
-      if (verdictLine && env.card_id) {
-        const cid = env.card_id;
-        setOutputs((prev) => ({
-          ...prev,
-          [cid]: [...(prev[cid] ?? []), verdictLine].slice(-40),
-        }));
-      }
-    }).then((u) => {
-      if (cancelled) u();
-      else unlistens.push(u);
-    });
-
-    listen<RunUpdate>("engine://run", (evt) => {
-      if (cancelled) return;
-      const u = evt.payload;
-      if (u.card_id === DIRECTOR_ID) {
-        if (u.kind === "text" && u.text) {
-          setChat((cs) => {
-            const last = cs[cs.length - 1];
-            if (last && last.role === "director") {
-              const copy = cs.slice(0, -1);
-              copy.push({ role: "director", text: `${last.text}\n${u.text}` });
-              return copy;
-            }
-            return [...cs, { role: "director", text: u.text! }];
-          });
-        }
-        return;
-      }
-      if (u.kind === "approval_requested" && u.request_id) {
-        setApproval({
-          request_id: u.request_id,
-          card_id: u.card_id,
-          tool: u.tool ?? "tool",
-          summary: u.summary ?? "",
-        });
-      }
-      const line = runLine(u);
-      if (!line) return;
-      setOutputs((prev) => {
-        const arr = [...(prev[u.card_id] ?? []), line];
-        return { ...prev, [u.card_id]: arr.slice(-40) };
-      });
-    }).then((u) => {
-      if (cancelled) u();
-      else unlistens.push(u);
-    });
-
-    return () => {
-      cancelled = true;
-      unlistens.forEach((u) => u());
-    };
-  }, [refresh]);
-
-  const create = async () => {
-    try {
-      await invoke("create_card", { title });
-      setTitle("");
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const move = async (cardId: string, to: Status) => {
-    setError(null);
-    try {
-      await invoke("move_card", { cardId, to });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const override = async (cardId: string) => {
-    const reason = prompt(`Reason for overriding ${cardId}:`);
-    if (!reason) return;
-    const to = prompt(`Target column (${COLUMNS.join(", ")}):`);
-    if (!to || !COLUMNS.includes(to as Status)) return;
-    setError(null);
-    try {
-      await invoke("override_card", { cardId, to, reason });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const run = async (cardId: string) => {
-    const task = prompt(`Task for the agent on ${cardId}:`);
-    if (!task) return;
-    setError(null);
-    try {
-      await invoke("start_run", { cardId, prompt: task });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const stop = async (cardId: string) => {
-    setError(null);
-    try {
-      await invoke("cancel_run", { cardId });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const approve = async (cardId: string) => {
-    setError(null);
-    try {
-      await invoke("approve_card", { cardId });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const reject = async (cardId: string) => {
-    const reason = prompt("Why is this work rejected?");
-    if (!reason) return;
-    setError(null);
-    try {
-      await invoke("reject_card", { cardId, reason });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const loginTerminal = async () => {
-    try {
-      await invoke("open_claude_terminal");
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const agentTerminal = async (cardId: string) => {
-    try {
-      await invoke("open_agent_terminal", { cardId });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const answerApproval = async (allow: boolean) => {
-    if (!approval) return;
-    const req = approval;
-    setApproval(null);
-    setOutputs((prev) => ({
-      ...prev,
-      [req.card_id]: [
-        ...(prev[req.card_id] ?? []),
-        `[approval] ${req.tool} ${allow ? "ALLOWED" : "DENIED"} - ${req.summary}`,
-      ].slice(-40),
-    }));
-    try {
-      await invoke("respond_approval", { requestId: req.request_id, allow });
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   return (
-    <div className="shell">
-      <TitleBar status={status} />
-      {approval && (
-        <div className="overlay">
-          <div className="approval-card">
-            <h3>Permission requested</h3>
-            <p className="approval-tool">{approval.tool}</p>
-            <pre className="approval-summary">{approval.summary}</pre>
-            <p className="approval-hint">Card: {approval.card_id}</p>
-            <div className="row-actions">
-              <button className="approve" onClick={() => answerApproval(true)}>
-                Allow
-              </button>
-              <button className="override" onClick={() => answerApproval(false)}>
-                Deny
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {!status?.logged_in && (
-        <div className="banner">
-          claude is not logged in.
-          <button onClick={loginTerminal}>open claude terminal (/login)</button>
-          <button onClick={refreshStatus}>recheck</button>
-        </div>
-      )}
-      <div className="body">
-        <main className="stage">
-          <form
-            className="new-card"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create();
-            }}
-          >
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="New card title"
-            />
-            <button type="submit">Add card</button>
-          </form>
-          {error && <div className="error">{error}</div>}
-          <div className="columns">
-            {COLUMNS.map((col) => (
-              <section key={col} className="column">
-                <h2>{col}</h2>
-                {cards
-                  .filter((c) => c.status === col)
-                  .map((c) => (
-                    <article key={c.id} className="card">
-                      <p>{c.title}</p>
-                      {col === "ready" && (
-                        <button onClick={() => run(c.id)}>run agent</button>
-                      )}
-                      {col === "running" && (
-                        <>
-                          <div className="row-actions">
-                            <button onClick={() => stop(c.id)}>stop</button>
-                            <button onClick={() => agentTerminal(c.id)}>terminal</button>
-                          </div>
-                          <pre className="output">{(outputs[c.id] ?? []).join("\n")}</pre>
-                        </>
-                      )}
-                      {col === "review" && (
-                        <div className="row-actions">
-                          <button className="approve" onClick={() => approve(c.id)}>
-                            approve
-                          </button>
-                          <button className="override" onClick={() => reject(c.id)}>
-                            reject…
-                          </button>
-                        </div>
-                      )}
-                      <div className="actions">
-                        {COLUMNS.filter((t) => t !== col).map((t) => (
-                          <button key={t} onClick={() => move(c.id, t)}>
-                            → {t}
-                          </button>
-                        ))}
-                        <button className="override" onClick={() => override(c.id)}>
-                          override…
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-              </section>
-            ))}
-          </div>
-        </main>
-        <DirectorSidebar
-          messages={chat}
-          input={chatInput}
-          setInput={setChatInput}
-          onSend={sendChat}
-          busy={chatBusy}
-        />
-      </div>
-    </div>
+    <StoreProvider>
+      <Shell />
+    </StoreProvider>
   );
 }

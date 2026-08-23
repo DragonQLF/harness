@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 
-use harness_ports::{RunEvent, RunOutcome, RunSpec};
+use harness_ports::{ApprovalRequest, RunEvent, RunOutcome, RunSpec, ToolCall};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
@@ -80,7 +80,10 @@ async fn drive(
             "allowed_tools": spec.allowed_tools,
             "model": spec.model,
             "max_budget_usd": spec.max_budget_usd,
-            "resume_session": null,
+            "resume_session": spec.resume_session,
+            // Whether this run may act on Harness itself.
+            "harness_tools": spec.tools.is_some(),
+            "thinking_tokens": spec.thinking_tokens,
         }
     });
     LineSink { stdin: &mut stdin }.send(run_msg).await?;
@@ -88,6 +91,7 @@ async fn drive(
     let mut lines = BufReader::new(stdout).lines();
     let mut session_id: Option<String> = None;
     let mut cost_usd: Option<f64> = None;
+    let mut turns: Option<u32> = None;
     let mut saw_done = false;
 
     let outcome = loop {
@@ -107,6 +111,7 @@ async fn drive(
                             break Ok(RunOutcome::Completed {
                                 session_id: session_id.clone(),
                                 cost_usd,
+                                turns,
                             });
                         }
                         break Err("sidecar closed stdout before result".to_string());
@@ -131,6 +136,22 @@ async fn drive(
                                     session_id: session_id.clone().unwrap_or_default(),
                                 })
                                 .await;
+                            }
+                            "delta" | "thinking" => {
+                                let text = ev
+                                    .get("text")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                if !text.is_empty() {
+                                    let _ = tx
+                                        .send(if kind == "delta" {
+                                            RunEvent::Delta { text }
+                                        } else {
+                                            RunEvent::Thinking { text }
+                                        })
+                                        .await;
+                                }
                             }
                             "text" => {
                                 let text = ev
@@ -158,10 +179,33 @@ async fn drive(
                             "done" => {
                                 saw_done = true;
                                 cost_usd = ev.get("cost_usd").and_then(|c| c.as_f64());
-                                
+                                turns = ev
+                                    .get("turns")
+                                    .and_then(|t| t.as_u64())
+                                    .map(|t| t as u32);
                                 if let Some(sid) = ev.get("session_id").and_then(|s| s.as_str()) {
                                     session_id = Some(sid.to_string());
                                 }
+                                let _ = tx
+                                    .send(RunEvent::Done {
+                                        session_id: session_id.clone(),
+                                        cost_usd,
+                                        turns,
+                                        result: ev
+                                            .get("result")
+                                            .and_then(|r| r.as_str())
+                                            .map(String::from),
+                                    })
+                                    .await;
+                                // The result is the end of the run. The sidecar
+                                // keeps its stdin open for another command, so
+                                // waiting for stdout to close would hang here.
+                                let _ = child.kill().await;
+                                break Ok(RunOutcome::Completed {
+                                    session_id: session_id.clone(),
+                                    cost_usd,
+                                    turns,
+                                });
                             }
                             "failed" => {
                                 let message = ev
@@ -172,6 +216,55 @@ async fn drive(
                                 break Ok(RunOutcome::Failed(message));
                             }
                             _ => {}
+                        }
+                    }
+                    Some("tool_request") => {
+                        // A Harness tool: the shell carries it out and we hand
+                        // the answer straight back to the model.
+                        let request_id = msg
+                            .get("request_id")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        let name = msg
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        let input = msg.get("input").cloned().unwrap_or_default();
+
+                        let reply = match &spec.tools {
+                            Some(run_tool) => {
+                                run_tool(ToolCall {
+                                    name: name.clone(),
+                                    input,
+                                })
+                                .await
+                            }
+                            None => harness_ports::ToolReply::refused(
+                                "this run cannot act on Harness",
+                            ),
+                        };
+
+                        let _ = tx
+                            .send(RunEvent::ToolUse {
+                                tool: format!("harness:{name}"),
+                                summary: reply.text.chars().take(160).collect(),
+                            })
+                            .await;
+
+                        let response = serde_json::json!({
+                            "type": "tool_response",
+                            "request_id": request_id,
+                            "ok": reply.ok,
+                            "text": reply.text,
+                        });
+                        if (LineSink { stdin: &mut stdin })
+                            .send(response)
+                            .await
+                            .is_err()
+                        {
+                            break Err("sidecar stdin closed during a tool call".to_string());
                         }
                     }
                     Some("approval_request") => {
@@ -197,9 +290,25 @@ async fn drive(
                             .await;
 
                         let allowed = match &spec.approver {
-                            Some(approve) => approve(tool.clone(), input.clone()).await,
+                            Some(approve) => {
+                                approve(ApprovalRequest {
+                                    request_id: request_id.clone(),
+                                    tool: tool.clone(),
+                                    summary: summary.clone(),
+                                    input: input.clone(),
+                                })
+                                .await
+                            }
+                            // Nobody is listening, so the safe answer is no.
                             None => false,
                         };
+
+                        let _ = tx
+                            .send(RunEvent::ApprovalAnswered {
+                                request_id: request_id.clone(),
+                                allow: allowed,
+                            })
+                            .await;
 
                         let response = serde_json::json!({
                             "type": "approval_response",
@@ -245,7 +354,10 @@ impl harness_ports::AgentPort for SidecarAgent {
             cmd.arg(&script)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null());
+                .stderr(Stdio::null())
+                // One sidecar per run, and it outlives its usefulness the
+                // moment the result arrives; never leave it running.
+                .kill_on_drop(true);
             #[cfg(windows)]
             {
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;

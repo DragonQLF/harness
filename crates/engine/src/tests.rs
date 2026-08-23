@@ -1,0 +1,882 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use harness_domain::{Actor, CardId, Command, Event, RunOutcome as DomainOutcome, Status};
+use harness_ports::{
+    AgentPort, ApprovalRequest, ClockPort, GitError, GitPort, Reviewer, RunEvent, RunLogLine,
+    RunLogPort, RunOutcome, RunProfile, RunSpec, StoreError, StorePort, StoredEvent, Trailers,
+    WorktreeMode, WorktreePath,
+};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use super::*;
+
+struct MemStore {
+    records: Mutex<Vec<StoredEvent>>,
+    next: AtomicU64,
+}
+
+impl Default for MemStore {
+    fn default() -> Self {
+        Self {
+            records: Mutex::new(Vec::new()),
+            next: AtomicU64::new(1),
+        }
+    }
+}
+
+impl MemStore {
+    fn count(&self) -> usize {
+        self.records.lock().unwrap().len()
+    }
+
+    fn events(&self) -> Vec<Event> {
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.event.clone())
+            .collect()
+    }
+}
+
+impl StorePort for MemStore {
+    fn append_event(&self, e: &Event, ts_ms: u64) -> Result<StoredEvent, StoreError> {
+        let seq = self.next.fetch_add(1, Ordering::SeqCst);
+        let stored = StoredEvent {
+            seq,
+            ts_ms,
+            event: e.clone(),
+        };
+        self.records.lock().unwrap().push(stored.clone());
+        Ok(stored)
+    }
+
+    fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError> {
+        Ok(self.records.lock().unwrap().clone())
+    }
+}
+
+#[derive(Default)]
+struct MemRunLog {
+    lines: Mutex<Vec<(String, RunLogLine)>>,
+}
+
+impl RunLogPort for MemRunLog {
+    fn append(&self, run_id: &str, line: &RunLogLine) -> Result<(), StoreError> {
+        self.lines
+            .lock()
+            .unwrap()
+            .push((run_id.to_string(), line.clone()));
+        Ok(())
+    }
+
+    fn read(&self, run_id: &str) -> Result<Vec<RunLogLine>, StoreError> {
+        Ok(self
+            .lines
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, _)| id == run_id)
+            .map(|(_, l)| l.clone())
+            .collect())
+    }
+}
+
+struct FixedClock;
+
+impl ClockPort for FixedClock {
+    fn now_millis(&self) -> u64 {
+        42
+    }
+}
+
+enum FakeMode {
+    Complete,
+    WaitCancelled,
+    NeedsApproval,
+    DirectApprove,
+    DirectReject,
+    Garbage,
+}
+
+struct FakeAgent(FakeMode);
+
+type PinBox<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>>;
+
+impl AgentPort for FakeAgent {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        match self.0 {
+            FakeMode::Complete => Box::pin(async move {
+                let _ = tx
+                    .send(RunEvent::Started {
+                        session_id: "sess-42".into(),
+                    })
+                    .await;
+                let _ = tx.send(RunEvent::Text { text: "working".into() }).await;
+                drop(tx);
+                Ok(RunOutcome::Completed {
+                    session_id: Some("s1".into()),
+                    cost_usd: Some(0.01),
+                    turns: Some(7),
+                })
+            }),
+            FakeMode::WaitCancelled => Box::pin(async move {
+                cancel.cancelled().await;
+                drop(tx);
+                Ok(RunOutcome::Cancelled)
+            }),
+            FakeMode::NeedsApproval => Box::pin(async move {
+                let allowed = match &spec.approver {
+                    Some(approve) => {
+                        approve(ApprovalRequest {
+                            request_id: "req-1".into(),
+                            tool: "Bash".into(),
+                            summary: "git push".into(),
+                            input: serde_json::json!({ "command": "git push" }),
+                        })
+                        .await
+                    }
+                    None => false,
+                };
+                let _ = tx
+                    .send(RunEvent::Text {
+                        text: format!("allowed={allowed}"),
+                    })
+                    .await;
+                drop(tx);
+                Ok(RunOutcome::completed(None, Some(0.0)))
+            }),
+            FakeMode::DirectApprove => Box::pin(async move {
+                let _ = tx
+                    .send(RunEvent::Done {
+                        session_id: None,
+                        cost_usd: Some(0.0),
+                        turns: None,
+                        result: Some("{\"decision\":\"approve\",\"reason\":\"fine\"}".into()),
+                    })
+                    .await;
+                drop(tx);
+                Ok(RunOutcome::completed(None, Some(0.0)))
+            }),
+            FakeMode::DirectReject => Box::pin(async move {
+                let _ = tx
+                    .send(RunEvent::Done {
+                        session_id: None,
+                        cost_usd: Some(0.0),
+                        turns: None,
+                        result: Some(
+                            "sure thing: {\"decision\":\"reject\",\"reason\":\"not good enough\"}"
+                                .into(),
+                        ),
+                    })
+                    .await;
+                drop(tx);
+                Ok(RunOutcome::completed(None, Some(0.0)))
+            }),
+            FakeMode::Garbage => Box::pin(async move {
+                let _ = tx
+                    .send(RunEvent::Done {
+                        session_id: None,
+                        cost_usd: None,
+                        turns: None,
+                        result: Some("I could not decide".into()),
+                    })
+                    .await;
+                drop(tx);
+                Ok(RunOutcome::completed(None, None))
+            }),
+        }
+    }
+}
+
+struct FakeGit {
+    calls: Mutex<Vec<String>>,
+    /// When set, every commit fails with this reason.
+    commit_fails: Option<String>,
+}
+
+impl FakeGit {
+    fn new() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            commit_fails: None,
+        }
+    }
+
+    /// A repository that refuses commits, the way one with no committer
+    /// identity or a rejecting hook does.
+    fn refusing_commits(reason: &str) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            commit_fails: Some(reason.to_string()),
+        }
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl GitPort for FakeGit {
+    fn create_worktree(&self, card_id: &str, _base: &str) -> Result<WorktreePath, GitError> {
+        self.calls.lock().unwrap().push(format!("create:{card_id}"));
+        let path = std::env::temp_dir().join("harness-engine-tests").join(card_id);
+        std::fs::create_dir_all(&path).map_err(|e| GitError::Io(e.to_string()))?;
+        Ok(WorktreePath(path))
+    }
+
+    fn commit(&self, _wt: &WorktreePath, msg: &str, t: &Trailers) -> Result<String, GitError> {
+        let trailers: Vec<String> = t.0.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("commit:{msg}|{}", trailers.join(",")));
+        match &self.commit_fails {
+            Some(reason) => Err(GitError::Git(reason.clone())),
+            None => Ok("deadbeef".into()),
+        }
+    }
+
+    fn commit_wip(&self, _wt: &WorktreePath) -> Result<Option<String>, GitError> {
+        self.calls.lock().unwrap().push("wip".into());
+        match &self.commit_fails {
+            Some(reason) => Err(GitError::Git(reason.clone())),
+            None => Ok(Some("wipbeef".into())),
+        }
+    }
+
+    fn remove_worktree(&self, _wt: &WorktreePath) -> Result<(), GitError> {
+        Ok(())
+    }
+
+    fn diff_summary(&self, _wt: &WorktreePath, _base: &str) -> Result<String, GitError> {
+        Ok("diff --git a/eggs.md b/eggs.md\n+egg content".to_string())
+    }
+
+    fn diff_numstat(&self, _wt: &WorktreePath, _base: &str) -> Result<(u64, u64), GitError> {
+        Ok((1, 0))
+    }
+}
+
+async fn wait_for(label: &str, mut check: impl AsyncFnMut() -> bool) {
+    for _ in 0..300 {
+        if check().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("timeout: {label}");
+}
+
+fn test_config() -> EngineConfig {
+    EngineConfig::new("proj-test", std::env::temp_dir())
+}
+
+fn profile() -> RunProfile {
+    RunProfile {
+        agent_id: "builder".into(),
+        model: None,
+        allowed_tools: None,
+        permission_mode: None,
+        max_budget_usd: None,
+        worktree: WorktreeMode::PerCard,
+        reviewer: Reviewer::Director,
+    }
+}
+
+struct Rig {
+    handle: EngineHandle,
+    store: Arc<MemStore>,
+    git: Arc<FakeGit>,
+    events: broadcast::Receiver<Envelope>,
+    runs: broadcast::Receiver<RunUpdate>,
+    log: Arc<MemRunLog>,
+}
+
+fn rig(worker: FakeMode, director: FakeMode) -> Rig {
+    rig_with(worker, director, None, EnginePolicy::default())
+}
+
+fn rig_with(
+    worker: FakeMode,
+    director: FakeMode,
+    approver: Option<harness_ports::Approver>,
+    policy: EnginePolicy,
+) -> Rig {
+    rig_full(worker, director, approver, policy, FakeGit::new())
+}
+
+fn rig_full(
+    worker: FakeMode,
+    director: FakeMode,
+    approver: Option<harness_ports::Approver>,
+    policy: EnginePolicy,
+    fake_git: FakeGit,
+) -> Rig {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(fake_git);
+    let log = Arc::new(MemRunLog::default());
+    let (handle, events, runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(worker)),
+            director: Arc::new(FakeAgent(director)),
+            git: git.clone(),
+            approver,
+            run_log: Some(log.clone()),
+        },
+        test_config(),
+        policy,
+        vec![],
+    );
+    Rig {
+        handle,
+        store,
+        git,
+        events,
+        runs,
+        log,
+    }
+}
+
+async fn card_ready(handle: &EngineHandle, id: &CardId) {
+    handle
+        .execute(Command::CreateCard {
+            card_id: id.clone(),
+            title: "t".into(),
+        })
+        .await
+        .unwrap();
+    handle
+        .execute(Command::MoveCard {
+            card_id: id.clone(),
+            to: Status::Ready,
+        })
+        .await
+        .unwrap();
+}
+
+async fn status_of(handle: &EngineHandle, id: &CardId) -> Option<Status> {
+    handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| &c.id == id)
+        .map(|c| c.status)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accepted_commands_persist_and_update_state() {
+    let mut r = rig(FakeMode::Complete, FakeMode::Complete);
+    let id = CardId::new("c1");
+
+    let seq = r
+        .handle
+        .execute(Command::CreateCard {
+            card_id: id.clone(),
+            title: "t".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(seq, 1);
+
+    r.handle
+        .execute(Command::MoveCard {
+            card_id: id.clone(),
+            to: Status::Ready,
+        })
+        .await
+        .unwrap();
+
+    let snap = r.handle.snapshot().await.unwrap();
+    assert_eq!(snap.project_id, "proj-test");
+    assert_eq!(snap.last_seq, 2);
+    assert_eq!(snap.cards[0].status, Status::Ready);
+    assert_eq!(snap.cards[0].agent_id, "builder");
+    assert_eq!(r.store.count(), 2);
+
+    let first = r.events.try_recv().unwrap();
+    assert_eq!(first.seq, 1);
+    assert_eq!(first.ts_ms, 42);
+    assert_eq!(first.project_id, "proj-test");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rejected_commands_leave_no_trace() {
+    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let id = CardId::new("nope");
+
+    let err = r
+        .handle
+        .execute(Command::MoveCard {
+            card_id: id.clone(),
+            to: Status::Ready,
+        })
+        .await
+        .unwrap_err();
+    assert!(err.contains("not found"), "unexpected error: {err}");
+    assert_eq!(r.store.count(), 0);
+
+    r.handle
+        .execute(Command::CreateCard {
+            card_id: id.clone(),
+            title: "t".into(),
+        })
+        .await
+        .unwrap();
+    let err = r
+        .handle
+        .execute(Command::MoveCard {
+            card_id: id,
+            to: Status::Done,
+        })
+        .await
+        .unwrap_err();
+    assert!(err.contains("illegal move"), "unexpected error: {err}");
+    assert_eq!(r.store.count(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_run_commits_with_trailers_and_records_cost() {
+    let mut r = rig_with(
+        FakeMode::Complete,
+        FakeMode::Complete,
+        None,
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+    );
+    let id = CardId::new("c2");
+    card_ready(&r.handle, &id).await;
+
+    let run_id = r
+        .handle
+        .start_run(id.clone(), "do the thing".into(), profile())
+        .await
+        .unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    assert_eq!(card.cost_usd, 0.01);
+    assert_eq!(card.turns, 7);
+    assert_eq!(card.runs, 1);
+
+    let calls = r.git.calls();
+    assert!(calls.iter().any(|c| c == "create:c2"), "calls: {calls:?}");
+    let commit = calls
+        .iter()
+        .find(|c| c.starts_with("commit:"))
+        .expect("a commit");
+    assert!(commit.contains("Harness-Card=c2"), "commit was {commit}");
+    assert!(commit.contains("Harness-Run="), "commit was {commit}");
+    assert!(commit.contains("Harness-Agent=builder"), "commit was {commit}");
+
+    // The session survives for a resume, with the id the agent reported.
+    let sessions = r.handle.snapshot().await.unwrap().sessions;
+    let session = sessions.iter().find(|s| s.card_id == id).unwrap();
+    assert_eq!(session.session_id.as_deref(), Some("s1"));
+    assert!(!session.live);
+
+    // Streamed events reached the broadcast channel and the durable log.
+    let mut saw_text = false;
+    while let Ok(update) = r.runs.try_recv() {
+        if matches!(update.event, RunEvent::Text { .. }) {
+            saw_text = true;
+        }
+    }
+    assert!(saw_text, "expected the streamed text on the run channel");
+    let logged = r.log.read(&run_id.0).unwrap();
+    assert!(
+        logged.iter().any(|l| matches!(l.event, RunEvent::Text { .. })),
+        "expected the run log to hold the transcript"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelled_run_returns_card_to_ready_and_commits_wip() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let id = CardId::new("c3");
+    card_ready(&r.handle, &id).await;
+
+    r.handle
+        .start_run(id.clone(), "long job".into(), profile())
+        .await
+        .unwrap();
+    wait_for("run registers as active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    let active = r.handle.active_runs().await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].agent_id, "builder");
+
+    r.handle.cancel_run(id.clone()).await.unwrap();
+    wait_for("card returns to ready", async || {
+        status_of(&r.handle, &id).await == Some(Status::Ready)
+    })
+    .await;
+
+    assert!(r.git.calls().iter().any(|c| c == "wip"));
+    assert!(r.handle.active_runs().await.unwrap().is_empty());
+    assert!(r.handle.cancel_run(id).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_cancels_running_work_and_leaves_a_wip_commit() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let id = CardId::new("c4");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "long job".into(), profile())
+        .await
+        .unwrap();
+    wait_for("run registers as active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    r.handle.shutdown().await.unwrap();
+    assert!(r.git.calls().iter().any(|c| c == "wip"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interrupted_run_recovered_as_failed_on_restart() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::new());
+    let id = CardId::new("c5");
+
+    {
+        let (handle, _e, _r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
+                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            EnginePolicy::default(),
+            vec![],
+        );
+        card_ready(&handle, &id).await;
+        handle
+            .start_run(id.clone(), "work".into(), profile())
+            .await
+            .unwrap();
+        wait_for("card is running", async || {
+            status_of(&handle, &id).await == Some(Status::Running)
+        })
+        .await;
+    }
+
+    let history = store.read_all().unwrap();
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git,
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        history,
+    );
+
+    wait_for("recovery marks the run failed", async || {
+        status_of(&handle, &id).await == Some(Status::Ready)
+    })
+    .await;
+    assert!(matches!(
+        store.events().last(),
+        Some(Event::RunFinished {
+            outcome: DomainOutcome::Failed,
+            ..
+        })
+    ));
+}
+
+async fn driven_to_review(worker: FakeMode, director: FakeMode) -> (Rig, CardId) {
+    let r = rig(worker, director);
+    let id = CardId::new("c6");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    (r, id)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn director_approval_moves_card_to_done() {
+    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::DirectApprove).await;
+    wait_for("director approves", async || {
+        status_of(&r.handle, &id).await == Some(Status::Done)
+    })
+    .await;
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    let review = card.last_review.unwrap();
+    assert_eq!(review.by, Actor::Director);
+    assert!(review.approved);
+    assert_eq!(review.reason, "fine");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn director_rejection_sends_card_back_to_ready_with_a_reason() {
+    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::DirectReject).await;
+    wait_for("director rejects", async || {
+        status_of(&r.handle, &id).await == Some(Status::Ready)
+    })
+    .await;
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    let review = card.last_review.unwrap();
+    assert!(!review.approved);
+    assert_eq!(review.reason, "not good enough");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unreadable_verdict_leaves_the_card_in_review() {
+    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::Garbage).await;
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert_eq!(status_of(&r.handle, &id).await, Some(Status::Review));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reviewerless_agent_closes_its_own_card() {
+    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let id = CardId::new("c7");
+    card_ready(&r.handle, &id).await;
+    let mut p = profile();
+    p.reviewer = Reviewer::Nobody;
+    r.handle.start_run(id.clone(), "work".into(), p).await.unwrap();
+
+    wait_for("card closes without a review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Done)
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_human_reviewer_keeps_the_card_in_review() {
+    let r = rig(FakeMode::Complete, FakeMode::DirectApprove);
+    let id = CardId::new("c8");
+    card_ready(&r.handle, &id).await;
+    let mut p = profile();
+    p.reviewer = Reviewer::Human;
+    r.handle.start_run(id.clone(), "work".into(), p).await.unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert_eq!(status_of(&r.handle, &id).await, Some(Status::Review));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_only_agent_runs_in_the_checkout_and_never_commits() {
+    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let id = CardId::new("c9");
+    card_ready(&r.handle, &id).await;
+    let mut p = profile();
+    p.worktree = WorktreeMode::None;
+    p.reviewer = Reviewer::Human;
+    r.handle.start_run(id.clone(), "read".into(), p).await.unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+    let calls = r.git.calls();
+    assert!(calls.is_empty(), "expected no git writes, got {calls:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shared_worktree_is_created_once_and_reused() {
+    let r = rig_with(
+        FakeMode::Complete,
+        FakeMode::Complete,
+        None,
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+    );
+    for name in ["s1", "s2"] {
+        let id = CardId::new(name);
+        card_ready(&r.handle, &id).await;
+        let mut p = profile();
+        p.worktree = WorktreeMode::Shared;
+        r.handle.start_run(id.clone(), "work".into(), p).await.unwrap();
+        wait_for("card reaches review", async || {
+            status_of(&r.handle, &id).await == Some(Status::Review)
+        })
+        .await;
+    }
+    let creates: Vec<String> = r
+        .git
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("create:"))
+        .collect();
+    assert_eq!(creates, vec!["create:shared".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_approver_sees_the_request_id_the_adapter_minted() {
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = Arc::clone(&seen);
+    let approver: harness_ports::Approver = Arc::new(move |req: ApprovalRequest| {
+        let captured = Arc::clone(&captured);
+        Box::pin(async move {
+            captured.lock().unwrap().push(req.request_id.clone());
+            req.tool == "Bash"
+        })
+    });
+
+    let r = rig_with(
+        FakeMode::NeedsApproval,
+        FakeMode::Complete,
+        Some(approver),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+    );
+    let id = CardId::new("c10");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "push".into(), profile())
+        .await
+        .unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+    assert_eq!(seen.lock().unwrap().clone(), vec!["req-1".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_run_on_the_same_card_is_refused() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let id = CardId::new("c11");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "one".into(), profile())
+        .await
+        .unwrap();
+    let err = r
+        .handle
+        .start_run(id, "two".into(), profile())
+        .await
+        .unwrap_err();
+    assert!(err.contains("active run"), "unexpected error: {err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commit_that_fails_is_reported_and_skips_review() {
+    let mut r = rig_full(
+        FakeMode::Complete,
+        // The director would approve if it were ever asked; it must not be.
+        FakeMode::DirectApprove,
+        None,
+        EnginePolicy::default(),
+        FakeGit::refusing_commits("Author identity unknown"),
+    );
+    let id = CardId::new("c12");
+    card_ready(&r.handle, &id).await;
+    let run_id = r
+        .handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    // The Director never ran, so the card is still waiting for the operator.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(status_of(&r.handle, &id).await, Some(Status::Review));
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    assert!(
+        card.last_review.is_none(),
+        "nothing was committed, so nothing can have been reviewed"
+    );
+
+    // And the reason is on the run, both live and in the durable log.
+    let mut live = Vec::new();
+    while let Ok(update) = r.runs.try_recv() {
+        if let RunEvent::Notice { text } = update.event {
+            live.push(text);
+        }
+    }
+    assert!(
+        live.iter().any(|t| t.contains("Author identity unknown")),
+        "the failure must reach the operator, got {live:?}"
+    );
+    let logged = r.log.read(&run_id.0).unwrap();
+    assert!(logged.iter().any(|l| matches!(
+        &l.event,
+        RunEvent::Notice { text } if text.contains("could not commit")
+    )));
+}
