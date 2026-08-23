@@ -130,6 +130,18 @@ pub struct Card {
     pub runs: u32,
     #[serde(default)]
     pub last_review: Option<Review>,
+    /// The native agent session this card's runs continue, once one has been
+    /// reported. Kept on the card so it survives a restart: without it the next
+    /// run starts a stranger on work it has already done.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Where the last run worked, and on which branch. Not derivable after the
+    /// fact: the worktree mode comes from the agent profile at the moment the
+    /// run starts, and that profile may have changed since.
+    #[serde(default)]
+    pub worktree: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 fn default_agent() -> String {
@@ -143,7 +155,15 @@ pub enum Event {
     CardAssigned { card_id: CardId, agent_id: String },
     CardMoved { card_id: CardId, from: Status, to: Status },
     CardOverridden { card_id: CardId, from: Status, to: Status, reason: String },
-    RunStarted { card_id: CardId, run_id: RunId },
+    RunStarted {
+        card_id: CardId,
+        run_id: RunId,
+        /// Where this run works. Absent in logs written before it was recorded.
+        #[serde(default)]
+        worktree: Option<String>,
+        #[serde(default)]
+        branch: Option<String>,
+    },
     RunFinished {
         card_id: CardId,
         run_id: RunId,
@@ -166,6 +186,10 @@ pub enum Event {
         #[serde(default)]
         by: Actor,
     },
+    /// The agent reported the session it is working in. Recorded so a later run
+    /// — or the operator, in a terminal — can resume that same conversation
+    /// instead of starting over.
+    AgentSession { card_id: CardId, session_id: String },
     /// The card is gone from the board. The log keeps the fact and the reason;
     /// the branch a run left behind is the shell's business to clean up.
     CardDiscarded {
@@ -186,6 +210,7 @@ impl Event {
             | Event::RunFinished { card_id, .. }
             | Event::CardApproved { card_id, .. }
             | Event::CardRejected { card_id, .. }
+            | Event::AgentSession { card_id, .. }
             | Event::CardDiscarded { card_id, .. } => card_id,
         }
     }
@@ -197,7 +222,13 @@ pub enum Command {
     AssignAgent { card_id: CardId, agent_id: String },
     MoveCard { card_id: CardId, to: Status },
     OverrideCard { card_id: CardId, to: Status, reason: String },
-    StartRun { card_id: CardId, run_id: RunId },
+    StartRun {
+        card_id: CardId,
+        run_id: RunId,
+        /// Where the run will work, resolved before it starts.
+        worktree: Option<String>,
+        branch: Option<String>,
+    },
     FinishRun {
         card_id: CardId,
         run_id: RunId,
@@ -207,6 +238,8 @@ pub enum Command {
     },
     ApproveCard { card_id: CardId, by: Actor, reason: String },
     RejectCard { card_id: CardId, reason: String, by: Actor },
+    /// Remember the agent session a run is using.
+    RecordSession { card_id: CardId, session_id: String },
     /// Take a card off the board for good.
     DiscardCard { card_id: CardId, reason: String },
 }
@@ -220,6 +253,7 @@ pub enum DecisionError {
     EmptyTitle,
     EmptyReason,
     EmptyAgent,
+    EmptySession,
     NotReady(Status),
     NotRunning(Status),
     NotInReview(Status),
@@ -238,6 +272,7 @@ impl fmt::Display for DecisionError {
             DecisionError::EmptyTitle => write!(f, "title cannot be empty"),
             DecisionError::EmptyReason => write!(f, "override requires a non-empty reason"),
             DecisionError::EmptyAgent => write!(f, "agent id cannot be empty"),
+            DecisionError::EmptySession => write!(f, "session id cannot be empty"),
             DecisionError::NotReady(status) => {
                 write!(f, "card must be Ready to start a run (is {status:?})")
             }
@@ -289,6 +324,9 @@ impl Board {
                         turns: 0,
                         runs: 0,
                         last_review: None,
+                        session_id: None,
+                        worktree: None,
+                        branch: None,
                     },
                 );
             }
@@ -302,12 +340,29 @@ impl Board {
                     card.status = *to;
                 }
             }
-            Event::RunStarted { card_id, run_id } => {
+            Event::RunStarted {
+                card_id,
+                run_id,
+                worktree,
+                branch,
+            } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
                     card.status = Status::Running;
                     card.current_run = Some(run_id.clone());
                     card.runs += 1;
                     card.last_review = None;
+                    // Where it works can move between runs; the session it
+                    // continues is left alone, because a new run resumes the
+                    // one the last run left behind.
+                    if worktree.is_some() {
+                        card.worktree = worktree.clone();
+                        card.branch = branch.clone();
+                    }
+                }
+            }
+            Event::AgentSession { card_id, session_id } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.session_id = Some(session_id.clone());
                 }
             }
             Event::RunFinished {
@@ -431,7 +486,12 @@ impl Board {
                     reason: reason.trim().to_string(),
                 }])
             }
-            Command::StartRun { card_id, run_id } => {
+            Command::StartRun {
+                card_id,
+                run_id,
+                worktree,
+                branch,
+            } => {
                 let card = self
                     .cards
                     .get(card_id)
@@ -442,6 +502,20 @@ impl Board {
                 Ok(vec![Event::RunStarted {
                     card_id: card_id.clone(),
                     run_id: run_id.clone(),
+                    worktree: worktree.clone(),
+                    branch: branch.clone(),
+                }])
+            }
+            Command::RecordSession { card_id, session_id } => {
+                if !self.cards.contains_key(card_id) {
+                    return Err(DecisionError::CardNotFound(card_id.clone()));
+                }
+                if session_id.trim().is_empty() {
+                    return Err(DecisionError::EmptySession);
+                }
+                Ok(vec![Event::AgentSession {
+                    card_id: card_id.clone(),
+                    session_id: session_id.trim().to_string(),
                 }])
             }
             Command::FinishRun {
@@ -506,7 +580,9 @@ impl Board {
 
 #[cfg(test)]
 mod tests {
-    use super::{Actor, Board, CardId, Command, DecisionError, Event, Status, Status::*};
+    use super::{
+        Actor, Board, CardId, Command, DecisionError, Event, RunId, RunOutcome, Status, Status::*,
+    };
 
     #[test]
     fn happy_path_backlog_to_done() {
@@ -748,7 +824,12 @@ mod tests {
 
         board.apply(
             &board
-                .decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() })
+                .decide(&Command::StartRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    worktree: None,
+                    branch: None,
+                })
                 .unwrap()[0],
         );
         let card = board.get(&id).unwrap();
@@ -756,7 +837,12 @@ mod tests {
         assert_eq!(card.current_run, Some(run.clone()));
 
         assert!(matches!(
-            board.decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() }),
+            board.decide(&Command::StartRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    worktree: None,
+                    branch: None,
+                }),
             Err(DecisionError::NotReady(Running))
         ));
 
@@ -785,7 +871,12 @@ mod tests {
         let run = RunId("run-2".into());
         board.apply(
             &board
-                .decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() })
+                .decide(&Command::StartRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    worktree: None,
+                    branch: None,
+                })
                 .unwrap()[0],
         );
         board.apply(
@@ -803,7 +894,12 @@ mod tests {
 
         let run2 = RunId("run-3".into());
         assert!(board
-            .decide(&Command::StartRun { card_id: id.clone(), run_id: run2 })
+            .decide(&Command::StartRun {
+                card_id: id.clone(),
+                run_id: run2,
+                worktree: None,
+                branch: None,
+            })
             .is_ok());
     }
 
@@ -839,6 +935,8 @@ mod tests {
                 .decide(&Command::StartRun {
                     card_id: id.clone(),
                     run_id: RunId("real".into()),
+                    worktree: None,
+                    branch: None,
                 })
                 .unwrap()[0],
         );
@@ -864,7 +962,12 @@ mod tests {
             let run = RunId(n.into());
             board.apply(
                 &board
-                    .decide(&Command::StartRun { card_id: id.clone(), run_id: run.clone() })
+                    .decide(&Command::StartRun {
+                    card_id: id.clone(),
+                    run_id: run.clone(),
+                    worktree: None,
+                    branch: None,
+                })
                     .unwrap()[0],
             );
             board.apply(
@@ -936,6 +1039,8 @@ mod tests {
                 .decide(&Command::StartRun {
                     card_id: id.clone(),
                     run_id: RunId("r".into()),
+                    worktree: None,
+                    branch: None,
                 })
                 .unwrap()[0],
         );
@@ -1005,5 +1110,136 @@ mod tests {
         assert_eq!(review.by, Actor::Director);
         assert!(review.approved);
         assert_eq!(review.reason, "diff looks right");
+    }
+
+    #[test]
+    fn a_run_records_where_it_worked_and_the_session_it_leaves() {
+        let mut board = Board::default();
+        let id = CardId::new("c1");
+        for cmd in [
+            Command::CreateCard { card_id: id.clone(), title: "t".into() },
+            Command::MoveCard { card_id: id.clone(), to: Status::Ready },
+        ] {
+            for e in board.decide(&cmd).unwrap() {
+                board.apply(&e);
+            }
+        }
+
+        let started = board
+            .decide(&Command::StartRun {
+                card_id: id.clone(),
+                run_id: RunId("run-1".into()),
+                worktree: Some("C:/data/worktrees/proj/c1".into()),
+                branch: Some("harness/c1".into()),
+            })
+            .unwrap();
+        for e in &started {
+            board.apply(e);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.worktree.as_deref(), Some("C:/data/worktrees/proj/c1"));
+        assert_eq!(card.branch.as_deref(), Some("harness/c1"));
+        assert!(card.session_id.is_none(), "no session has been reported yet");
+
+        let recorded = board
+            .decide(&Command::RecordSession {
+                card_id: id.clone(),
+                session_id: "  sess-abc  ".into(),
+            })
+            .unwrap();
+        for e in &recorded {
+            board.apply(e);
+        }
+        assert_eq!(board.get(&id).unwrap().session_id.as_deref(), Some("sess-abc"));
+
+        // A later run in the same card keeps the session to resume: it is what
+        // the next run continues, and a new one only arrives once it starts.
+        for e in board
+            .decide(&Command::FinishRun {
+                card_id: id.clone(),
+                run_id: RunId("run-1".into()),
+                outcome: RunOutcome::Completed,
+                cost_usd: None,
+                turns: None,
+            })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        for e in board
+            .decide(&Command::RejectCard {
+                card_id: id.clone(),
+                reason: "again".into(),
+                by: Actor::Human,
+            })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        for e in board
+            .decide(&Command::StartRun {
+                card_id: id.clone(),
+                run_id: RunId("run-2".into()),
+                worktree: Some("C:/data/worktrees/proj/c1".into()),
+                branch: Some("harness/c1".into()),
+            })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        assert_eq!(
+            board.get(&id).unwrap().session_id.as_deref(),
+            Some("sess-abc"),
+            "a new run resumes the session the last one left"
+        );
+    }
+
+    #[test]
+    fn a_session_cannot_be_recorded_against_nothing() {
+        let mut board = Board::default();
+        let id = CardId::new("c1");
+        assert!(matches!(
+            board.decide(&Command::RecordSession {
+                card_id: id.clone(),
+                session_id: "sess".into(),
+            }),
+            Err(DecisionError::CardNotFound(_))
+        ));
+
+        for e in board
+            .decide(&Command::CreateCard { card_id: id.clone(), title: "t".into() })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        assert!(matches!(
+            board.decide(&Command::RecordSession {
+                card_id: id.clone(),
+                session_id: "   ".into(),
+            }),
+            Err(DecisionError::EmptySession)
+        ));
+    }
+
+    #[test]
+    fn a_log_written_before_worktrees_were_recorded_still_replays() {
+        // Exactly the shape an older build wrote.
+        let raw = concat!(
+            r#"{"type":"card_created","card_id":"c1","title":"old"}"#,
+            "\n",
+            r#"{"type":"card_moved","card_id":"c1","from":"backlog","to":"ready"}"#,
+            "\n",
+            r#"{"type":"run_started","card_id":"c1","run_id":"run-1"}"#,
+        );
+        let mut board = Board::default();
+        for line in raw.split('\n') {
+            let event: Event = serde_json::from_str(line).expect(line);
+            board.apply(&event);
+        }
+        let card = board.get(&CardId::new("c1")).unwrap();
+        assert_eq!(card.status, Status::Running);
+        // Nothing to restore, and nothing broken by its absence.
+        assert!(card.worktree.is_none());
+        assert!(card.session_id.is_none());
     }
 }

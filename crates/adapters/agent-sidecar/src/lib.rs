@@ -22,6 +22,18 @@ impl SidecarAgent {
     }
 }
 
+/// Why a `done` event is really a failure, if it is. The sidecar puts the
+/// error text here because the SDK reports an error result on the same message
+/// shape as a success — see `sidecar/index.mjs`.
+fn done_error(event: &serde_json::Value) -> Option<String> {
+    event
+        .get("error")
+        .and_then(|e| e.as_str())
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(str::to_string)
+}
+
 fn summarize(input: &serde_json::Value) -> String {
     match input {
         serde_json::Value::Object(map) => map
@@ -186,6 +198,7 @@ async fn drive(
                                 if let Some(sid) = ev.get("session_id").and_then(|s| s.as_str()) {
                                     session_id = Some(sid.to_string());
                                 }
+                                let failure = done_error(&ev);
                                 let _ = tx
                                     .send(RunEvent::Done {
                                         session_id: session_id.clone(),
@@ -195,17 +208,25 @@ async fn drive(
                                             .get("result")
                                             .and_then(|r| r.as_str())
                                             .map(String::from),
+                                        error: failure.clone(),
                                     })
                                     .await;
                                 // The result is the end of the run. The sidecar
                                 // keeps its stdin open for another command, so
                                 // waiting for stdout to close would hang here.
                                 let _ = child.kill().await;
-                                break Ok(RunOutcome::Completed {
-                                    session_id: session_id.clone(),
-                                    cost_usd,
-                                    turns,
-                                });
+                                // An error result must not pass for a finished
+                                // run: nothing downstream would know the
+                                // difference, and a card would be committed and
+                                // reviewed on an answer that never came.
+                                break match failure {
+                                    Some(message) => Ok(RunOutcome::Failed(message)),
+                                    None => Ok(RunOutcome::Completed {
+                                        session_id: session_id.clone(),
+                                        cost_usd,
+                                        turns,
+                                    }),
+                                };
                             }
                             "failed" => {
                                 let message = ev
@@ -368,5 +389,26 @@ impl harness_ports::AgentPort for SidecarAgent {
                 .map_err(|e| format!("failed to spawn sidecar ({program} {}): {e}", script.display()))?;
             drive(&mut child, spec, tx, cancel).await
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::done_error;
+    use serde_json::json;
+
+    #[test]
+    fn a_done_event_carries_its_failure_or_nothing() {
+        assert_eq!(done_error(&json!({ "kind": "done" })), None);
+        assert_eq!(done_error(&json!({ "kind": "done", "error": null })), None);
+        assert_eq!(done_error(&json!({ "kind": "done", "error": "   " })), None);
+        assert_eq!(
+            done_error(&json!({
+                "kind": "done",
+                "error": "No conversation found with session ID: 0000",
+            }))
+            .as_deref(),
+            Some("No conversation found with session ID: 0000"),
+        );
     }
 }

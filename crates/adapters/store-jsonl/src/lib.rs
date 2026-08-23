@@ -111,6 +111,13 @@ impl JsonlRunLog {
         Ok(Self { dir })
     }
 
+    /// Where a run's transcript lives. Public because a caller that deletes a
+    /// conversation has to delete the same file this writes, and the name is
+    /// sanitised on the way in.
+    pub fn path_of(&self, run_id: &str) -> PathBuf {
+        self.path_for(run_id)
+    }
+
     fn path_for(&self, run_id: &str) -> PathBuf {
         let safe: String = run_id
             .chars()
@@ -236,6 +243,76 @@ mod tests {
         let all = JsonlStore::open(&path).unwrap().read_all().unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].ts_ms, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A conversation is a run log like any other: the operator turn and the
+    /// answer live in one file, which is what makes a chat readable after a
+    /// restart without a second transcript store.
+    #[test]
+    fn a_conversation_transcript_is_just_a_run_log() {
+        let dir = temp_dir("chatlog-test");
+        let log = JsonlRunLog::open(&dir).unwrap();
+        let id = "chat_7b30";
+
+        for (ts, event) in [
+            (1u64, RunEvent::UserMessage { text: "how is the board?".into() }),
+            (2, RunEvent::Started { session_id: "sess-abc".into() }),
+            (3, RunEvent::Text { text: "Two cards are waiting.".into() }),
+            (4, RunEvent::Notice { text: "the session could not be resumed".into() }),
+        ] {
+            log.append(id, &RunLogLine { ts_ms: ts, event }).unwrap();
+        }
+
+        let back = log.read(id).unwrap();
+        assert_eq!(back.len(), 4);
+        match &back[0].event {
+            RunEvent::UserMessage { text } => assert_eq!(text, "how is the board?"),
+            other => panic!("the operator turn did not survive: {other:?}"),
+        }
+        match &back[1].event {
+            RunEvent::Started { session_id } => assert_eq!(session_id, "sess-abc"),
+            other => panic!("expected the session line: {other:?}"),
+        }
+        assert!(matches!(back[2].event, RunEvent::Text { .. }));
+        assert!(matches!(back[3].event, RunEvent::Notice { .. }));
+
+        // The name on disk is sanitised, so a caller deleting a transcript has
+        // to ask rather than assume: `chat_7b30` is not `chat_7b30.jsonl`.
+        assert!(log.path_of(id).ends_with("chat-7b30.jsonl"), "{:?}", log.path_of(id));
+
+        // Another conversation is another file: two chats never mix.
+        log.append(
+            "chat_other",
+            &RunLogLine { ts_ms: 9, event: RunEvent::Text { text: "elsewhere".into() } },
+        )
+        .unwrap();
+        assert_eq!(log.read(id).unwrap().len(), 4);
+        assert_eq!(log.read("chat_other").unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Lines written before `user_message` existed still read back: the tag is
+    /// additive, so an older transcript is untouched.
+    #[test]
+    fn transcripts_written_by_an_older_build_still_read() {
+        let dir = temp_dir("oldlog-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("run-old.jsonl"),
+            "{\"ts_ms\":1,\"kind\":\"text\",\"text\":\"hello\"}\n\
+             {\"ts_ms\":2,\"kind\":\"from_the_future\",\"text\":\"?\"}\n\
+             {\"ts_ms\":3,\"kind\":\"notice\",\"text\":\"done\"}\n",
+        )
+        .unwrap();
+
+        let lines = JsonlRunLog::open(&dir).unwrap().read("run-old").unwrap();
+        // The unreadable middle line is skipped rather than losing the file.
+        assert_eq!(lines.len(), 2);
+        assert!(matches!(lines[0].event, RunEvent::Text { .. }));
+        assert!(matches!(lines[1].event, RunEvent::Notice { .. }));
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

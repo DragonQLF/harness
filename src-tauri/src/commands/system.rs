@@ -9,6 +9,7 @@ use tauri::{AppHandle, State};
 
 use harness_app::agents::AgentProfile;
 use harness_app::approvals::PendingApproval;
+use harness_app::conversations::Conversation;
 use harness_app::insights::{self, AgentStats};
 use harness_app::projects::Project;
 use harness_app::settings::Settings;
@@ -63,6 +64,13 @@ pub struct Bootstrap {
     pub status: SystemStatus,
     pub approvals: Vec<PendingApproval>,
     pub data_dir: String,
+    /// The chats that exist, and which one to reopen — so the window comes back
+    /// where it was left instead of on an empty conversation.
+    pub conversations: Vec<Conversation>,
+    pub last_conversation: Option<String>,
+    /// Unscoped shell allowances left by an older build. They authorise nothing
+    /// now; the UI says so once.
+    pub revoked_allowances: Vec<String>,
 }
 
 #[tauri::command]
@@ -74,6 +82,14 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
         status: system_status(&ws),
         approvals: ws.router.pending_list(),
         data_dir: ws.paths.root().to_string_lossy().to_string(),
+        conversations: ws.conversations(false),
+        last_conversation: ws.last_conversation().map(|c| c.id),
+        revoked_allowances: ws
+            .settings()
+            .revoked_allowances()
+            .into_iter()
+            .map(|r| r.label())
+            .collect(),
     })
 }
 
@@ -182,16 +198,21 @@ pub async fn approvals_pending(ws: Shared<'_>) -> Result<Vec<PendingApproval>, S
     Ok(ws.router.pending_list())
 }
 
-/// Answer a permission request. `always` records a standing allowance for the
-/// tool so the operator stops being asked.
+/// Answer a permission request. `always` records a standing allowance — scoped
+/// to this call, not to the bare tool name: agreeing to one `git push` must
+/// never authorise every shell command. Some calls cannot be scoped safely (a
+/// chained shell command), and those are allowed once and asked about again.
 #[tauri::command]
 pub async fn respond_approval(
     request_id: String,
     allow: bool,
     always: bool,
     ws: Shared<'_>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
+    let mut recorded = None;
     if allow && always {
+        // The tool and input come from the pending request, never from the
+        // caller, so the UI cannot widen what it is answering about.
         if let Some(pending) = ws
             .router
             .pending_list()
@@ -199,11 +220,19 @@ pub async fn respond_approval(
             .find(|p| p.request_id == request_id)
         {
             let mut settings = ws.settings();
-            settings.allow_always(&pending.tool);
-            ws.set_settings(settings)?;
+            let rule = settings.allow_always(&pending.tool, &pending.input);
+            match rule {
+                Some(rule) => {
+                    ws.set_settings(settings)?;
+                    recorded = Some(rule.label());
+                }
+                // Nothing safe to remember: allow this one and keep asking.
+                None => recorded = None,
+            }
         }
     }
-    ws.router.resolve(&request_id, allow)
+    ws.router.resolve(&request_id, allow)?;
+    Ok(recorded)
 }
 
 // ---- sidecar ----
@@ -242,20 +271,35 @@ fn open_terminal_in(dir: &Path, argv: &[&str]) -> Result<(), String> {
 
     #[cfg(not(windows))]
     {
-        let joined = argv.join(" ");
-        let program = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "x-terminal-emulator"
-        };
-        return std::process::Command::new(program)
+        // The argv handed in is Windows-shaped (`cmd /K claude ...`). Joining it
+        // into one string for `-e` would let anything in it — a session id, say
+        // — be split or interpreted by whichever shell the terminal starts.
+        // Keep it as separate arguments instead, and drop the `cmd /K` wrapper
+        // that means nothing here.
+        let mut args: Vec<&str> = argv
+            .iter()
+            .copied()
+            .skip_while(|a| matches!(*a, "cmd" | "/K" | "/C"))
+            .collect();
+        if args.is_empty() {
+            args.push("claude");
+        }
+        if cfg!(target_os = "macos") {
+            // `open -a Terminal` cannot carry a command, so it opens in the
+            // directory and the operator types it. Saying so beats pretending.
+            return std::process::Command::new("open")
+                .current_dir(dir)
+                .arg("-a")
+                .arg("Terminal")
+                .arg(dir)
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| format!("could not open a terminal: {e}"));
+        }
+        return std::process::Command::new("x-terminal-emulator")
             .current_dir(dir)
-            .arg(if cfg!(target_os = "macos") { "-a" } else { "-e" })
-            .arg(if cfg!(target_os = "macos") {
-                "Terminal".to_string()
-            } else {
-                joined
-            })
+            .arg("-e")
+            .args(&args)
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("could not open a terminal: {e}"));
@@ -284,14 +328,22 @@ pub async fn open_agent_terminal(
 ) -> Result<(), String> {
     let runtime = ws.runtime(&project_id)?;
     let snap = runtime.engine.snapshot().await?;
-    let session = snap
-        .sessions
-        .iter()
-        .find(|s| s.card_id.as_str() == card_id)
-        .ok_or_else(|| "no agent session for this card yet".to_string())?;
-    let dir = PathBuf::from(&session.worktree);
-    match &session.session_id {
-        Some(sid) => open_terminal_in(&dir, &["cmd", "/K", "claude", "--resume", sid]),
+    let session = snap.sessions.iter().find(|s| s.card_id.as_str() == card_id);
+    let card = snap.cards.iter().find(|c| c.id.as_str() == card_id);
+
+    // Both survive a restart now. The card is the fallback for a run logged
+    // before worktrees were recorded, which has a session but no directory.
+    let dir = session
+        .map(|s| PathBuf::from(&s.worktree))
+        .or_else(|| card.and_then(|c| c.worktree.clone()).map(PathBuf::from))
+        .filter(|p| p.is_dir())
+        .ok_or_else(|| "this card has no worktree to open".to_string())?;
+    let resume = session
+        .and_then(|s| s.session_id.clone())
+        .or_else(|| card.and_then(|c| c.session_id.clone()));
+
+    match resume {
+        Some(sid) => open_terminal_in(&dir, &["cmd", "/K", "claude", "--resume", &sid]),
         None => open_terminal_in(&dir, &["cmd", "/K", "claude"]),
     }
 }

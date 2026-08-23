@@ -22,6 +22,9 @@ use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+/// Name of the one checkout shared by every agent configured for it.
+pub(crate) const SHARED_WORKTREE: &str = "shared";
+
 const QUEUE_CAPACITY: usize = 256;
 const BROADCAST_CAPACITY: usize = 1024;
 
@@ -245,6 +248,56 @@ pub fn rebuild(history: &[StoredEvent]) -> Board {
     board
 }
 
+/// Where each card last worked, replayed from the log.
+///
+/// The board carries the durable facts (worktree, branch, session id); what it
+/// cannot carry is *when* a run started, because the domain has no clock. That
+/// comes from the stored timestamp, which is why this is a second pass here
+/// rather than a field on `Card`.
+fn restore_sessions(history: &[StoredEvent]) -> HashMap<CardId, SessionEntry> {
+    let mut out: HashMap<CardId, SessionEntry> = HashMap::new();
+    for stored in history {
+        match &stored.event {
+            Event::RunStarted {
+                card_id,
+                run_id,
+                worktree,
+                branch,
+            } => {
+                // A run logged before worktrees were recorded has nothing to
+                // restore; the card simply has no session until it runs again.
+                let Some(worktree) = worktree else { continue };
+                let carried = out.get(card_id).and_then(|s| s.session_id.clone());
+                out.insert(
+                    card_id.clone(),
+                    SessionEntry {
+                        run_id: Some(run_id.clone()),
+                        worktree: PathBuf::from(worktree),
+                        branch: branch.clone(),
+                        session_id: carried,
+                        agent_id: String::new(),
+                        started_ms: stored.ts_ms,
+                    },
+                );
+            }
+            Event::AgentSession {
+                card_id,
+                session_id,
+            } => {
+                if let Some(entry) = out.get_mut(card_id) {
+                    entry.session_id = Some(session_id.clone());
+                }
+            }
+            // The card is gone, and so is its checkout.
+            Event::CardDiscarded { card_id, .. } => {
+                out.remove(card_id);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 struct RunEntry {
     run_id: RunId,
     token: CancellationToken,
@@ -308,6 +361,14 @@ impl Engine {
     ) {
         let board = rebuild(&history);
         let last_seq = history.last().map(|s| s.seq).unwrap_or(0);
+        // Sessions survive a restart: the agent id is the one the card carries
+        // now, since a profile can be reassigned while the app is closed.
+        let mut sessions = restore_sessions(&history);
+        for (card_id, entry) in sessions.iter_mut() {
+            if let Some(card) = board.get(card_id) {
+                entry.agent_id = card.agent_id.clone();
+            }
+        }
 
         // Anything still marked Running belongs to a process that died with us.
         let interrupted: Vec<(CardId, RunId)> = board
@@ -337,7 +398,7 @@ impl Engine {
             config,
             policy,
             runs: HashMap::new(),
-            sessions: HashMap::new(),
+            sessions,
             shared_worktree: None,
             logged_tx,
             runs_tx,
@@ -497,9 +558,7 @@ impl Engine {
                     card_id,
                     session_id,
                 } => {
-                    if let Some(entry) = self.sessions.get_mut(&card_id) {
-                        entry.session_id = Some(session_id);
-                    }
+                    self.record_session(card_id, session_id).await;
                 }
                 Msg::DirectorDone {
                     card_id,
@@ -529,6 +588,35 @@ impl Engine {
             }
         }
         Ok(seq)
+    }
+
+    /// Remember the session an agent reported, on the card and in the log, so
+    /// the next run can resume it after a restart. Written once: the same id
+    /// arrives twice per run (on init and on the result).
+    async fn record_session(&mut self, card_id: CardId, session_id: String) {
+        if let Some(entry) = self.sessions.get_mut(&card_id) {
+            entry.session_id = Some(session_id.clone());
+        }
+        let already = self
+            .board
+            .get(&card_id)
+            .and_then(|c| c.session_id.clone())
+            .is_some_and(|known| known == session_id);
+        if already {
+            return;
+        }
+        match self.board.decide(&Command::RecordSession {
+            card_id: card_id.clone(),
+            session_id,
+        }) {
+            Ok(events) => {
+                if let Err(e) = self.persist(events).await {
+                    eprintln!("could not record the session for {card_id}: {e}");
+                }
+            }
+            // A card discarded mid-run has nothing to record against.
+            Err(e) => eprintln!("session not recorded for {card_id}: {e}"),
+        }
     }
 
     fn active_runs(&self) -> Vec<ActiveRun> {

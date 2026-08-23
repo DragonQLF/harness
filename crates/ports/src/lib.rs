@@ -96,6 +96,10 @@ impl From<std::io::Error> for GitError {
 }
 
 pub trait GitPort: Send + Sync {
+    /// Where a worktree by this name would live, whether or not it exists yet.
+    /// Asking is the only way to reuse one after a restart: `create_worktree`
+    /// destroys and recreates, and that deletes the branch its commits are on.
+    fn worktree_path(&self, name: &str) -> PathBuf;
     fn create_worktree(&self, card_id: &str, base: &str) -> Result<WorktreePath, GitError>;
     fn commit(&self, wt: &WorktreePath, msg: &str, trailers: &Trailers) -> Result<String, GitError>;
     fn commit_wip(&self, wt: &WorktreePath) -> Result<Option<String>, GitError>;
@@ -239,6 +243,12 @@ pub enum RunEvent {
     Started {
         session_id: String,
     },
+    /// What the operator said. Only conversations have these: it is what makes
+    /// a chat transcript readable on its own, without a second store holding
+    /// the other half of the exchange.
+    UserMessage {
+        text: String,
+    },
     Text {
         text: String,
     },
@@ -261,6 +271,11 @@ pub enum RunEvent {
         #[serde(default)]
         turns: Option<u32>,
         result: Option<String>,
+        /// Set when the run ended in an error result rather than an answer. It
+        /// arrives on the same message as a success, so without this a failed
+        /// run reads as a completed one.
+        #[serde(default)]
+        error: Option<String>,
     },
     Failed {
         message: String,

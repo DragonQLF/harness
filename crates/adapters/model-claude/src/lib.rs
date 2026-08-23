@@ -172,6 +172,9 @@ async fn pump_lines(
             cost_usd,
             turns,
             result: final_result.clone(),
+            // The command line adapter reports a failure as a non-zero exit,
+            // not as an error result, so there is nothing to carry here.
+            error: None,
         },
     )
     .await;

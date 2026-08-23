@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { clock, money, num, plural } from "../lib/format";
-import { MODELS, tone, type WorktreeRow } from "../lib/types";
+import { MODELS, ruleIsRevoked, ruleLabel, tone, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
 import { Loading, Switch, tabular, truncate } from "../components/ui";
 import type { View } from "./views";
@@ -99,7 +99,8 @@ export function DirectorPage({
           {state.label}
         </span>
         <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          One orchestrator across every project. It plans, orders and reviews — it never writes code.
+          Your main assistant, across every project. It answers, plans, and puts work on a board
+          when you ask for it.
         </span>
       </div>
 
@@ -1180,33 +1181,66 @@ export function Settings() {
         <div style={card}>
           <Row
             name="Standing allowances"
-            note="Tools you told Harness to stop asking about. Click one to take it back."
+            note="Calls Harness stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
             last
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
-              {settings.always_allow.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  className="hv-danger"
-                  onClick={() =>
-                    saveSettings({ always_allow: settings.always_allow.filter((x) => x !== a) })
-                  }
-                  style={{
-                    padding: "5px 11px",
-                    border: "1px solid var(--line)",
-                    borderRadius: 999,
-                    background: "transparent",
-                    color: "var(--text2)",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    fontFamily: "var(--mono)",
-                  }}
-                >
-                  {a} ✕
-                </button>
-              ))}
+              {settings.always_allow.map((rule) => {
+                const label = ruleLabel(rule);
+                // An unscoped shell rule from an older build. It authorises
+                // nothing now; it is shown so it can be seen and removed.
+                const revoked = ruleIsRevoked(rule);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className="hv-danger"
+                    title={
+                      revoked
+                        ? "This allowed every command, so it no longer allows any. Approve once more to record a scoped rule."
+                        : "Stop allowing this"
+                    }
+                    onClick={() =>
+                      saveSettings({
+                        always_allow: settings.always_allow.filter(
+                          (x) => ruleLabel(x) !== label,
+                        ),
+                      })
+                    }
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "5px 11px",
+                      border: "1px solid var(--line)",
+                      borderRadius: 999,
+                      background: "transparent",
+                      color: revoked ? "var(--text3)" : "var(--text2)",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "var(--mono)",
+                      textDecoration: revoked ? "line-through" : "none",
+                    }}
+                  >
+                    {label}
+                    {revoked && (
+                      <span
+                        style={{
+                          fontFamily: "var(--sans)",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "var(--warn)",
+                          textDecoration: "none",
+                        }}
+                      >
+                        revoked
+                      </span>
+                    )}
+                    <span>&#10005;</span>
+                  </button>
+                );
+              })}
             </div>
           </Row>
         </div>

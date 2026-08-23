@@ -192,7 +192,10 @@ pub async fn remove_worktree(
     let runtime = ws.runtime(&project_id)?;
     let expected = ws.paths.project_worktrees(&project_id);
     let target = PathBuf::from(&path);
-    if !target.starts_with(&expected) {
+    // `starts_with` matches component by component, so `<expected>/../../x`
+    // passes it while pointing somewhere else entirely. Resolve both sides
+    // before comparing, and refuse anything that cannot be resolved.
+    if !inside(&expected, &target) {
         return Err(format!(
             "{} is not a worktree Harness created",
             target.display()
@@ -205,6 +208,18 @@ pub async fn remove_worktree(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Is `target` genuinely inside `root`? Both are canonicalised first, so `..`
+/// cannot walk out of the directory we mean to confine this to.
+fn inside(root: &std::path::Path, target: &std::path::Path) -> bool {
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    let Ok(target) = target.canonicalize() else {
+        return false;
+    };
+    target.starts_with(&root)
 }
 
 /// Show a path in the operator's file manager.
@@ -276,4 +291,28 @@ pub async fn project_run_checks(
 
     paths::write_json(&file, &ran)?;
     Ok(ran)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dot_dot_cannot_walk_out_of_the_worktree_root() {
+        let base = std::env::temp_dir().join(format!("harness-inside-{}", std::process::id()));
+        let root = base.join("worktrees");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(root.join("card")).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+
+        assert!(inside(&root, &root.join("card")));
+        // Component-wise matching used to accept this: it starts with the root
+        // components but resolves outside it.
+        assert!(!inside(&root, &root.join("..").join("elsewhere")));
+        assert!(!inside(&root, &elsewhere));
+        // A path that does not exist cannot be confirmed, so it is refused.
+        assert!(!inside(&root, &root.join("never-created")));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

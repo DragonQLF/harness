@@ -332,7 +332,7 @@ function Shell() {
                 {view === "projects" && <Projects go={go} />}
                 {view === "project" && <ProjectPage go={go} />}
                 {(view === "agents" || view === "agent") && (
-                  <AgentList open={openAgent} go={go} />
+                  <AgentList open={openAgent} go={go} openChat={() => setDock(true)} />
                 )}
                 {view === "board" && <Board openRun={openRun} openReject={setRejecting} />}
                 {view === "runs" && (
@@ -355,6 +355,7 @@ function Shell() {
               close={() => setView("agents")}
               openRun={openRun}
               go={go}
+              openChat={() => setDock(true)}
             />
           )}
         </main>

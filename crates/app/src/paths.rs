@@ -6,6 +6,8 @@
 //!   settings.json
 //!   agents.json
 //!   projects.json
+//!   conversations.json     the chat index: which Claude session each continues
+//!   conversations/<id>.jsonl   one transcript per conversation
 //!   sidecar/               copy of the Node sidecar + its node_modules
 //!   projects/<id>/events.jsonl
 //!   projects/<id>/runs/<run_id>.jsonl
@@ -44,6 +46,16 @@ impl AppPaths {
 
     pub fn projects_file(&self) -> PathBuf {
         self.root.join("projects.json")
+    }
+
+    pub fn conversations_file(&self) -> PathBuf {
+        self.root.join("conversations.json")
+    }
+
+    /// Chat transcripts. Workspace level, not per project: one Director watches
+    /// every board, and a conversation may be pinned to no project at all.
+    pub fn conversations_dir(&self) -> PathBuf {
+        self.root.join("conversations")
     }
 
     pub fn sidecar_dir(&self) -> PathBuf {
@@ -141,6 +153,8 @@ mod tests {
             paths.settings_file(),
             paths.agents_file(),
             paths.projects_file(),
+            paths.conversations_file(),
+            paths.conversations_dir(),
             paths.events_file("Some Project"),
             paths.runs_dir("Some Project"),
             paths.project_worktrees("Some Project"),

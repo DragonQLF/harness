@@ -5,14 +5,266 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ago } from "../lib/format";
 import { tone } from "../lib/types";
 import { useStore } from "../state/store";
-import { truncate } from "./ui";
+import { tabular, truncate } from "./ui";
+
+/** The list of conversations: what exists, and what to do with each one. It is
+ *  a view of backend state — every action is a round trip, nothing is decided
+ *  here. */
+function ConversationList({ close }: { close: () => void }) {
+  const {
+    conversations,
+    conversationId,
+    agents,
+    projects,
+    openConversation,
+    renameConversation,
+    archiveConversation,
+    deleteConversation,
+  } = useStore();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const commit = (id: string) => {
+    const clean = draft.trim();
+    setRenaming(null);
+    if (clean) renameConversation(id, clean);
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 3,
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--surface)",
+        animation: "fadeIn .18s ease both",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "14px 16px",
+          borderBottom: "1px solid var(--line)",
+        }}
+      >
+        <span style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>Conversations</span>
+        <span style={{ fontSize: 11.5, color: "var(--text3)", ...tabular }}>
+          {conversations.length}
+        </span>
+        <button
+          type="button"
+          className="hv-text"
+          title="Back to the conversation"
+          onClick={close}
+          style={{
+            width: 26,
+            height: 26,
+            border: "1px solid var(--line)",
+            borderRadius: "50%",
+            background: "transparent",
+            color: "var(--text3)",
+            cursor: "pointer",
+            fontSize: 11,
+          }}
+        >
+          &#10005;
+        </button>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 8px 12px" }}>
+        {conversations.length === 0 && (
+          <p style={{ margin: 0, padding: 14, fontSize: 12.5, color: "var(--text3)", lineHeight: 1.7 }}>
+            No conversations yet. Anything you ask starts one, and it is kept — you can come back
+            to it after restarting Harness.
+          </p>
+        )}
+        {conversations.map((c) => {
+          const profile = agents.find((a) => a.id === c.profile_id);
+          const project = projects.find((p) => p.id === c.project_id);
+          const current = c.id === conversationId;
+          const t = tone(profile?.tone ?? "info");
+          return (
+            <div
+              key={c.id}
+              style={{
+                padding: "9px 10px",
+                marginBottom: 4,
+                borderRadius: 12,
+                background: current ? "var(--accentSoft)" : "transparent",
+                boxShadow: current ? "inset 0 0 0 1px var(--accentLine)" : "none",
+              }}
+            >
+              {renaming === c.id ? (
+                <input
+                  autoFocus
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => commit(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commit(c.id);
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "5px 8px",
+                    border: "1px solid var(--accentLine)",
+                    borderRadius: 8,
+                    background: "var(--surface2)",
+                    color: "var(--text)",
+                    fontSize: 12.5,
+                    outline: "none",
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="hv-text"
+                  onClick={() => {
+                    openConversation(c.id);
+                    close();
+                  }}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--text)",
+                    fontSize: 12.5,
+                    fontWeight: current ? 700 : 600,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    ...truncate,
+                  }}
+                >
+                  {c.title}
+                </button>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 5,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span
+                  style={{
+                    padding: "1px 7px",
+                    borderRadius: 999,
+                    background: t.soft,
+                    color: t.color,
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}
+                >
+                  {profile?.name ?? c.profile_id}
+                </span>
+                {project && (
+                  <span
+                    style={{
+                      padding: "1px 7px",
+                      borderRadius: 999,
+                      background: "var(--surface2)",
+                      color: "var(--text3)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {project.name}
+                  </span>
+                )}
+                {c.resume_failed && (
+                  <span
+                    title="The Claude session behind this chat could not be resumed. The transcript is still here."
+                    style={{
+                      padding: "1px 7px",
+                      borderRadius: 999,
+                      background: "var(--warnSoft)",
+                      color: "var(--warn)",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    }}
+                  >
+                    session lost
+                  </span>
+                )}
+                <span style={{ fontSize: 10.5, color: "var(--text3)", ...tabular }}>
+                  {ago(c.updated_ms)}
+                </span>
+                <span style={{ flex: 1 }} />
+                {[
+                  {
+                    label: "Rename",
+                    glyph: "\u270e",
+                    run: () => {
+                      setDraft(c.title);
+                      setRenaming(c.id);
+                    },
+                  },
+                  {
+                    label: c.archived ? "Restore" : "Archive",
+                    glyph: "\u25f4",
+                    run: () => archiveConversation(c.id, !c.archived),
+                  },
+                  { label: "Delete", glyph: "\u2715", run: () => deleteConversation(c.id) },
+                ].map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="hv-text"
+                    title={action.label}
+                    onClick={action.run}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      border: "none",
+                      borderRadius: 6,
+                      background: "transparent",
+                      color: "var(--text3)",
+                      fontSize: 10.5,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {action.glyph}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function DirectorDock({ close }: { close: () => void }) {
-  const { chat, chatBusy, chatThinking, sendChat, agents } = useStore();
+  const {
+    chat,
+    chatBusy,
+    chatThinking,
+    sendChat,
+    agents,
+    projects,
+    conversation,
+    conversations,
+    newConversation,
+    pinConversation,
+  } = useStore();
   const [text, setText] = useState("");
+  const [history, setHistory] = useState(false);
   const end = useRef<HTMLDivElement | null>(null);
-  const director = agents.find((a) => a.id === "director");
-  const t = tone(director?.tone ?? "info");
+  // Whoever this conversation is with — the Director unless it was started
+  // with a specialist.
+  const speaker = agents.find((a) => a.id === (conversation?.profile_id ?? "director"));
+  const t = tone(speaker?.tone ?? "info");
+  const project = projects.find((p) => p.id === conversation?.project_id);
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
@@ -27,6 +279,7 @@ export function DirectorDock({ close }: { close: () => void }) {
   return (
     <aside
       style={{
+        position: "relative",
         width: 344,
         flex: "none",
         display: "flex",
@@ -58,26 +311,50 @@ export function DirectorDock({ close }: { close: () => void }) {
             fontSize: 13,
             fontWeight: 700,
             color: t.color,
+            flex: "none",
           }}
         >
-          {director?.initial ?? "D"}
+          {speaker?.initial ?? "D"}
         </span>
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 13.5, fontWeight: 700 }}>Director</span>
           <span
-            style={{ display: "block", fontSize: 11.5, color: "var(--text3)", marginTop: 2 }}
+            style={{ display: "block", fontSize: 13.5, fontWeight: 700, ...truncate }}
+            title={conversation?.title}
           >
-            {chatBusy ? "thinking" : "watching the board"}
+            {conversation?.title && conversation.title !== "New conversation"
+              ? conversation.title
+              : (speaker?.name ?? "Director")}
+          </span>
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 11.5,
+              color: "var(--text3)",
+              marginTop: 2,
+            }}
+          >
+            <span style={{ ...truncate }}>
+              {chatBusy ? "thinking" : (speaker?.name ?? "Director")}
+            </span>
+            {project && (
+              <>
+                <span>&middot;</span>
+                <span style={{ ...truncate }}>{project.name}</span>
+              </>
+            )}
           </span>
         </span>
         <button
           type="button"
           className="hv-text"
-          title="Hide"
-          onClick={close}
+          title={`Conversations (${conversations.length})`}
+          onClick={() => setHistory((h) => !h)}
           style={{
             width: 26,
             height: 26,
+            flex: "none",
             border: "1px solid var(--line)",
             borderRadius: "50%",
             background: "transparent",
@@ -87,9 +364,65 @@ export function DirectorDock({ close }: { close: () => void }) {
             transition: "all .18s ease",
           }}
         >
-          ›
+          &#9776;
+        </button>
+        <button
+          type="button"
+          className="hv-text"
+          title="New conversation"
+          onClick={() => newConversation()}
+          style={{
+            width: 26,
+            height: 26,
+            flex: "none",
+            border: "1px solid var(--line)",
+            borderRadius: "50%",
+            background: "transparent",
+            color: "var(--text3)",
+            cursor: "pointer",
+            fontSize: 13,
+            transition: "all .18s ease",
+          }}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="hv-text"
+          title="Hide"
+          onClick={close}
+          style={{
+            width: 26,
+            height: 26,
+            flex: "none",
+            border: "1px solid var(--line)",
+            borderRadius: "50%",
+            background: "transparent",
+            color: "var(--text3)",
+            cursor: "pointer",
+            fontSize: 11,
+            transition: "all .18s ease",
+          }}
+        >
+          &#8250;
         </button>
       </div>
+
+      {conversation?.resume_failed && (
+        <div
+          style={{
+            padding: "9px 16px",
+            background: "var(--warnSoft)",
+            color: "var(--warn)",
+            borderBottom: "1px solid var(--line)",
+            fontSize: 11.5,
+            lineHeight: 1.55,
+          }}
+        >
+          The Claude session behind this conversation could not be resumed. Everything above is
+          still readable; your next message starts a new session.
+        </div>
+      )}
 
       <div
         style={{
@@ -104,30 +437,49 @@ export function DirectorDock({ close }: { close: () => void }) {
       >
         {chat.length === 0 && !chatBusy && (
           <p style={{ margin: 0, fontSize: 12.5, color: "var(--text3)", lineHeight: 1.7 }}>
-            Ask about the board, a card or the codebase. The Director can read this project but
-            never writes to it.
+            Ask about anything — a plan, a question, a piece of work you want done. This
+            conversation is kept, so you can pick it up again after a restart.
           </p>
         )}
-        {chat.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              maxWidth: "90%",
-              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-              padding: "11px 14px",
-              borderRadius: m.role === "user" ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
-              fontSize: 13,
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              background: m.role === "user" ? "var(--accent)" : "var(--surface2)",
-              color: m.role === "user" ? "var(--onAccent)" : "var(--text)",
-              animation: "fadeUp .3s ease both",
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
+        {chat.map((m, i) =>
+          m.role === "notice" ? (
+            <div
+              key={i}
+              style={{
+                alignSelf: "stretch",
+                padding: "8px 11px",
+                borderRadius: 10,
+                background: "var(--surface2)",
+                color: "var(--text3)",
+                fontSize: 11.5,
+                lineHeight: 1.55,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {m.text}
+            </div>
+          ) : (
+            <div
+              key={i}
+              style={{
+                maxWidth: "90%",
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                padding: "11px 14px",
+                borderRadius: m.role === "user" ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
+                fontSize: 13,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                background: m.role === "user" ? "var(--accent)" : "var(--surface2)",
+                color: m.role === "user" ? "var(--onAccent)" : "var(--text)",
+                animation: "fadeUp .3s ease both",
+              }}
+            >
+              {m.text}
+            </div>
+          ),
+        )}
         {chatBusy && (
           <div
             style={{
@@ -165,7 +517,7 @@ export function DirectorDock({ close }: { close: () => void }) {
                 overflow: "hidden",
               }}
             >
-              {chatThinking || "thinking…"}
+              {chatThinking || "thinking\u2026"}
             </span>
           </div>
         )}
@@ -173,8 +525,43 @@ export function DirectorDock({ close }: { close: () => void }) {
       </div>
 
       <div style={{ padding: "12px 14px 14px", borderTop: "1px solid var(--line)" }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 9, flexWrap: "wrap" }}>
-          {["What needs me?", "What did the Builder just do?"].map((p) => (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginBottom: 9,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Which repository it can read while answering. Not a scope on the
+              conversation: it still sees every board. */}
+          <select
+            value={conversation?.project_id ?? ""}
+            onChange={(e) =>
+              conversation && pinConversation(conversation.id, e.target.value || null)
+            }
+            disabled={!conversation}
+            title="The project whose code this conversation can read"
+            style={{
+              maxWidth: 150,
+              padding: "5px 8px",
+              border: "1px solid var(--line)",
+              borderRadius: 999,
+              background: "transparent",
+              color: "var(--text2)",
+              fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            <option value="">No project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {["What needs me?", "Help me plan something"].map((p) => (
             <button
               key={p}
               type="button"
@@ -215,7 +602,7 @@ export function DirectorDock({ close }: { close: () => void }) {
                 send();
               }
             }}
-            placeholder="Ask the Director…"
+            placeholder={`Ask ${speaker?.name ?? "the Director"}\u2026`}
             style={{
               flex: 1,
               minWidth: 0,
@@ -244,10 +631,12 @@ export function DirectorDock({ close }: { close: () => void }) {
               opacity: text.trim() && !chatBusy ? 1 : 0.5,
             }}
           >
-            ↑
+            &#8593;
           </button>
         </div>
       </div>
+
+      {history && <ConversationList close={() => setHistory(false)} />}
     </aside>
   );
 }

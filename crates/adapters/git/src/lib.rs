@@ -570,6 +570,10 @@ pub fn ensure_workspace(dir: &Path) -> Result<(), GitError> {
 }
 
 impl GitPort for CliGit {
+    fn worktree_path(&self, name: &str) -> PathBuf {
+        self.worktrees_root.join(sanitize(name))
+    }
+
     fn create_worktree(&self, card_id: &str, base: &str) -> Result<WorktreePath, GitError> {
         let safe = sanitize(card_id);
         let wt = self.worktrees_root.join(&safe);

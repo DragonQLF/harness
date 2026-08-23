@@ -8,11 +8,10 @@ use std::sync::{Arc, Mutex};
 
 use harness_agent_claude::ClaudeCliAgent;
 use harness_agent_sidecar::SidecarAgent;
-use harness_domain::{CardId, RunId};
-use harness_engine::{Engine, EngineConfig, EngineDeps, EngineHandle, RunUpdate};
+use harness_engine::{Engine, EngineConfig, EngineDeps, EngineHandle};
 use harness_git_cli::{ensure_workspace, CliGit};
 use harness_ports::{
-    AgentPort, ClockPort, RunEvent, RunLogPort, RunOutcome, RunSpec, StorePort, ToolRunner,
+    AgentPort, ClockPort, RunEvent, RunLogLine, RunLogPort, RunOutcome, RunSpec, StorePort,
 };
 use harness_store_jsonl::{JsonlRunLog, JsonlStore};
 use tauri::{AppHandle, Emitter};
@@ -21,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use harness_app::agents::{self, AgentProfile};
 use harness_app::approvals::{ApprovalRouter, Notifier, PendingApproval};
+use harness_app::conversations::{Conversation, ConversationIndex};
 use harness_app::paths::{self, AppPaths};
 use harness_app::director::{CardLine, DiffFacts, ProjectBrief};
 use harness_app::projects::{self, FolderInfo, Project};
@@ -54,10 +54,10 @@ impl ClockPort for SystemClock {
 
 /// Picks the sidecar or the command line adapter per run, so the Settings
 /// toggle applies immediately instead of at the next restart.
-struct SwitchingAgent {
-    sidecar: Arc<dyn AgentPort>,
-    cli: Arc<dyn AgentPort>,
-    settings: Arc<Mutex<Settings>>,
+pub struct SwitchingAgent {
+    pub sidecar: Arc<dyn AgentPort>,
+    pub cli: Arc<dyn AgentPort>,
+    pub settings: Arc<Mutex<Settings>>,
 }
 
 impl AgentPort for SwitchingAgent {
@@ -93,6 +93,12 @@ pub struct Workspace {
     agents: Mutex<Vec<AgentProfile>>,
     projects: Mutex<Vec<Project>>,
     runtimes: Mutex<HashMap<String, Arc<ProjectRuntime>>>,
+    /// Which chats exist and which Claude session each continues. The words
+    /// themselves live in `chat_log`, never here.
+    conversations: Mutex<ConversationIndex>,
+    /// One transcript per conversation, through the same port every run
+    /// transcript already uses.
+    chat_log: Arc<JsonlRunLog>,
 }
 
 impl Workspace {
@@ -105,7 +111,18 @@ impl Workspace {
         let stored_agents: Vec<AgentProfile> = paths::read_json_or_default(&paths.agents_file());
         let agents = agents::normalise(stored_agents);
         let projects: Vec<Project> = paths::read_json_or_default(&paths.projects_file());
+        let conversations: ConversationIndex =
+            paths::read_json_or_default(&paths.conversations_file());
         let sidecar_dir = sidecar::prepare(&app, &paths);
+        // A missing transcript directory must not stop the app opening: an
+        // in-memory conversation is still better than no window.
+        let chat_log = Arc::new(
+            JsonlRunLog::open(paths.conversations_dir()).unwrap_or_else(|e| {
+                eprintln!("could not open the conversation transcripts: {e}");
+                JsonlRunLog::open(std::env::temp_dir().join("harness-conversations"))
+                    .expect("a writable transcript directory")
+            }),
+        );
 
         let workspace = Arc::new(Self {
             app,
@@ -116,6 +133,8 @@ impl Workspace {
             agents: Mutex::new(agents),
             projects: Mutex::new(projects),
             runtimes: Mutex::new(HashMap::new()),
+            conversations: Mutex::new(conversations),
+            chat_log,
         });
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
@@ -154,6 +173,20 @@ impl Workspace {
         &self.sidecar_dir
     }
 
+    pub fn app_handle(&self) -> AppHandle {
+        self.app.clone()
+    }
+
+    /// The agent used for conversations, chosen per run so the sidecar toggle
+    /// applies without a restart.
+    pub fn agent_port(&self) -> Arc<dyn AgentPort> {
+        crate::chat::agent_for(self)
+    }
+
+    pub fn chat_log(&self) -> &JsonlRunLog {
+        self.chat_log.as_ref()
+    }
+
     // ---- settings ----
 
     pub fn settings(&self) -> Settings {
@@ -186,9 +219,17 @@ impl Workspace {
         self.agents.lock().unwrap().clone()
     }
 
+    /// The profile for an id, falling back to a worker when it is unknown.
+    /// Right for assigning work; wrong for a conversation, which must speak as
+    /// the profile it says it does — see `agent_exact`.
     pub fn agent(&self, id: &str) -> Option<AgentProfile> {
         let agents = self.agents.lock().unwrap();
         agents::find(&agents, id).cloned()
+    }
+
+    /// The profile for an id, or nothing.
+    pub fn agent_exact(&self, id: &str) -> Option<AgentProfile> {
+        self.agents.lock().unwrap().iter().find(|a| a.id == id).cloned()
     }
 
     pub fn set_agents(&self, next: Vec<AgentProfile>) -> Result<Vec<AgentProfile>, String> {
@@ -200,8 +241,307 @@ impl Workspace {
         Ok(self.agents())
     }
 
+    /// Add a profile from a template. Templates are a menu: nothing is
+    /// installed until this is called.
+    pub fn add_agent_from_template(&self, template_id: &str) -> Result<AgentProfile, String> {
+        let taken: Vec<String> = self.agents().into_iter().map(|a| a.id).collect();
+        let created = agents::from_template(template_id, &taken)
+            .ok_or_else(|| format!("there is no template called {template_id}"))?;
+        self.agents.lock().unwrap().push(created.clone());
+        self.save_agents_file()?;
+        Ok(created)
+    }
+
+    pub fn duplicate_agent(&self, agent_id: &str) -> Result<AgentProfile, String> {
+        let original = self
+            .agent_exact(agent_id)
+            .ok_or_else(|| format!("no agent profile called {agent_id}"))?;
+        let taken: Vec<String> = self.agents().into_iter().map(|a| a.id).collect();
+        let copy = agents::duplicate(&original, &taken);
+        self.agents.lock().unwrap().push(copy.clone());
+        self.save_agents_file()?;
+        Ok(copy)
+    }
+
+    /// Remove a profile. Every profile is optional except the Director, which
+    /// the review loop needs.
+    pub fn remove_agent(&self, agent_id: &str) -> Result<Vec<AgentProfile>, String> {
+        if agent_id == agents::DIRECTOR_ID {
+            return Err("the Director cannot be removed: the review loop needs it".to_string());
+        }
+        if self.agent_exact(agent_id).is_none() {
+            return Err(format!("no agent profile called {agent_id}"));
+        }
+        {
+            let mut guard = self.agents.lock().unwrap();
+            guard.retain(|a| a.id != agent_id);
+        }
+        self.save_agents_file()?;
+        Ok(self.agents())
+    }
+
     fn save_agents_file(&self) -> Result<(), String> {
         paths::write_json(&self.paths.agents_file(), &self.agents())
+    }
+
+
+    // ---- conversations ----
+
+    pub fn conversations(&self, include_archived: bool) -> Vec<Conversation> {
+        self.conversations.lock().unwrap().list(include_archived)
+    }
+
+    pub fn conversation(&self, id: &str) -> Option<Conversation> {
+        self.conversations.lock().unwrap().get(id).cloned()
+    }
+
+    /// The conversation to reopen when the app starts.
+    pub fn last_conversation(&self) -> Option<Conversation> {
+        self.conversations
+            .lock()
+            .unwrap()
+            .resume_target(agents::DIRECTOR_ID)
+            .cloned()
+    }
+
+    fn save_conversations(&self) -> Result<(), String> {
+        let index = self.conversations.lock().unwrap();
+        paths::write_json(&self.paths.conversations_file(), &*index)
+    }
+
+    /// Start a conversation. A fresh row means a fresh native session: there is
+    /// nothing to resume, which is what makes New Chat actually new.
+    pub fn new_conversation(
+        &self,
+        profile_id: Option<String>,
+        project_id: Option<String>,
+    ) -> Result<Conversation, String> {
+        let profile_id = profile_id.unwrap_or_else(|| agents::DIRECTOR_ID.to_string());
+        let profile = self
+            .agent_exact(&profile_id)
+            .ok_or_else(|| format!("no agent profile called {profile_id}"))?;
+        if !profile.chat_enabled {
+            return Err(format!("{} is not set up for conversations", profile.name));
+        }
+        // A pin to a project that is gone would only mislead.
+        let project_id = project_id.filter(|id| self.project(id).is_some());
+        let id = format!("chat_{}", uuid::Uuid::new_v4().simple());
+        let created = self.conversations.lock().unwrap().insert(Conversation::new(
+            id,
+            profile_id,
+            project_id,
+            SystemClock.now_millis(),
+        ));
+        self.save_conversations()?;
+        Ok(created)
+    }
+
+    /// The conversation to talk in right now: the one asked for, the last one
+    /// used, or a new one.
+    pub fn open_conversation(
+        &self,
+        profile_id: Option<String>,
+        project_id: Option<String>,
+    ) -> Result<Conversation, String> {
+        let wanted = profile_id
+            .clone()
+            .unwrap_or_else(|| agents::DIRECTOR_ID.to_string());
+        let existing = {
+            let index = self.conversations.lock().unwrap();
+            index
+                .resume_target(&wanted)
+                .filter(|c| c.profile_id == wanted)
+                .cloned()
+        };
+        match existing {
+            Some(found) => {
+                self.select_conversation(&found.id)?;
+                Ok(found)
+            }
+            None => self.new_conversation(profile_id, project_id),
+        }
+    }
+
+    pub fn select_conversation(&self, id: &str) -> Result<Conversation, String> {
+        {
+            let mut index = self.conversations.lock().unwrap();
+            index.select(id)?;
+        }
+        self.save_conversations()?;
+        self.conversation(id).ok_or_else(|| format!("no conversation {id}"))
+    }
+
+    pub fn rename_conversation(&self, id: &str, title: &str) -> Result<Conversation, String> {
+        let updated = {
+            let mut index = self.conversations.lock().unwrap();
+            index.rename(id, title, SystemClock.now_millis())?
+        };
+        self.save_conversations()?;
+        Ok(updated)
+    }
+
+    pub fn archive_conversation(&self, id: &str, archived: bool) -> Result<Conversation, String> {
+        let updated = {
+            let mut index = self.conversations.lock().unwrap();
+            index.set_archived(id, archived, SystemClock.now_millis())?
+        };
+        self.save_conversations()?;
+        Ok(updated)
+    }
+
+    /// Forget a conversation and its transcript. Destructive, so the UI asks
+    /// first; by the time this runs the decision is made.
+    pub fn delete_conversation(&self, id: &str) -> Result<(), String> {
+        let gone = {
+            let mut index = self.conversations.lock().unwrap();
+            index.remove(id)?
+        };
+        self.save_conversations()?;
+        // Ask the log where it put it: the name is sanitised on the way in.
+        let file = self.chat_log.path_of(&gone.id);
+        if let Err(e) = std::fs::remove_file(&file) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("could not delete the transcript {}: {e}", file.display());
+            }
+        }
+        Ok(())
+    }
+
+    /// Pin a conversation to a project, or unpin it. This is what decides which
+    /// code it can read.
+    pub fn pin_conversation(
+        &self,
+        id: &str,
+        project_id: Option<String>,
+    ) -> Result<Conversation, String> {
+        let project_id = project_id.filter(|p| self.project(p).is_some());
+        {
+            let mut index = self.conversations.lock().unwrap();
+            let entry = index
+                .conversations
+                .iter_mut()
+                .find(|c| c.id == id)
+                .ok_or_else(|| format!("no conversation {id}"))?;
+            entry.project_id = project_id;
+            entry.updated_ms = SystemClock.now_millis();
+        }
+        self.save_conversations()?;
+        self.conversation(id).ok_or_else(|| format!("no conversation {id}"))
+    }
+
+    pub fn record_chat_message(&self, id: &str, message: &str) -> Result<Conversation, String> {
+        let updated = {
+            let mut index = self.conversations.lock().unwrap();
+            index.record_message(id, message, SystemClock.now_millis())?
+        };
+        self.save_conversations()?;
+        Ok(updated)
+    }
+
+    /// Save the session the SDK handed back, and tell the window, so the list
+    /// stops saying a conversation has never been answered.
+    pub fn record_chat_session(&self, id: &str, session_id: &str) {
+        let changed = {
+            let mut index = self.conversations.lock().unwrap();
+            index
+                .record_session(id, session_id, SystemClock.now_millis())
+                .unwrap_or(false)
+        };
+        if changed {
+            let _ = self.save_conversations();
+            self.publish_conversations();
+        }
+    }
+
+    pub fn record_chat_cost(&self, id: &str, cost_usd: Option<f64>) {
+        {
+            let mut index = self.conversations.lock().unwrap();
+            index.record_cost(id, cost_usd, SystemClock.now_millis());
+        }
+        let _ = self.save_conversations();
+        self.publish_conversations();
+    }
+
+    pub fn record_chat_resume_failure(&self, id: &str) {
+        {
+            let mut index = self.conversations.lock().unwrap();
+            index.record_resume_failure(id, SystemClock.now_millis());
+        }
+        let _ = self.save_conversations();
+        self.publish_conversations();
+    }
+
+    pub fn append_chat_line(&self, conversation_id: &str, line: RunLogLine) {
+        if let Err(e) = RunLogPort::append(self.chat_log.as_ref(), conversation_id, &line) {
+            eprintln!("could not write the conversation transcript: {e}");
+        }
+    }
+
+    /// The list changed without the UI asking; it renders backend state, so the
+    /// backend says when it moved.
+    fn publish_conversations(&self) {
+        let _ = self
+            .app
+            .emit("chat://conversations", self.conversations(false));
+    }
+
+    /// Every board, with the one this conversation can read marked.
+    pub async fn project_briefs(
+        self: &Arc<Self>,
+        active: Option<&str>,
+    ) -> Result<Vec<ProjectBrief>, String> {
+        let mut briefs = Vec::new();
+        for project in self.projects() {
+            if !Path::new(&project.path).is_dir() {
+                continue;
+            }
+            let Ok(runtime) = self.runtime(&project.id) else {
+                continue;
+            };
+            let snap = runtime.engine.snapshot().await?;
+            let base = project.base_branch.clone();
+            let git = Arc::clone(&runtime.git);
+            let sessions = snap.sessions.clone();
+
+            // A card waiting on the operator is the one they will ask about, so
+            // read what its worktree actually holds instead of leaving it to
+            // guess.
+            let lines = tauri::async_runtime::spawn_blocking(move || {
+                snap.cards
+                    .iter()
+                    .map(|card| {
+                        let line = CardLine::from_card(card);
+                        // Only a card waiting on the operator: work in flight
+                        // changes under us, and the rest is already committed.
+                        let worth_reading = card.status == harness_domain::Status::Review;
+                        let facts = if worth_reading {
+                            sessions
+                                .iter()
+                                .find(|s| s.card_id == card.id)
+                                .map(|s| {
+                                    let (files, added, removed) =
+                                        git.changed_files(Path::new(&s.worktree), &base);
+                                    DiffFacts { files, added, removed }
+                                })
+                        } else {
+                            None
+                        };
+                        line.with_diff(facts)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+            briefs.push(ProjectBrief {
+                id: project.id.clone(),
+                name: project.name.clone(),
+                path: project.path.clone(),
+                active: active == Some(project.id.as_str()),
+                cards: lines,
+            });
+        }
+        Ok(briefs)
     }
 
     // ---- projects ----
@@ -366,6 +706,12 @@ impl Workspace {
         self.projects.lock().unwrap().retain(|p| p.id != id);
         self.runtimes.lock().unwrap().remove(id);
         self.save_projects_file()?;
+        // A conversation pinned to a project that is gone would point nowhere.
+        {
+            let mut index = self.conversations.lock().unwrap();
+            index.unpin_project(id);
+        }
+        let _ = self.save_conversations();
         if delete_data {
             let _ = std::fs::remove_dir_all(self.paths.project_dir(id));
             let _ = std::fs::remove_dir_all(self.paths.project_worktrees(id));
@@ -488,187 +834,6 @@ impl Workspace {
             store,
             run_log,
         })
-    }
-
-    /// Ask the Director something with no project open — the conversation you
-    /// need before there is a board: what to point Harness at, how to split the
-    /// first piece of work. It runs read-only in the app-data directory, so it
-    /// can answer without touching anything of yours.
-    pub async fn ask_director(
-        self: &Arc<Self>,
-        text: String,
-        project_id: Option<String>,
-    ) -> Result<(), String> {
-        let profile = self
-            .agent(agents::DIRECTOR_ID)
-            .ok_or_else(|| "no Director profile configured".to_string())?;
-
-        // Every board it watches, with the open one marked: that is what makes
-        // this one Director rather than one per project.
-        let mut briefs = Vec::new();
-        for project in self.projects() {
-            if !Path::new(&project.path).is_dir() {
-                continue;
-            }
-            let Ok(runtime) = self.runtime(&project.id) else {
-                continue;
-            };
-            let snap = runtime.engine.snapshot().await?;
-            let base = project.base_branch.clone();
-            let git = Arc::clone(&runtime.git);
-            let sessions = snap.sessions.clone();
-
-            // A card waiting on the operator is the one they will ask about, so
-            // read what its worktree actually holds instead of leaving the
-            // Director to guess.
-            let lines = tauri::async_runtime::spawn_blocking(move || {
-                snap.cards
-                    .iter()
-                    .map(|card| {
-                        let line = CardLine::from_card(card);
-                        // Only a card waiting on the operator: work in flight
-                        // changes under us, and the rest is already committed.
-                        let worth_reading = card.status == harness_domain::Status::Review;
-                        let facts = if worth_reading {
-                            sessions
-                                .iter()
-                                .find(|s| s.card_id == card.id)
-                                .map(|s| {
-                                    let (files, added, removed) =
-                                        git.changed_files(Path::new(&s.worktree), &base);
-                                    DiffFacts { files, added, removed }
-                                })
-                        } else {
-                            None
-                        };
-                        line.with_diff(facts)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .await
-            .map_err(|e| e.to_string())?;
-
-            briefs.push(ProjectBrief {
-                name: project.name.clone(),
-                path: project.path.clone(),
-                active: project_id.as_deref() == Some(project.id.as_str()),
-                cards: lines,
-            });
-        }
-
-        // Reading code only makes sense inside the project that is open.
-        let cwd = project_id
-            .as_deref()
-            .and_then(|id| self.project(id))
-            .map(|p| PathBuf::from(p.path))
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| self.paths.root().to_path_buf());
-
-        let script = sidecar::script_in(&self.sidecar_dir);
-        let agent: Arc<dyn AgentPort> = Arc::new(SwitchingAgent {
-            sidecar: Arc::new(SidecarAgent::new("node", script)),
-            cli: Arc::new(ClaudeCliAgent::new("claude")),
-            settings: Arc::clone(&self.settings),
-        });
-
-        // Harness's own tools. They are not in `allowed_tools`, so the agent
-        // SDK sends each call through the approver first: the operator sees
-        // "the Director wants to move c_7b30" before anything moves.
-        let tool_ws = Arc::clone(self);
-        let tool_app = self.app.clone();
-        let tool_project = project_id.clone();
-        let tools: ToolRunner = Arc::new(move |call| {
-            let ws = Arc::clone(&tool_ws);
-            let app = tool_app.clone();
-            let project = tool_project.clone();
-            Box::pin(async move { crate::director_tools::run(&ws, &app, project, call).await })
-        });
-
-        let spec = RunSpec {
-            prompt: harness_app::director::ask_prompt(&text, &briefs),
-            cwd,
-            model: profile.model.clone(),
-            // Granted outright, because none of it changes anything: reading
-            // the repository, reading a diff, and moving the operator's own
-            // window. The SDK auto-approves bare entries, so showing someone a
-            // screen never interrupts them for permission. Everything that
-            // *changes* the board is absent here on purpose, so it reaches the
-            // approver below. (`dontAsk` would deny those outright instead.)
-            allowed_tools: Some(vec![
-                "Read".into(),
-                "Glob".into(),
-                "Grep".into(),
-                "mcp__harness__open_screen".into(),
-                "mcp__harness__read_diff".into(),
-            ]),
-            max_budget_usd: profile.budget_usd,
-            permission_mode: Some("manual".to_string()),
-            approver: Some(self.router.approver_for(
-                project_id.as_deref().unwrap_or("workspace"),
-            )),
-            resume_session: None,
-            tools: Some(tools),
-            // The operator watches it think while it works, so give it room to.
-            thinking_tokens: Some(4000),
-        };
-
-        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-        let fut = agent.run(spec, ev_tx, CancellationToken::new());
-        let app = self.app.clone();
-        let project_id = project_id.unwrap_or_default();
-        let run_id = RunId(uuid::Uuid::new_v4().to_string());
-
-        tauri::async_runtime::spawn(async move {
-            // Published on the reserved card id, in the same shape as any run,
-            // so the UI has one typed listener for both.
-            let publish = |event: RunEvent| {
-                let _ = app.emit(
-                    "engine://run",
-                    RunUpdate {
-                        project_id: project_id.clone(),
-                        card_id: CardId::new(harness_app::director::CARD_ID),
-                        run_id: run_id.clone(),
-                        ts_ms: SystemClock.now_millis(),
-                        event,
-                    },
-                );
-            };
-            let forward = async {
-                while let Some(ev) = ev_rx.recv().await {
-                    match ev {
-                        RunEvent::Delta { text } => publish(RunEvent::Delta { text }),
-                        RunEvent::Thinking { text } => publish(RunEvent::Thinking { text }),
-                        RunEvent::Text { text } => publish(RunEvent::Text { text }),
-                        RunEvent::ToolUse { tool, summary } => {
-                            publish(RunEvent::ToolUse { tool, summary })
-                        }
-                        RunEvent::Failed { message } => publish(RunEvent::Failed { message }),
-                        _ => {}
-                    }
-                }
-            };
-            let (res, _) = tokio::join!(fut, forward);
-            // The UI clears its thinking state on this, so it always goes out.
-            match res {
-                Ok(RunOutcome::Failed(message)) | Err(message) => {
-                    publish(RunEvent::Failed { message })
-                }
-                Ok(RunOutcome::Completed { cost_usd, turns, .. }) => publish(RunEvent::Done {
-                    session_id: None,
-                    cost_usd,
-                    turns,
-                    result: None,
-                }),
-                Ok(RunOutcome::Cancelled) => publish(RunEvent::Done {
-                    session_id: None,
-                    cost_usd: None,
-                    turns: None,
-                    result: None,
-                }),
-            }
-        });
-
-        Ok(())
     }
 
     /// Cancel every run everywhere and let the worktrees commit.
