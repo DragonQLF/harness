@@ -16,16 +16,27 @@ impl Engine {
     /// What must hold before a run may begin. Checked here for a fast answer
     /// and again in `launch_run`, because between asking for a worktree and
     /// being handed one, other messages get processed and the world can move.
+    /// `starting` is what makes that window honest: a card (or an agent's
+    /// slot) mid-start counts here before it counts in `runs`.
     fn check_run_start(&self, card_id: &CardId, profile: &RunProfile) -> Result<(), String> {
         if self.runs.contains_key(card_id) {
             return Err("card already has an active run".to_string());
         }
+        if self.starting.contains_key(card_id) {
+            return Err("a start is already under way for this card".to_string());
+        }
         let limit = profile.max_concurrent.max(1) as usize;
+        let agent = profile.agent_id.as_str();
         let active = self
             .runs
             .values()
-            .filter(|entry| entry.agent_id == profile.agent_id)
-            .count();
+            .filter(|entry| entry.agent_id == agent)
+            .count()
+            + self
+                .starting
+                .values()
+                .filter(|a| a.as_str() == agent)
+                .count();
         if active >= limit {
             let unit = if active == 1 { "card" } else { "cards" };
             return Err(format!(
@@ -34,6 +45,28 @@ impl Engine {
             ));
         }
         Ok(())
+    }
+
+    /// Clear a start that will not happen. The set entry always goes; a
+    /// worktree built fresh for this attempt goes with it — detached, since
+    /// `worktree remove --force` takes seconds and nobody is waiting. An
+    /// adopted checkout is never ours to delete.
+    fn abandon_start(&mut self, card_id: &CardId, created: bool, worktree: Option<WorktreePath>) {
+        self.starting.remove(card_id);
+        if created {
+            if let Some(wt) = worktree {
+                let git = Arc::clone(&self.git);
+                tokio::spawn(async move {
+                    let removed =
+                        tokio::task::spawn_blocking(move || git.remove_worktree(&wt)).await;
+                    match removed {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => eprintln!("could not remove the abandoned worktree: {e}"),
+                        Err(e) => eprintln!("could not remove the abandoned worktree: {e}"),
+                    }
+                });
+            }
+        }
     }
 
     pub(crate) async fn start_run(
@@ -50,15 +83,32 @@ impl Engine {
         match profile.worktree {
             WorktreeMode::None => {
                 let worktree = WorktreePath(self.config.repo_root.clone());
-                self.launch_run(card_id, prompt, profile, reply, Ok(worktree))
+                self.launch_run(card_id, prompt, profile, reply, Ok(worktree), false)
                     .await;
             }
             WorktreeMode::Shared => match self.shared_checkout() {
                 Some(existing) => {
-                    self.launch_run(card_id, prompt, profile, reply, Ok(existing))
-                        .await;
+                    self.launch_run(
+                        card_id,
+                        prompt,
+                        profile,
+                        reply,
+                        Ok(existing),
+                        false,
+                    )
+                    .await;
                 }
                 None => {
+                    // From here until the run is registered the card must be
+                    // visible, or a second dispatch would build a worktree
+                    // that deletes this one's checkout mid-flight.
+                    if self.starting.contains_key(&card_id) {
+                        let _ = reply.send(Err(
+                            "a start is already under way for this card".to_string()
+                        ));
+                        return;
+                    }
+                    self.starting.insert(card_id.clone(), profile.agent_id.clone());
                     self.resolve_worktree_off_actor(
                         SHARED_WORKTREE.to_string(),
                         card_id,
@@ -69,6 +119,14 @@ impl Engine {
                 }
             },
             WorktreeMode::PerCard => {
+                // Same window as above; see the Shared arm.
+                if self.starting.contains_key(&card_id) {
+                    let _ = reply.send(Err(
+                        "a start is already under way for this card".to_string()
+                    ));
+                    return;
+                }
+                self.starting.insert(card_id.clone(), profile.agent_id.clone());
                 let name = card_id.to_string();
                 self.resolve_worktree_off_actor(name, card_id, prompt, profile, reply);
             }
@@ -120,6 +178,7 @@ impl Engine {
                     profile: Box::new(profile),
                     reply,
                     result,
+                    created: true,
                 })
                 .await;
         });
@@ -128,7 +187,8 @@ impl Engine {
     /// Record the run and set the agent loose. The worktree is settled by the
     /// time this runs — resolved *before* the run is recorded, so a checkout
     /// that cannot be created never leaves a card marked Running with no run
-    /// behind it, and the log can say where the work happened.
+    /// behind it, and the log can say where the work happened. `created` says
+    /// the checkout was built for this attempt and is ours to clean up.
     pub(crate) async fn launch_run(
         &mut self,
         card_id: CardId,
@@ -136,11 +196,13 @@ impl Engine {
         profile: RunProfile,
         reply: oneshot::Sender<Result<RunId, String>>,
         worktree_result: Result<WorktreePath, String>,
+        created: bool,
     ) {
-        if let Err(e) = self.check_run_start(&card_id, &profile) {
-            let _ = reply.send(Err(e));
-            return;
-        }
+        // Our own marker comes off first: it existed for the messages between
+        // the two phases, and this handler runs without interleaving — left
+        // in, the re-check below would find the card "starting" against
+        // itself.
+        self.starting.remove(&card_id);
         let worktree = match worktree_result {
             Ok(wt) => wt,
             Err(e) => {
@@ -148,6 +210,14 @@ impl Engine {
                 return;
             }
         };
+        if let Err(e) = self.check_run_start(&card_id, &profile) {
+            // The world moved during the window: discarded, double-dispatched
+            // or over the agent's limit. Either way the checkout built for
+            // this attempt would sit on disk with nobody owning it.
+            self.abandon_start(&card_id, created, Some(worktree.clone()));
+            let _ = reply.send(Err(e));
+            return;
+        }
         let run_id = RunId(uuid::Uuid::new_v4().to_string());
 
         let branch = match profile.worktree {
@@ -168,11 +238,13 @@ impl Engine {
             }) {
             Ok(events) => events,
             Err(e) => {
+                self.abandon_start(&card_id, created, Some(worktree.clone()));
                 let _ = reply.send(Err(e.to_string()));
                 return;
             }
         };
         if let Err(e) = self.persist(events).await {
+            self.abandon_start(&card_id, created, Some(worktree.clone()));
             let _ = reply.send(Err(e));
             return;
         }
@@ -468,6 +540,9 @@ impl Engine {
                 started_ms,
             },
         );
+        // The start is no longer in flight: it is a run. Clearing it here and
+        // not before keeps the window honest the whole way.
+        self.starting.remove(&card_id);
         self.sessions.insert(
             card_id.clone(),
             SessionEntry {

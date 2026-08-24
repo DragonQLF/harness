@@ -219,6 +219,9 @@ struct FakeGit {
     /// When set, wip commits are also recorded here, so a test can prove an
     /// ordering against events the agent recorded in the same vec.
     order: Option<Arc<Mutex<Vec<&'static str>>>>,
+    /// When set, create_worktree takes this long — long enough that another
+    /// message lands mid-start, which is the window these tests are about.
+    create_delay_ms: u64,
 }
 
 impl FakeGit {
@@ -229,6 +232,7 @@ impl FakeGit {
             commit_fails: None,
             fail_worktree: false,
             order: None,
+            create_delay_ms: 0,
         }
     }
 
@@ -241,6 +245,7 @@ impl FakeGit {
             commit_fails: Some(reason.to_string()),
             fail_worktree: false,
             order: None,
+            create_delay_ms: 0,
         }
     }
 
@@ -274,6 +279,9 @@ impl GitPort for FakeGit {
         if self.fail_worktree {
             return Err(GitError::Git("worktree is locked".into()));
         }
+        if self.create_delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(self.create_delay_ms));
+        }
         let path = self.root.join(card_id);
         std::fs::create_dir_all(&path).map_err(|e| GitError::Io(e.to_string()))?;
         Ok(WorktreePath(path))
@@ -302,7 +310,13 @@ impl GitPort for FakeGit {
         }
     }
 
-    fn remove_worktree(&self, _wt: &WorktreePath) -> Result<(), GitError> {
+    fn remove_worktree(&self, wt: &WorktreePath) -> Result<(), GitError> {
+        let name = wt
+            .0
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        self.calls.lock().unwrap().push(format!("remove:{name}"));
         Ok(())
     }
 
@@ -1617,6 +1631,152 @@ async fn a_rejected_card_keeps_its_work_report_in_the_log() {
             .count(),
         2,
         "the reports survive the rejection"
+    );
+}
+
+/// The two phases of a start straddle a message boundary. Two dispatches for
+/// the same card in that window — double-click, or the Director's tool racing
+/// your click — must not both build a worktree: per-card `create_worktree`
+/// destroys first, so the second would delete the first's checkout out from
+/// under an agent that is about to start.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_starts_for_one_card_build_exactly_one_worktree() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let id = CardId::new("c_race");
+    card_ready(&r.handle, &id).await;
+
+    // Both dispatched before either resolves: the actor takes message 1,
+    // marks the card as starting and spawns the build; message 2 then hits
+    // the marker while the worktree is still being made.
+    let first = r.handle.start_run(id.clone(), "one".into(), profile());
+    let second = r.handle.start_run(id.clone(), "two".into(), profile());
+    let (ra, rb) = tokio::join!(first, second);
+
+    let ok = ra.is_ok() || rb.is_ok();
+    assert!(ok, "one of them starts: {ra:?} / {rb:?}");
+    let refused = [ra.err(), rb.err()]
+        .into_iter()
+        .flatten()
+        .find(|e| e.contains("under way"))
+        .expect("the second dispatch is named as already under way");
+    assert!(refused.contains("under way"));
+
+    let creates = r
+        .git
+        .calls()
+        .into_iter()
+        .filter(|c| c == &format!("create:{id}"))
+        .count();
+    assert_eq!(creates, 1, "one checkout built, never two: {creates}");
+
+    // And the winner is genuinely running.
+    wait_for("run registers as active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+}
+
+/// The same window over the agent limit: the second dispatch is refused while
+/// the first is still building — the limit counts what is starting, not only
+/// what runs — so the loser never builds a checkout at all. Nothing to orphan.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_loser_of_the_agent_limit_never_builds() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let a = CardId::new("c_lim_a");
+    let b = CardId::new("c_lim_b");
+    card_ready(&r.handle, &a).await;
+    card_ready(&r.handle, &b).await;
+
+    let ra = r.handle.start_run(a.clone(), "one".into(), profile());
+    let rb = r.handle.start_run(b.clone(), "two".into(), profile());
+    let (ra, rb) = tokio::join!(ra, rb);
+
+    let (winner, err) = match (ra, rb) {
+        (Ok(_), Err(e)) => (&a, e),
+        (Err(e), Ok(_)) => (&b, e),
+        other => panic!("exactly one wins: {other:?}"),
+    };
+    assert!(
+        err.contains("its limit is 1"),
+        "the refusal names the limit: {err}"
+    );
+    wait_for("winner registers as active", async || {
+        r.handle
+            .active_runs()
+            .await
+            .unwrap()
+            .iter()
+            .any(|run| run.card_id == *winner)
+    })
+    .await;
+
+    let calls = r.git.calls();
+    assert_eq!(
+        calls.iter().filter(|c| c.starts_with("create:")).count(),
+        1,
+        "the loser never built anything: {calls:?}"
+    );
+}
+
+/// The cleanup path itself: a card discarded *while* its worktree is being
+/// built. When the resolution lands, StartRun is refused — and the fresh
+/// checkout is removed instead of sitting on disk with no owner.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_card_discarded_mid_start_leaves_no_checkout_behind() {
+    let mut fake = FakeGit::new();
+    fake.create_delay_ms = 400; // hold the window open
+    let git = Arc::new(fake);
+    let store = Arc::new(MemStore::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy::default(),
+        vec![],
+    );
+
+    let id = CardId::new("c_vanish");
+    card_ready(&handle, &id).await;
+
+    // The start takes the slow road; the discard lands inside the window.
+    let start = handle.start_run(id.clone(), "work".into(), profile());
+    let discard = async {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        handle
+            .execute(Command::DiscardCard {
+                card_id: id.clone(),
+                reason: "changed my mind mid-flight".into(),
+            })
+            .await
+    };
+    let (started, _) = tokio::join!(start, discard);
+    assert!(
+        started.is_err(),
+        "StartRun is refused for a card that no longer exists"
+    );
+
+    let calls = git.calls();
+    assert_eq!(
+        calls.iter().filter(|c| c.starts_with("create:")).count(),
+        1,
+        "one checkout was built: {calls:?}"
+    );
+    // The cleanup is detached, so give it a beat before judging it.
+    wait_for("the abandoned checkout is removed", async || {
+        git.calls().iter().any(|c| c == "remove:c_vanish")
+    })
+    .await;
+    assert!(git.calls().iter().any(|c| c == &"remove:c_vanish".to_string()));
+    assert!(
+        !store.events().iter().any(|e| matches!(e, Event::RunStarted { .. })),
+        "nothing was recorded for the run that never began"
     );
 }
 

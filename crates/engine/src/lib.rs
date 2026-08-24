@@ -183,13 +183,16 @@ enum Msg {
     },
     /// A worktree the start of a run asked for is ready — or failed. The
     /// creation runs off the actor, because `git worktree add` takes seconds
-    /// on a large repository and nothing else should wait behind it.
+    /// on a large repository and nothing else should wait behind it. `created`
+    /// says the checkout was built fresh for this attempt (so a failed start
+    /// owns its removal); an adopted one is never ours to delete.
     WorktreeResolved {
         card_id: CardId,
         prompt: String,
         profile: Box<RunProfile>,
         reply: oneshot::Sender<Result<RunId, String>>,
         result: Result<WorktreePath, String>,
+        created: bool,
     },
     AgentSession {
         card_id: CardId,
@@ -384,6 +387,14 @@ pub struct Engine {
     config: EngineConfig,
     policy: EnginePolicy,
     runs: HashMap<CardId, RunEntry>,
+    /// Starts that are between "dispatched to build a worktree" and
+    /// "registered in `runs`". The two phases of a start straddle a message
+    /// boundary, and without this the card is invisible in between: two
+    /// dispatches would both pass the checks, both build a worktree — and for
+    /// per-card mode the second one deletes the first's checkout out from
+    /// under an agent. Maps card → agent, so the concurrency limit can count
+    /// what is not running yet.
+    starting: HashMap<CardId, String>,
     sessions: HashMap<CardId, SessionEntry>,
     /// Worktree reused by agents configured for a shared branch.
     shared_worktree: Option<WorktreePath>,
@@ -452,6 +463,7 @@ impl Engine {
             config,
             policy,
             runs: HashMap::new(),
+            starting: HashMap::new(),
             sessions,
             shared_worktree: None,
             logged_tx,
@@ -633,8 +645,9 @@ impl Engine {
                     profile,
                     reply,
                     result,
+                    created,
                 } => {
-                    self.launch_run(card_id, prompt, *profile, reply, result)
+                    self.launch_run(card_id, prompt, *profile, reply, result, created)
                         .await;
                 }
                 Msg::AgentSession {

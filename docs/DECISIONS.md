@@ -344,6 +344,34 @@ destruições pelo painel de aprovações. **Não implementado nesta passagem** 
 árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
 acumular.
 
+### 61. A janela entre as duas fases tinha a sua própria corrida (bug)
+Apontado pelo operador ao reler #46: entre o despacho da worktree e a chegada
+do `WorktreeResolved`, o cartão não estava em lado nenhum — `check_run_start`
+corria nas duas fases, mas só olhava para `runs`, que só recebe no fim. Dois
+arranques para o mesmo cartão passavam os dois crivos; com PerCard, o segundo
+`create_worktree` fazia `remove --force` + `branch -D` por cima do checkout
+que o primeiro acabara de criar, e o agente do primeiro ficava a trabalhar numa
+diretoria recriada debaixo dele.
+
+Correção: `starting: HashMap<card_id → agent_id>`, inserido antes do despacho,
+consultado pelos dois crivos, removido quando o run se registra — e nos
+caminhos de falha também, com um detalhe que custou um teste falhado: o
+**próprio** marcador não pode contar na fase 2, senão o cartão bloqueia-se a si
+próprio ("a start is already under way" contra si mesmo). O set existe para as
+mensagens *entre* fases; dentro de um handler o actor não intercala.
+
+Consequências medidas pelos testes:
+
+- duplo arranque do mesmo cartão → **uma** chamada a create_worktree, o segundo
+  despacho recusado com "a start is already under way for this card";
+- limite do agente durante a janela → o segundo é recusado **antes de
+  construir** (o crivo conta o que está a arrancar, não só o que corre), logo
+  nem sequer há órfão;
+- cartão descartado a meio da construção → o `StartRun` é recusado e a checkout
+  acabada de criar é **removida** (`abandon_start`, destacada como o discard);
+  checkouts adotados nunca são nossos para apagar, e o flag `created` na
+  mensagem distingue.
+
 ## Dívida técnica conhecida (atualizada)
 
 - Compaction do event log (o botão do design não existe).
@@ -910,6 +938,34 @@ destruições pelo painel de aprovações. **Não implementado nesta passagem** 
 árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
 acumular.
 
+### 61. A janela entre as duas fases tinha a sua própria corrida (bug)
+Apontado pelo operador ao reler #46: entre o despacho da worktree e a chegada
+do `WorktreeResolved`, o cartão não estava em lado nenhum — `check_run_start`
+corria nas duas fases, mas só olhava para `runs`, que só recebe no fim. Dois
+arranques para o mesmo cartão passavam os dois crivos; com PerCard, o segundo
+`create_worktree` fazia `remove --force` + `branch -D` por cima do checkout
+que o primeiro acabara de criar, e o agente do primeiro ficava a trabalhar numa
+diretoria recriada debaixo dele.
+
+Correção: `starting: HashMap<card_id → agent_id>`, inserido antes do despacho,
+consultado pelos dois crivos, removido quando o run se registra — e nos
+caminhos de falha também, com um detalhe que custou um teste falhado: o
+**próprio** marcador não pode contar na fase 2, senão o cartão bloqueia-se a si
+próprio ("a start is already under way" contra si mesmo). O set existe para as
+mensagens *entre* fases; dentro de um handler o actor não intercala.
+
+Consequências medidas pelos testes:
+
+- duplo arranque do mesmo cartão → **uma** chamada a create_worktree, o segundo
+  despacho recusado com "a start is already under way for this card";
+- limite do agente durante a janela → o segundo é recusado **antes de
+  construir** (o crivo conta o que está a arrancar, não só o que corre), logo
+  nem sequer há órfão;
+- cartão descartado a meio da construção → o `StartRun` é recusado e a checkout
+  acabada de criar é **removida** (`abandon_start`, destacada como o discard);
+  checkouts adotados nunca são nossos para apagar, e o flag `created` na
+  mensagem distingue.
+
 ## Dívida técnica conhecida (atualizada)
 
 - **Compaction**: implementada (#50). Falta um botão na UI para compactar sob
@@ -1063,6 +1119,34 @@ falsos à espera de sítio). Índices gerados por código a partir do frontmatte
 destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
 árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
 acumular.
+
+### 61. A janela entre as duas fases tinha a sua própria corrida (bug)
+Apontado pelo operador ao reler #46: entre o despacho da worktree e a chegada
+do `WorktreeResolved`, o cartão não estava em lado nenhum — `check_run_start`
+corria nas duas fases, mas só olhava para `runs`, que só recebe no fim. Dois
+arranques para o mesmo cartão passavam os dois crivos; com PerCard, o segundo
+`create_worktree` fazia `remove --force` + `branch -D` por cima do checkout
+que o primeiro acabara de criar, e o agente do primeiro ficava a trabalhar numa
+diretoria recriada debaixo dele.
+
+Correção: `starting: HashMap<card_id → agent_id>`, inserido antes do despacho,
+consultado pelos dois crivos, removido quando o run se registra — e nos
+caminhos de falha também, com um detalhe que custou um teste falhado: o
+**próprio** marcador não pode contar na fase 2, senão o cartão bloqueia-se a si
+próprio ("a start is already under way" contra si mesmo). O set existe para as
+mensagens *entre* fases; dentro de um handler o actor não intercala.
+
+Consequências medidas pelos testes:
+
+- duplo arranque do mesmo cartão → **uma** chamada a create_worktree, o segundo
+  despacho recusado com "a start is already under way for this card";
+- limite do agente durante a janela → o segundo é recusado **antes de
+  construir** (o crivo conta o que está a arrancar, não só o que corre), logo
+  nem sequer há órfão;
+- cartão descartado a meio da construção → o `StartRun` é recusado e a checkout
+  acabada de criar é **removida** (`abandon_start`, destacada como o discard);
+  checkouts adotados nunca são nossos para apagar, e o flag `created` na
+  mensagem distingue.
 
 ## Dívida técnica conhecida (atualizada)
 
