@@ -592,6 +592,117 @@ export const truncate: CSSProperties = {
 
 export const tabular: CSSProperties = { fontVariantNumeric: "tabular-nums" };
 
+/** The mono metadata voice: ids, costs, branches, timestamps. */
+export const mono: CSSProperties = {
+  fontFamily: "var(--mono)",
+  fontVariantNumeric: "tabular-nums",
+};
+
+/** A section label in the sidebar and the rails: small, spaced, quiet. */
+export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <span
+      style={{
+        fontSize: "var(--t-xs)",
+        fontWeight: 500,
+        letterSpacing: ".1em",
+        color: "var(--text3)",
+        ...style,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** The 16px square initial the design puts beside anything an agent owns. */
+export function Glyph({
+  children,
+  color,
+  soft,
+  size = 16,
+  radius = 5,
+  font,
+}: {
+  children: ReactNode;
+  color: string;
+  soft: string;
+  size?: number;
+  radius?: number | string;
+  font?: number;
+}) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        flex: "none",
+        borderRadius: radius,
+        background: soft,
+        color,
+        display: "grid",
+        placeItems: "center",
+        fontFamily: "var(--mono)",
+        fontSize: font ?? Math.max(8, Math.round(size * 0.5)),
+        fontWeight: 600,
+        lineHeight: 1,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** The spinner that says a run is alive. */
+export function Spinner({ size = 16 }: { size?: number }) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        flex: "none",
+        borderRadius: "50%",
+        border: "1.6px solid var(--line3)",
+        borderTopColor: "var(--accent)",
+        animation: "spin 1.1s linear infinite",
+      }}
+    />
+  );
+}
+
+/** A live dot: green and breathing while something is actually running. */
+export function LiveDot({ color = "var(--ok)", size = 6 }: { color?: string; size?: number }) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        flex: "none",
+        borderRadius: "50%",
+        background: color,
+        animation: "pulse 2.4s ease-in-out infinite",
+      }}
+    />
+  );
+}
+
+/** The caret that says an answer is still arriving. */
+export function Caret() {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 7,
+        height: 12,
+        marginLeft: 3,
+        background: "var(--accent)",
+        animation: "caret 1.05s steps(1) infinite",
+        verticalAlign: "-1px",
+      }}
+    />
+  );
+}
+
 export const Icon = {
   search: () => (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -688,8 +799,79 @@ export const Icon = {
     </svg>
   ),
   plus: () => (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.7">
       <path d="M6 2.4v7.2M2.4 6h7.2" />
+    </svg>
+  ),
+  chat: () => (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M13.4 8.2c0 2.6-2.4 4.7-5.4 4.7-.7 0-1.4-.1-2-.3L3 13.6l.6-2.3a4.4 4.4 0 01-1-2.9c0-2.6 2.4-4.7 5.4-4.7s5.4 2.1 5.4 4.5z" />
+    </svg>
+  ),
+  check: () => (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M2.6 8.4l3 3 7.8-7.8" />
+    </svg>
+  ),
+  crew: () => (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <circle cx="6.2" cy="5.8" r="2.5" />
+      <path d="M2 13.2c.5-2.3 2.2-3.5 4.2-3.5s3.7 1.2 4.2 3.5" />
+      <path d="M10.6 4.1a2.3 2.3 0 010 4.3M11.8 13.2c-.2-1.2-.6-2.1-1.2-2.8" />
+    </svg>
+  ),
+  pulse: () => (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M2.4 8h2.4l1.6-4 2.4 8 1.6-4h3.2" />
+    </svg>
+  ),
+  arrow: () => (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M3.4 8h9.2M8.8 4.2L12.6 8l-3.8 3.8" />
+    </svg>
+  ),
+  send: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M8 13V3.5" />
+      <path d="M4.2 7.3L8 3.4l3.8 3.9" />
+    </svg>
+  ),
+  copy: () => (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <rect x="5" y="5" width="8.5" height="8.5" rx="1.6" />
+      <path d="M11 5V3.2a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v7.1c0 .4.3.7.7.7H5" />
+    </svg>
+  ),
+  pencil: () => (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M10.6 3.2l2.2 2.2-7 7-2.9.7.7-2.9z" />
+    </svg>
+  ),
+  archive: () => (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <rect x="2.4" y="3" width="11.2" height="3" rx="1" />
+      <path d="M3.6 6v6.4a.6.6 0 00.6.6h7.6a.6.6 0 00.6-.6V6M6.4 8.8h3.2" />
+    </svg>
+  ),
+  branch: () => (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M8 9.6v3.8M5.6 2.6h4.8l-.7 4.2 1.5 1.4H4.8l1.5-1.4z" />
+    </svg>
+  ),
+  sidebar: () => (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="2" y="2.6" width="12" height="10.8" rx="2" />
+      <path d="M6.2 2.6v10.8" />
+    </svg>
+  ),
+  back: () => (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M9.5 3.5L5 8l4.5 4.5" />
+    </svg>
+  ),
+  forward: () => (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M6.5 3.5L11 8l-4.5 4.5" />
     </svg>
   ),
 };

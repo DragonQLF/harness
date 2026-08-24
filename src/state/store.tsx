@@ -19,6 +19,7 @@ import type {
   ActivityRow,
   AgentProfile,
   AgentStats,
+  CardDiff,
   Conversation,
   Envelope,
   PendingApproval,
@@ -39,29 +40,38 @@ const MAX_LINES = 400;
 export interface LogLine {
   ts: number;
   kind: RunUpdate["kind"];
+  /** The word printed in the transcript's left gutter: a tool name, or what
+   *  kind of line this is. */
+  label: string;
   text: string;
   /** CSS colour variable for this line. */
   color: string;
+  /** CSS colour variable for the gutter word. */
+  labelColor: string;
+  italic?: boolean;
 }
 
 export interface ChatMsg {
   /** `notice` is Harness itself talking: a failed resume, a cancelled turn. */
   role: "user" | "agent" | "notice";
   text: string;
+  /** When it was said, so the transcript can date itself. */
+  ts: number;
 }
 
 /** One stored transcript line as a chat bubble. Deltas never reach here: the
  *  final `text` is the record (the backend does not log them). */
 function toChatMsg(line: RunLogLine): ChatMsg | null {
+  const ts = line.ts_ms;
   switch (line.kind) {
     case "user_message":
-      return line.text?.trim() ? { role: "user", text: line.text } : null;
+      return line.text?.trim() ? { role: "user", text: line.text, ts } : null;
     case "text":
-      return line.text?.trim() ? { role: "agent", text: line.text } : null;
+      return line.text?.trim() ? { role: "agent", text: line.text, ts } : null;
     case "notice":
-      return line.text?.trim() ? { role: "notice", text: line.text } : null;
+      return line.text?.trim() ? { role: "notice", text: line.text, ts } : null;
     case "failed":
-      return { role: "notice", text: line.message ?? "the answer did not arrive" };
+      return { role: "notice", text: line.message ?? "the answer did not arrive", ts };
     // Tool calls and session boundaries are in the log but would clutter the
     // conversation; they show live as progress instead.
     default:
@@ -82,63 +92,71 @@ export interface Toast {
   body?: string;
 }
 
-/** One shape for both live updates and stored log lines. */
+/** One shape for both live updates and stored log lines. The gutter word and
+ *  the text are kept apart, so the transcript can align one and wrap the
+ *  other. */
 export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
+  const line = (
+    label: string,
+    text: string,
+    labelColor: string,
+    color: string,
+    italic?: boolean,
+  ): LogLine => ({ ts: u.ts_ms, kind: u.kind, label, text, color, labelColor, italic });
+
   switch (u.kind) {
     // Handled as a live stream, never as a transcript line.
     case "delta":
     case "thinking":
       return null;
     case "text":
-      return u.text?.trim()
-        ? { ts: u.ts_ms, kind: u.kind, text: u.text, color: "var(--text)" }
-        : null;
+      return u.text?.trim() ? line("text", u.text, "var(--text4)", "var(--text2)") : null;
     case "user_message":
-      return u.text?.trim()
-        ? { ts: u.ts_ms, kind: u.kind, text: `you: ${u.text}`, color: "var(--text2)" }
-        : null;
-    case "tool_use":
-      return {
-        ts: u.ts_ms,
-        kind: u.kind,
-        text: `${u.tool ?? "tool"} — ${u.summary ?? ""}`.trim(),
-        color: "var(--text2)",
+      return u.text?.trim() ? line("you", u.text, "var(--text4)", "var(--text2)") : null;
+    case "tool_use": {
+      // The tool's own name is the gutter word: Read, Edit, Bash. Its colour
+      // says what kind of call it was without a legend.
+      const tool = (u.tool ?? "tool").replace(/^(harness|mcp__harness__)/, "").replace(/^__/, "");
+      const colours: Record<string, string> = {
+        Read: "var(--ok)",
+        Glob: "var(--ok)",
+        Grep: "var(--ok)",
+        Edit: "var(--accent)",
+        Write: "var(--accent)",
+        Bash: "var(--info)",
       };
+      return line(tool, u.summary ?? "", colours[tool] ?? "var(--text3)", "var(--text2)");
+    }
     case "started":
-      return {
-        ts: u.ts_ms,
-        kind: u.kind,
-        text: `session ${(u.session_id ?? "").slice(0, 8)} started`,
-        color: "var(--text3)",
-      };
+      return line(
+        "started",
+        u.session_id ? `resumed ${u.session_id.slice(0, 12)}` : "new session",
+        "var(--text4)",
+        "var(--text3)",
+      );
     case "done": {
       const cost = u.cost_usd != null ? `$${u.cost_usd.toFixed(4)}` : "no cost recorded";
-      const turns = u.turns != null ? ` · ${u.turns} turns` : "";
-      return { ts: u.ts_ms, kind: u.kind, text: `done — ${cost}${turns}`, color: "var(--ok)" };
+      const turns = u.turns != null ? `${u.turns} turns · ` : "";
+      return line("done", `${turns}${cost}`, "var(--text4)", "var(--ok)");
     }
     case "failed":
-      return {
-        ts: u.ts_ms,
-        kind: u.kind,
-        text: `failed — ${u.message ?? "unknown"}`,
-        color: "var(--bad)",
-      };
+      return line("failed", u.message ?? "unknown", "var(--bad)", "var(--bad2)");
     case "approval_requested":
-      return {
-        ts: u.ts_ms,
-        kind: u.kind,
-        text: `waiting on you: ${u.tool ?? "tool"} — ${u.summary ?? ""}`,
-        color: "var(--warn)",
-      };
+      return line(
+        "approval",
+        `${u.tool ?? "tool"} — ${u.summary ?? ""}`.trim(),
+        "var(--warn)",
+        "var(--warn)",
+      );
     case "approval_answered":
-      return {
-        ts: u.ts_ms,
-        kind: u.kind,
-        text: u.allow ? "you allowed it" : "you denied it",
-        color: u.allow ? "var(--ok)" : "var(--bad)",
-      };
+      return line(
+        "approval",
+        u.allow ? "you allowed it" : "you denied it",
+        "var(--warn)",
+        u.allow ? "var(--ok)" : "var(--bad2)",
+      );
     case "notice":
-      return { ts: u.ts_ms, kind: u.kind, text: u.text ?? "", color: "var(--accent)" };
+      return line("notice", u.text ?? "", "var(--warn)", "var(--warn)");
     default:
       return null;
   }
@@ -162,6 +180,11 @@ interface Store {
   /** Token-level stream per card, cleared when the final text arrives. */
   streams: Record<string, LiveStream>;
   approvals: PendingApproval[];
+  /** What each card changed, once something has asked for it. */
+  diffs: Record<string, CardDiff>;
+  /** Read a card's diff from its worktree. Cheap to call again: the answer
+   *  replaces the cached one, so a re-run shows the new patch. */
+  loadCardDiff: (cardId: string) => Promise<void>;
   /** Every conversation the backend knows about, newest first. */
   conversations: Conversation[];
   /** The one on screen. */
@@ -257,6 +280,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [outputs, setOutputs] = useState<Record<string, LogLine[]>>({});
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [diffs, setDiffs] = useState<Record<string, CardDiff>>({});
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatMsg[]>([]);
@@ -398,6 +422,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSnapshot(null);
     setOutputs({});
     setStreams({});
+    setDiffs({});
     // The conversation is not per project: a Director chat outlives switching
     // boards, and is pinned to a project only if you pin it.
     refresh();
@@ -442,9 +467,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setChat((cs) => {
             const last = cs[cs.length - 1];
             if (last && last.role === "agent") {
-              return [...cs.slice(0, -1), { role: "agent", text: last.text + text }];
+              return [...cs.slice(0, -1), { ...last, text: last.text + text }];
             }
-            return [...cs, { role: "agent", text }];
+            return [...cs, { role: "agent", text, ts: Date.now() }];
           });
 
         // A conversation streams under its own id. `DIRECTOR` is the id older
@@ -485,7 +510,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               break;
             case "notice":
               // Harness itself talking — a resume that could not be honoured.
-              if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text! }]);
+              if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text!, ts: u.ts_ms }]);
               break;
             case "done":
               streamedRef.current = false;
@@ -498,7 +523,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               setChatBusy(false);
               setChat((cs) => [
                 ...cs,
-                { role: "notice", text: `No answer: ${u.message}` },
+                { role: "notice", text: `No answer: ${u.message}`, ts: u.ts_ms },
               ]);
               break;
           }
@@ -705,6 +730,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [refresh, snapshot, toast, withProject],
   );
 
+  const loadCardDiff = useCallback(
+    async (cardId: string) => {
+      const id = projectRef.current;
+      if (!id) return;
+      try {
+        const diff = await api.cardDiff(id, cardId);
+        if (projectRef.current !== id) return;
+        setDiffs((prev) => ({ ...prev, [cardId]: diff }));
+      } catch {
+        /* a card with no worktree has nothing to show; the screen says so */
+      }
+    },
+    [],
+  );
+
   const loadRunLog = useCallback(
     async (runId: string, cardId: string) => {
       await withProject(async (id) => {
@@ -728,7 +768,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (text: string) => {
       const clean = text.trim();
       if (!clean || chatBusy) return;
-      setChat((cs) => [...cs, { role: "user", text: clean }]);
+      setChat((cs) => [...cs, { role: "user", text: clean, ts: Date.now() }]);
       setChatBusy(true);
       setChatThinking("");
       streamedRef.current = false;
@@ -1129,6 +1169,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     outputs,
     streams,
     approvals,
+    diffs,
+    loadCardDiff,
     conversations,
     conversationId,
     conversation: conversations.find((c) => c.id === conversationId) ?? null,

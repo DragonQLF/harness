@@ -62,6 +62,7 @@ pub fn run() {
             commands::board::cancel_run,
             commands::board::active_runs,
             commands::board::run_log,
+            commands::board::card_diff,
             commands::board::activity,
             commands::board::project_stats,
             // conversations

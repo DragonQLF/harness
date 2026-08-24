@@ -1,49 +1,105 @@
-/* Tokens, keyframes and hover utilities — copied from the design file.
+/* Tokens, keyframes and hover utilities — copied from `Harness Redesign v6`.
    Everything else is inline on the elements, exactly as the design has it, so
-   the two stay comparable side by side. The only classes here are the ones a
-   `style-hover` attribute in the design needs to become real CSS. */
+   the two stay comparable side by side. The only classes here are the ones the
+   design declares as `class` or `style-hover` attributes. */
 
 :root {
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* Type scale. Sizes used to be picked ad hoc (11.5 / 12.5 / 13.5 …), which
-     is what made every screen read as one flat wall. Six steps, nothing else. */
-  --t-xs: 11px;
-  --t-sm: 12.5px;
-  --t-md: 14px;
-  --t-lg: 16px;
-  --t-xl: 21px;
-  --t-2xl: 30px;
-  --t-3xl: 42px;
+  /* Type scale. The design works in half-points; these are the six it lands on
+     most, and anything one-off stays inline where it is used. */
+  --t-xs: 10.5px;
+  --t-sm: 11.5px;
+  --t-md: 12.5px;
+  --t-lg: 14px;
+  --t-xl: 16px;
+  --t-2xl: 21px;
+  --t-3xl: 30px;
 
-  /* Radii and rhythm, so panels stop being nine identical rectangles. */
-  --r-sm: 10px;
-  --r-md: 14px;
-  --r-lg: 20px;
-  --r-xl: 28px;
-  --gap: 14px;
-  --pad: 18px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --gap: 12px;
+  --pad: 16px;
 
-  /* Warm paper rather than blue-grey: the reference's calm, not a console's. */
-  --recess: #edeae4;
+  /* Warm near-black, three planes deep: chrome, pane, panel. */
+  --desk: #0b0b09;
+  --recess: #0f0f0d;
+  --bg: #131311;
+  --surface: #1b1a17;
+  --surface2: #232120;
+  --elev: #1a1916;
+  --hover: #1c1b18;
+  --active: #1f1e1b;
+  --line: #1f1e1b;
+  --line2: #232120;
+  --line3: #2a2825;
+  --line4: #3f3b34;
+
+  --text: #f2efe8;
+  --text1: #e6e2d9;
+  --text2: #c4bfb2;
+  --text3: #8d8880;
+  --text4: #6f6a60;
+
+  --accent: #8b7cff;
+  --accent2: #a99dff;
+  --accentSoft: rgba(139, 124, 255, 0.16);
+  --accentLine: rgba(139, 124, 255, 0.32);
+  --accentDeep: #241f3a;
+  --onAccent: #15130f;
+
+  --ok: #4fd1a5;
+  --okSoft: rgba(79, 209, 165, 0.14);
+  --warn: #ffb35c;
+  --warnSoft: rgba(255, 179, 92, 0.14);
+  --bad: #ff6b81;
+  --bad2: #ff8b9d;
+  --badSoft: rgba(255, 107, 129, 0.12);
+  --info: #6cb4ff;
+  --infoSoft: rgba(108, 180, 255, 0.14);
+
+  --ink: linear-gradient(140deg, #1e1c2c 0%, #17161a 60%, #131311 100%);
+  --banner: radial-gradient(120% 150% at 12% 8%, #262239 0%, #1a1820 45%, #131311 100%);
+  --bannerGlow: radial-gradient(circle, rgba(139, 124, 255, 0.28), transparent 68%);
+  --onBanner: #f2efe8;
+  --onBanner2: rgba(242, 239, 232, 0.66);
+  --onBanner3: rgba(242, 239, 232, 0.44);
+
+  --shadow: 0 30px 70px -28px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --lift: 0 6px 18px rgba(0, 0, 0, 0.35);
+  --bannerShadow: 0 26px 60px -30px rgba(0, 0, 0, 0.7);
+}
+
+/* The light setting keeps the warm-paper palette on the same token names, so
+   every screen follows the toggle without knowing about it. */
+:root[data-theme="light"] {
   --desk: #e9e5de;
+  --recess: #f2efe9;
   --bg: #f7f5f1;
   --surface: #fffefc;
   --surface2: #f2efe9;
   --elev: #ffffff;
   --hover: #ece8e1;
+  --active: #ece8e1;
   --line: #e7e2d9;
   --line2: #f0ece5;
+  --line3: #ddd7cb;
+  --line4: #c9c2b3;
 
   --text: #191712;
-  --text2: #6a6558;
-  --text3: #9a9487;
+  --text1: #2c2820;
+  --text2: #55503f;
+  --text3: #8b8577;
+  --text4: #9a9487;
 
   --accent: #5b53d8;
   --accent2: #7d74f0;
   --accentSoft: #eeecfd;
   --accentLine: #d9d5f8;
+  --accentDeep: #eeecfd;
   --onAccent: #ffffff;
 
   --ok: #12866a;
@@ -51,64 +107,15 @@
   --warn: #b5751a;
   --warnSoft: #fbf0dd;
   --bad: #cf4257;
+  --bad2: #cf4257;
   --badSoft: #fbe9ec;
   --info: #3272d8;
   --infoSoft: #e8effc;
 
-  /* The banner. Deep and slightly green, like the reference's dusk photo,
-     so the one thing that should dominate a screen actually does. */
   --ink: linear-gradient(122deg, #26302a 0%, #1a201c 58%, #141715 100%);
   --banner: radial-gradient(120% 150% at 12% 8%, #2f3b33 0%, #1d2420 45%, #141715 100%);
-  --bannerGlow: radial-gradient(circle, rgba(125, 116, 240, 0.34), transparent 68%);
-  --onBanner: #f6f4ef;
-  --onBanner2: rgba(246, 244, 239, 0.66);
-  --onBanner3: rgba(246, 244, 239, 0.44);
-
   --shadow: 0 40px 90px -32px rgba(45, 38, 24, 0.26), 0 0 0 1px rgba(30, 26, 16, 0.05);
   --lift: 0 12px 26px -18px rgba(45, 38, 24, 0.3);
-  --bannerShadow: 0 30px 70px -34px rgba(20, 23, 21, 0.6);
-}
-
-:root[data-theme="dark"] {
-  --recess: #16150f;
-  --desk: #0c0b08;
-  --bg: #121110;
-  --surface: #1a1917;
-  --surface2: #211f1c;
-  --elev: #211f1c;
-  --hover: #292723;
-  --line: #2b2925;
-  --line2: #232120;
-
-  --text: #f4f2ed;
-  --text2: #a8a396;
-  --text3: #78736a;
-
-  --accent: #9a90ff;
-  --accent2: #b4acff;
-  --accentSoft: rgba(154, 144, 255, 0.15);
-  --accentLine: rgba(154, 144, 255, 0.32);
-  --onAccent: #16141f;
-
-  --ok: #4cd0a5;
-  --okSoft: rgba(76, 208, 165, 0.14);
-  --warn: #e6ad54;
-  --warnSoft: rgba(230, 173, 84, 0.14);
-  --bad: #f26f80;
-  --badSoft: rgba(242, 111, 128, 0.14);
-  --info: #7fabff;
-  --infoSoft: rgba(127, 171, 255, 0.14);
-
-  --ink: linear-gradient(122deg, #27302b 0%, #1c221e 60%, #151816 100%);
-  --banner: radial-gradient(120% 150% at 12% 8%, #314036 0%, #1e2621 45%, #15100e 100%);
-  --bannerGlow: radial-gradient(circle, rgba(180, 172, 255, 0.3), transparent 68%);
-  --onBanner: #f6f4ef;
-  --onBanner2: rgba(246, 244, 239, 0.66);
-  --onBanner3: rgba(246, 244, 239, 0.44);
-
-  --shadow: 0 44px 100px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --lift: 0 14px 30px -20px rgba(0, 0, 0, 0.7);
-  --bannerShadow: 0 30px 70px -34px rgba(0, 0, 0, 0.75);
 }
 
 * {
@@ -123,16 +130,16 @@ body,
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--desk);
   color: var(--text);
   font-family: var(--sans);
-  font-size: var(--t-md);
+  font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
-/* Motion here is decoration — bars growing, panels rising. None of it carries
+/* Motion here is decoration — rows arriving, panels rising. None of it carries
    meaning, so all of it goes when the operator has asked for stillness. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -171,13 +178,13 @@ select {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line);
+  background: var(--line3);
   border-radius: 9px;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text3);
+  background: var(--line4);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-track {
@@ -186,10 +193,44 @@ select {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--text3);
+  color: var(--text4);
 }
 
-@keyframes fadeUp {
+/* ---- keyframes, verbatim from the design ---- */
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes paneIn {
   from {
     opacity: 0;
     transform: translateY(10px);
@@ -199,12 +240,81 @@ textarea::placeholder {
     transform: none;
   }
 }
-@keyframes fadeIn {
+@keyframes rowIn {
   from {
     opacity: 0;
+    transform: translateY(7px);
   }
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+@keyframes colIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes railIn {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes barIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* Names older screens still animate by. */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 @keyframes popIn {
@@ -244,11 +354,6 @@ textarea::placeholder {
     opacity: 0.4;
   }
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 @keyframes blink {
   0%,
   45% {
@@ -257,14 +362,6 @@ textarea::placeholder {
   50%,
   100% {
     opacity: 0;
-  }
-}
-@keyframes barGrow {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
   }
 }
 @keyframes riseBar {
@@ -276,7 +373,119 @@ textarea::placeholder {
   }
 }
 
-/* ---- hover states the design declares with style-hover ---- */
+/* ---- the design's own classes ---- */
+
+.row {
+  transition: background 0.15s ease;
+}
+.row:hover {
+  background: var(--hover);
+}
+
+.chip {
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.chip:hover {
+  border-color: var(--line4);
+  background: var(--surface2);
+}
+
+/* Lists arrive one row after another; columns one after another. The delays are
+   the design's, capped so a long board does not crawl in. */
+.stagger > * {
+  animation: rowIn 0.38s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 0.01s;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 0.09s;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 0.13s;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 0.17s;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 0.21s;
+}
+.stagger > *:nth-child(7) {
+  animation-delay: 0.24s;
+}
+.stagger > *:nth-child(8) {
+  animation-delay: 0.27s;
+}
+.stagger > *:nth-child(9) {
+  animation-delay: 0.3s;
+}
+.stagger > *:nth-child(10) {
+  animation-delay: 0.33s;
+}
+.stagger > *:nth-child(11) {
+  animation-delay: 0.35s;
+}
+.stagger > *:nth-child(12) {
+  animation-delay: 0.37s;
+}
+.stagger > *:nth-child(n + 13) {
+  animation-delay: 0.39s;
+}
+
+.cols > * {
+  animation: colIn 0.42s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+.cols > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.cols > *:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.cols > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.cols > *:nth-child(4) {
+  animation-delay: 0.17s;
+}
+.cols > *:nth-child(5) {
+  animation-delay: 0.22s;
+}
+
+/* A board card lifts under the pointer; the design says so with style-hover. */
+.tile {
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.25, 1), border-color 0.16s ease,
+    background 0.16s ease, box-shadow 0.16s ease;
+}
+.tile:hover {
+  transform: translateY(-2px);
+  border-color: #33302b;
+  background: #1e1d19;
+  box-shadow: var(--lift);
+}
+
+.primary {
+  transition: transform 0.14s ease, background 0.16s ease, filter 0.16s ease;
+}
+.primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.primary:active {
+  transform: translateY(1px);
+}
+
+.quiet {
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.quiet:hover {
+  border-color: var(--line4);
+  color: var(--text);
+}
+
+/* ---- hover states the older screens declare with style-hover ---- */
 
 .hv-tile:hover {
   border-color: var(--accentLine);
@@ -284,7 +493,7 @@ textarea::placeholder {
   box-shadow: var(--lift);
 }
 .hv-row:hover {
-  background: var(--surface2);
+  background: var(--hover);
 }
 .hv-hover:hover {
   background: var(--hover);
@@ -328,16 +537,15 @@ textarea::placeholder {
   color: var(--bad);
   border-color: transparent;
 }
+.hv-onbanner:hover {
+  background: rgba(242, 239, 232, 0.16);
+}
 
-/* Only structural repetition worth a class: the scrolling log body. */
 .logscroll {
   scrollbar-gutter: stable;
 }
 
-/* ---- the banner ----
-   One dominant element per screen instead of nine equal panels. It carries the
-   greeting, the state of things, the field you type into, and a strip of the
-   four numbers that used to be four separate tiles above it. */
+/* ---- the banner the project and settings screens still use ---- */
 
 .banner {
   position: relative;
@@ -352,7 +560,7 @@ textarea::placeholder {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(246, 244, 239, 0.055) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(242, 239, 232, 0.055) 1px, transparent 1px);
   background-size: 22px 22px;
   pointer-events: none;
   z-index: 0;
@@ -362,21 +570,20 @@ textarea::placeholder {
   z-index: 1;
 }
 
-/* The field lives inside the banner, so it needs its own light-on-dark shell. */
 .banner-field {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 6px 6px 6px 18px;
-  border: 1px solid rgba(246, 244, 239, 0.18);
+  border: 1px solid rgba(242, 239, 232, 0.18);
   border-radius: 999px;
-  background: rgba(246, 244, 239, 0.07);
+  background: rgba(242, 239, 232, 0.07);
   backdrop-filter: blur(6px);
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 .banner-field:focus-within {
-  border-color: rgba(246, 244, 239, 0.42);
-  background: rgba(246, 244, 239, 0.11);
+  border-color: rgba(242, 239, 232, 0.42);
+  background: rgba(242, 239, 232, 0.11);
 }
 .banner-field input {
   flex: 1;
@@ -385,14 +592,13 @@ textarea::placeholder {
   outline: none;
   background: transparent;
   color: var(--onBanner);
-  font-size: var(--t-md);
+  font-size: var(--t-lg);
   padding: 10px 0;
 }
 .banner-field input::placeholder {
   color: var(--onBanner3);
 }
 
-/* The stat strip along the foot of the banner. */
 .banner-stat {
   flex: 1;
   min-width: 0;
@@ -401,7 +607,7 @@ textarea::placeholder {
   gap: 3px;
   padding: 14px 18px;
   border: none;
-  border-left: 1px solid rgba(246, 244, 239, 0.13);
+  border-left: 1px solid rgba(242, 239, 232, 0.13);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -412,11 +618,7 @@ textarea::placeholder {
   border-left: none;
 }
 .banner-stat:hover {
-  background: rgba(246, 244, 239, 0.06);
-}
-
-.hv-onbanner:hover {
-  background: rgba(246, 244, 239, 0.16);
+  background: rgba(242, 239, 232, 0.06);
 }
 
 /* A card id is how you name a card to the Director, and noise the rest of the
@@ -426,6 +628,7 @@ textarea::placeholder {
   transition: opacity 0.18s ease;
 }
 .hv-tile:hover .card-id,
-.hv-tile:focus-within .card-id {
+.hv-tile:focus-within .card-id,
+.tile:hover .card-id {
   opacity: 1;
 }

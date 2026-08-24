@@ -120,6 +120,20 @@ export interface ActiveRun {
   started_ms: number;
 }
 
+/** What a card changed against the project's base branch, read from its
+ *  worktree: the facts the review screen states, and the patch it shows. */
+export interface CardDiff {
+  card_id: string;
+  base: string;
+  branch: string | null;
+  worktree: string | null;
+  session_id: string | null;
+  files: string[];
+  added: number;
+  removed: number;
+  patch: string;
+}
+
 export interface AgentProfile {
   id: string;
   name: string;

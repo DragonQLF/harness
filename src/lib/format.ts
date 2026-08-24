@@ -35,6 +35,17 @@ export function ago(ms: number): string {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
+/** The sidebar's version of `ago`: "now", "1h", "yest", "2d". */
+export function shortAgo(ms: number): string {
+  if (!ms) return "—";
+  const secs = Math.floor((Date.now() - ms) / 1000);
+  if (secs < 90) return "now";
+  if (secs < 3600) return `${Math.round(secs / 60)}m`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h`;
+  const days = Math.round(secs / 86400);
+  return days === 1 ? "yest" : `${days}d`;
+}
+
 export function initials(name: string): string {
   return (
     name

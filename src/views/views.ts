@@ -1,27 +1,25 @@
 /** The set of screens, shared by the nav, the router and the palette. */
 export type View =
-  | "home"
-  | "director"
-  | "projects"
-  | "project"
-  | "agents"
-  | "agent"
+  | "chat"
+  | "review"
   | "board"
-  | "runs"
+  | "sessions"
+  | "agents"
+  | "code"
+  | "activity"
   | "trees"
-  | "log"
+  | "projects"
   | "settings";
 
 export const VIEW_TITLES: Record<View, string> = {
-  home: "Overview",
-  director: "Director",
-  projects: "Projects",
-  project: "Project",
+  chat: "Chat",
+  review: "Review",
+  board: "Board",
+  sessions: "Sessions",
   agents: "Agents",
-  agent: "Agent",
-  board: "Work",
-  runs: "Sessions",
+  code: "Code",
+  activity: "Activity",
   trees: "Worktrees",
-  log: "Activity",
+  projects: "Projects",
   settings: "Settings",
 };

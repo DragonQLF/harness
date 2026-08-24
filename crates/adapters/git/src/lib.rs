@@ -403,6 +403,30 @@ impl CliGit {
         (files, added, removed)
     }
 
+    /// The patch a worktree holds against `base`, stat header first, for a
+    /// human to read. Long diffs are cut rather than refused: the review screen
+    /// wants the shape of the change, not every line of a vendored file.
+    pub fn review_patch(&self, wt: &Path, base: &str) -> String {
+        let range = format!("{base}...HEAD");
+        let stat = self.git(wt, &["diff", "--stat", &range]).unwrap_or_default();
+        let committed = self.git(wt, &["diff", &range]).unwrap_or_default();
+        // Work the run could not commit is still part of what is being
+        // reviewed, so it follows the committed patch instead of vanishing.
+        let pending = self.git(wt, &["diff", "HEAD"]).unwrap_or_default();
+        let mut patch = committed;
+        if !pending.trim().is_empty() {
+            patch.push_str("\n--- uncommitted in the worktree ---\n");
+            patch.push_str(&pending);
+        }
+        const CAP: usize = 240_000;
+        if patch.chars().count() > CAP {
+            let cut: String = patch.chars().take(CAP).collect();
+            format!("{stat}\n{cut}\n[diff truncated]")
+        } else {
+            format!("{stat}\n{patch}")
+        }
+    }
+
     /// Lines added plus removed across the last `days` days.
     pub fn changed_lines(&self, days: usize) -> u64 {
         let since = format!("--since={days} days ago");

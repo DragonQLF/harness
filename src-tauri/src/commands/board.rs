@@ -281,6 +281,70 @@ pub async fn run_log(
     .map_err(|e| e.to_string())?
 }
 
+/// What a card actually changed: the facts the review screen states, and the
+/// patch it shows. Read from the worktree, so it is the truth on disk rather
+/// than anything remembered from the run.
+#[derive(Debug, Serialize)]
+pub struct CardDiff {
+    pub card_id: String,
+    pub base: String,
+    pub branch: Option<String>,
+    pub worktree: Option<String>,
+    pub session_id: Option<String>,
+    pub files: Vec<String>,
+    pub added: u64,
+    pub removed: u64,
+    pub patch: String,
+}
+
+#[tauri::command]
+pub async fn card_diff(
+    project_id: String,
+    card_id: String,
+    ws: Shared<'_>,
+) -> Result<CardDiff, String> {
+    let runtime = ws.runtime(&project_id)?;
+    let base = runtime.project.base_branch.clone();
+    let snap = runtime.engine.snapshot().await?;
+    let session = snap.sessions.iter().find(|s| s.card_id.as_str() == card_id).cloned();
+    let Some(session) = session else {
+        return Ok(CardDiff {
+            card_id,
+            base,
+            branch: None,
+            worktree: None,
+            session_id: None,
+            files: Vec::new(),
+            added: 0,
+            removed: 0,
+            patch: String::new(),
+        });
+    };
+    let git = Arc::clone(&runtime.git);
+    let worktree = session.worktree.clone();
+    let against = base.clone();
+    let read = tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::Path::new(&worktree);
+        let (files, added, removed) = git.changed_files(path, &against);
+        let patch = git.review_patch(path, &against);
+        (files, added, removed, patch)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let (files, added, removed, patch) = read;
+    Ok(CardDiff {
+        card_id,
+        base,
+        branch: session.branch.clone(),
+        worktree: Some(session.worktree.clone()),
+        session_id: session.session_id.clone(),
+        files,
+        added,
+        removed,
+        patch,
+    })
+}
+
 #[tauri::command]
 pub async fn activity(
     project_id: String,

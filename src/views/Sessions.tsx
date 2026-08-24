@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useRef } from "react";
 import { api, reason } from "../lib/ipc";
 import { duration, money, plural } from "../lib/format";
-import { MODELS, STATUS_NAME, STATUS_TONE } from "../lib/types";
+import { MODELS, STATUS_NAME, STATUS_TONE, tone } from "../lib/types";
 import { useStore } from "../state/store";
-import { Loading, tabular, truncate } from "../components/ui";
+import { Caret, Glyph, Loading, mono, truncate } from "../components/ui";
 
-/** Two panes: the list of everything recorded, and the transcript. */
+const STATUS_DOT: Record<string, string> = {
+  backlog: "var(--text4)",
+  ready: "var(--info)",
+  running: "var(--accent)",
+  review: "var(--warn)",
+  done: "var(--ok)",
+};
+
+/** Two panes: everything recorded, and the transcript of the one you picked. */
 export function Sessions({
   selected,
   select,
-  openReject,
+  openReview,
 }: {
   selected: string | null;
   select: (cardId: string) => void;
-  openReject: (cardId: string) => void;
+  openReview: (cardId: string) => void;
 }) {
   const {
     snapshot,
@@ -24,7 +32,6 @@ export function Sessions({
     loadRunLog,
     startRun,
     cancelRun,
-    approve,
     toast,
   } = useStore();
   const end = useRef<HTMLDivElement | null>(null);
@@ -53,36 +60,37 @@ export function Sessions({
   if (!snapshot) return <Loading what="Reading sessions" />;
 
   const agent = agents.find((a) => a.id === card?.agent_id);
+  const at = tone(agent?.tone);
   const status = card ? STATUS_TONE[card.status] : STATUS_TONE.backlog;
-  const running = recorded.filter((c) => c.status === "running").length;
 
   return (
-    <div style={{ display: "flex", height: "100%", minHeight: 0 }}>
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: "grid",
+        gridTemplateColumns: "280px minmax(0,1fr)",
+        overflow: "hidden",
+        animation: "paneIn .4s cubic-bezier(.2,.8,.25,1) both",
+      }}
+    >
       <div
         style={{
-          width: 276,
-          flex: "none",
-          borderRight: "1px solid var(--line)",
+          minWidth: 0,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          minHeight: 0,
-          background: "var(--surface)",
+          borderRight: "1px solid var(--line)",
+          overflow: "hidden",
         }}
       >
-        <div style={{ padding: "18px 18px 12px" }}>
-          <h1 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800, letterSpacing: "-.02em" }}>
-            Sessions
-          </h1>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text3)" }}>
-            {recorded.length} recorded · {running} live
-          </p>
-        </div>
         <div
+          className="stagger"
           style={{
             flex: 1,
             minHeight: 0,
             overflowY: "auto",
-            padding: "0 10px 12px",
+            padding: "12px 10px",
             display: "flex",
             flexDirection: "column",
             gap: 4,
@@ -90,21 +98,26 @@ export function Sessions({
         >
           {recorded.map((c) => {
             const on = c.id === card?.id;
-            const t = STATUS_TONE[c.status];
+            const who = agents.find((a) => a.id === c.agent_id);
+            const wt = tone(who?.tone);
+            const s = snapshot.sessions.find((x) => x.card_id === c.id);
+            const right =
+              c.status === "running" && s
+                ? duration(Date.now() - s.started_ms)
+                : c.cost_usd > 0
+                  ? money(c.cost_usd, 3)
+                  : plural(c.turns, "turn");
             return (
-              <button
+              <div
                 key={c.id}
-                type="button"
-                className="hv-border"
+                className="row"
                 onClick={() => select(c.id)}
                 style={{
-                  textAlign: "left",
-                  padding: "11px 12px",
+                  padding: "10px 11px",
+                  borderRadius: 12,
                   border: `1px solid ${on ? "var(--accentLine)" : "transparent"}`,
-                  borderRadius: 14,
                   background: on ? "var(--accentSoft)" : "transparent",
                   cursor: "pointer",
-                  transition: "all .18s ease",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
@@ -112,13 +125,18 @@ export function Sessions({
                     style={{
                       width: 6,
                       height: 6,
-                      borderRadius: "50%",
                       flex: "none",
-                      background: t.color,
-                      animation: c.status === "running" ? "breathe 2.2s ease-in-out infinite" : undefined,
+                      borderRadius: "50%",
+                      background: STATUS_DOT[c.status],
+                      animation: c.status === "running" ? "pulse 2.4s ease-in-out infinite" : undefined,
                     }}
                   />
-                  <span style={{ fontSize: 13, fontWeight: 600, ...truncate }}>{c.title}</span>
+                  <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text)", ...truncate }}>
+                    {c.title}
+                  </span>
+                  <Glyph color={wt.color} soft={wt.soft} size={16} font={8}>
+                    {who?.initial ?? "?"}
+                  </Glyph>
                 </div>
                 <div
                   style={{
@@ -126,18 +144,18 @@ export function Sessions({
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 10,
-                    fontSize: 11,
+                    ...mono,
+                    fontSize: 10.5,
                     color: "var(--text3)",
                   }}
                 >
-                  <span style={{ fontFamily: "var(--mono)" }}>{c.id}</span>
-                  <span style={tabular}>
-                    {c.status === "running" && session?.card_id === c.id
-                      ? duration(Date.now() - session.started_ms)
-                      : money(c.cost_usd, 3)}
+                  <span>
+                    {c.id}
+                    {c.status === "running" ? " · live" : ""}
                   </span>
+                  <span>{right}</span>
                 </div>
-              </button>
+              </div>
             );
           })}
           {recorded.length === 0 && (
@@ -145,80 +163,64 @@ export function Sessions({
               style={{
                 margin: "6px 2px",
                 padding: "16px 14px",
-                border: "1px dashed var(--line)",
-                borderRadius: 14,
-                fontSize: 12,
-                color: "var(--text3)",
-                lineHeight: 1.5,
+                border: "1px dashed var(--line2)",
+                borderRadius: 12,
+                font: "400 11.5px/1.6 var(--sans)",
+                color: "var(--text4)",
               }}
             >
-              No sessions in this project yet. Add a card on Work to start one.
+              No session in this project yet. Start a card on the board and its transcript arrives
+              here.
             </div>
           )}
         </div>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div
+        style={{
+          minWidth: 0,
+          minHeight: 0,
+          display: "grid",
+          gridTemplateRows: "auto minmax(0,1fr)",
+          overflow: "hidden",
+        }}
+      >
         {!card ? (
-          <div style={{ padding: 26, fontSize: 12.5, color: "var(--text3)" }}>
+          <div style={{ padding: 26, font: "400 12.5px var(--sans)", color: "var(--text4)" }}>
             Nothing recorded yet.
           </div>
         ) : (
           <>
-            <div
-              style={{
-                padding: "18px 22px 14px",
-                borderBottom: "1px solid var(--line)",
-                background: "var(--surface)",
-              }}
-            >
+            <div style={{ padding: "14px 22px 12px", borderBottom: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+                <Glyph color={at.color} soft={at.soft} size={26} radius="50%" font={10}>
+                  {agent?.initial ?? "?"}
+                </Glyph>
                 <span
                   style={{
-                    width: 32,
-                    height: 32,
-                    flex: "none",
-                    borderRadius: "50%",
-                    background: "var(--accentSoft)",
-                    color: "var(--accent)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 12,
-                    fontWeight: 700,
-                  }}
-                >
-                  {agent?.initial ?? "?"}
-                </span>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 17,
-                    fontWeight: 800,
-                    letterSpacing: "-.02em",
+                    font: "600 14.5px var(--sans)",
+                    color: "var(--text)",
+                    letterSpacing: "-.01em",
                     ...truncate,
                   }}
                 >
                   {card.title}
-                </h2>
+                </span>
                 <span
                   style={{
-                    fontSize: 11.5,
-                    fontWeight: 700,
+                    flex: "none",
                     padding: "3px 10px",
                     borderRadius: 999,
                     background: status.soft,
                     color: status.color,
-                    flex: "none",
+                    font: "600 11px var(--sans)",
                   }}
                 >
                   {STATUS_NAME[card.status]}
                 </span>
                 <div style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  className="hv-text"
-                  disabled={!session?.session_id || !projectId}
+                <span
+                  className="chip"
                   onClick={() => {
                     if (!projectId) return;
                     api
@@ -227,52 +229,50 @@ export function Sessions({
                       .catch((e) => toast("var(--bad)", "Could not open a terminal", reason(e)));
                   }}
                   style={{
-                    padding: "8px 14px",
-                    border: "1px solid var(--line)",
+                    padding: "7px 13px",
                     borderRadius: 999,
-                    background: "transparent",
+                    border: "1px solid var(--line3)",
+                    font: "400 11.5px var(--sans)",
                     color: "var(--text2)",
-                    fontSize: 12,
-                    fontWeight: 500,
                     cursor: "pointer",
-                    transition: "all .18s ease",
-                    opacity: session?.session_id ? 1 : 0.5,
+                    opacity: card.session_id ? 1 : 0.5,
                   }}
                 >
                   Attach terminal
-                </button>
-                {card.status === "review" && (
-                  <button
-                    type="button"
-                    onClick={() => openReject(card.id)}
-                    style={{
-                      padding: "8px 15px",
-                      border: "none",
-                      borderRadius: 999,
-                      background: "var(--warnSoft)",
-                      color: "var(--warn)",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      transition: "filter .18s ease",
-                    }}
-                  >
-                    Send back
-                  </button>
-                )}
-                <button
-                  type="button"
+                </span>
+                <span
+                  className="chip"
+                  onClick={() => {
+                    if (!session?.worktree) {
+                      toast("var(--warn)", "No worktree", "This card has not written anything yet.");
+                      return;
+                    }
+                    api.reveal(session.worktree).catch((e) =>
+                      toast("var(--bad)", "Could not open that folder", reason(e)),
+                    );
+                  }}
+                  style={{
+                    padding: "7px 13px",
+                    borderRadius: 999,
+                    border: "1px solid var(--line3)",
+                    font: "400 11.5px var(--sans)",
+                    color: "var(--text2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  Reveal worktree
+                </span>
+                <span
+                  className="primary"
                   onClick={() =>
                     card.status === "running"
                       ? cancelRun(card.id)
                       : card.status === "review"
-                        ? approve(card.id)
+                        ? openReview(card.id)
                         : startRun(card.id)
                   }
-                  disabled={card.status === "done"}
                   style={{
-                    padding: "8px 15px",
-                    border: "none",
+                    padding: "7px 14px",
                     borderRadius: 999,
                     background:
                       card.status === "running"
@@ -286,208 +286,141 @@ export function Sessions({
                         : card.status === "review"
                           ? "var(--ok)"
                           : "var(--info)",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: card.status === "done" ? "not-allowed" : "pointer",
-                    opacity: card.status === "done" ? 0.5 : 1,
-                    transition: "filter .18s ease",
+                    font: "600 11.5px var(--sans)",
+                    cursor: "pointer",
                   }}
                 >
                   {card.status === "running"
                     ? "Stop"
                     : card.status === "review"
-                      ? "Approve"
+                      ? "Read the diff"
                       : card.runs > 0
                         ? "Run again"
                         : "Start"}
-                </button>
+                </span>
               </div>
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
                   flexWrap: "wrap",
-                  gap: 14,
-                  fontSize: 11.5,
+                  gap: 13,
+                  ...mono,
+                  fontSize: 11,
                   color: "var(--text3)",
                 }}
               >
-                <span style={{ fontFamily: "var(--mono)", color: "var(--text2)" }}>{card.id}</span>
-                <span style={{ fontFamily: "var(--mono)" }}>{session?.branch ?? "no worktree"}</span>
-                <span
-                  style={{
-                    width: 3,
-                    height: 3,
-                    borderRadius: "50%",
-                    background: "var(--line)",
-                    flex: "none",
-                  }}
-                />
-                <span style={tabular}>
-                  {live && session
-                    ? duration(Date.now() - session.started_ms)
-                    : plural(card.turns, "turn")}
-                </span>
-                <span style={{ fontFamily: "var(--mono)", ...tabular }}>
-                  {money(card.cost_usd, 4)}
-                </span>
-                <span
-                  style={{
-                    width: 3,
-                    height: 3,
-                    borderRadius: "50%",
-                    background: "var(--line)",
-                    flex: "none",
-                  }}
-                />
+                <span style={{ color: "var(--text2)" }}>{card.id}</span>
+                {session?.run_id && (
+                  <span>
+                    {session.run_id.slice(0, 8)} · {plural(card.runs, "run")}
+                  </span>
+                )}
+                <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--line3)" }} />
+                <span>{session?.branch ?? card.branch ?? "no worktree"}</span>
+                <span>{plural(card.turns, "turn")}</span>
+                <span>{money(card.cost_usd, 4)}</span>
+                <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--line3)" }} />
                 <span>
                   {agent?.name ?? card.agent_id} ·{" "}
                   {MODELS.find((m) => m.id === agent?.model)?.name ?? "auto"}
                 </span>
-                {session?.session_id && (
-                  <span style={{ fontFamily: "var(--mono)" }}>
-                    {session.session_id.slice(0, 12)}
-                  </span>
+                {card.session_id && <span>{card.session_id.slice(0, 12)}</span>}
+                {card.runs > 1 && card.session_id && (
+                  <span style={{ color: "var(--ok)" }}>resumed from the last run</span>
                 )}
               </div>
             </div>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 24px 24px" }}>
+            <div
+              className="stagger logscroll"
+              style={{ minHeight: 0, overflowY: "auto", padding: "14px 22px 20px" }}
+            >
               {lines.length === 0 && (
-                <div style={{ fontSize: 12, color: "var(--text3)", fontFamily: "var(--mono)" }}>
+                <div style={{ ...mono, fontSize: 12, color: "var(--text4)" }}>
                   no transcript for this card yet
                 </div>
               )}
               {lines.map((l, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    gap: 14,
-                    fontFamily: "var(--mono)",
-                    fontSize: 12,
-                    lineHeight: 1.95,
-                    animation: "fadeIn .24s ease both",
-                  }}
-                >
+                <div key={i} style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
                   <span
                     style={{
                       flex: "none",
-                      width: 30,
-                      paddingRight: 12,
-                      borderRight: "1px solid var(--line2)",
+                      width: 74,
                       textAlign: "right",
-                      color: "var(--text3)",
-                      opacity: 0.6,
-                      ...tabular,
+                      color: l.labelColor,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {String(i + 1).padStart(2, "0")}
+                    {l.label}
                   </span>
                   <span
                     style={{
                       flex: 1,
+                      minWidth: 0,
+                      paddingLeft: 12,
+                      borderLeft: "1px solid var(--line)",
+                      color: l.color,
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                      color: l.color,
+                      fontStyle: l.italic ? "italic" : "normal",
                     }}
                   >
                     {l.text}
                   </span>
                 </div>
               ))}
+
               {stream?.thinking && !stream.text && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 14,
-                    fontFamily: "var(--mono)",
-                    fontSize: 12,
-                    lineHeight: 1.95,
-                  }}
-                >
-                  <span
-                    style={{
-                      flex: "none",
-                      width: 30,
-                      paddingRight: 12,
-                      borderRight: "1px solid var(--line2)",
-                      textAlign: "right",
-                      color: "var(--text3)",
-                      opacity: 0.6,
-                    }}
-                  >
-                    ··
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                  <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
+                    thinking
                   </span>
                   <span
                     style={{
                       flex: 1,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
+                      paddingLeft: 12,
+                      borderLeft: "1px solid var(--line)",
                       color: "var(--text3)",
                       fontStyle: "italic",
+                      whiteSpace: "pre-wrap",
                     }}
                   >
                     {stream.thinking}
+                    <Caret />
                   </span>
                 </div>
               )}
               {stream?.text && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 14,
-                    fontFamily: "var(--mono)",
-                    fontSize: 12,
-                    lineHeight: 1.95,
-                  }}
-                >
-                  <span
-                    style={{
-                      flex: "none",
-                      width: 30,
-                      paddingRight: 12,
-                      borderRight: "1px solid var(--line2)",
-                      textAlign: "right",
-                      color: "var(--text3)",
-                      opacity: 0.6,
-                      ...tabular,
-                    }}
-                  >
-                    {String(lines.length + 1).padStart(2, "0")}
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                  <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
+                    text
                   </span>
                   <span
                     style={{
                       flex: 1,
+                      paddingLeft: 12,
+                      borderLeft: "1px solid var(--line)",
+                      color: "var(--text2)",
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                      color: "var(--text)",
                     }}
                   >
                     {stream.text}
+                    <Caret />
                   </span>
                 </div>
               )}
-              {live && (
-                <div style={{ display: "flex", gap: 14 }}>
-                  <span
-                    style={{
-                      flex: "none",
-                      width: 30,
-                      paddingRight: 12,
-                      borderRight: "1px solid var(--line2)",
-                      height: 20,
-                    }}
-                  />
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 7,
-                      height: 14,
-                      background: "var(--accent)",
-                      animation: "blink 1.05s steps(1) infinite",
-                    }}
-                  />
+              {live && !stream?.text && !stream?.thinking && (
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                  <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
+                    live
+                  </span>
+                  <span style={{ flex: 1, paddingLeft: 12, borderLeft: "1px solid var(--line)" }}>
+                    <Caret />
+                  </span>
                 </div>
               )}
               <div ref={end} />

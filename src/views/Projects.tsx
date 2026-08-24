@@ -373,7 +373,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   type="button"
                   className="hv-hover"
                   onClick={() => {
-                    if (c.card) go("runs");
+                    if (c.card) go("sessions");
                   }}
                   title={c.card ? `Open the session for ${c.card}` : undefined}
                   style={{
@@ -1004,7 +1004,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   disabled={!p.exists}
                   onClick={() => {
                     selectProject(p.id);
-                    go("project");
+                    go("code");
                   }}
                   style={{
                     background: "transparent",

@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { money, plural } from "../lib/format";
-import { STATUS_NAME, STATUS_ORDER, STATUS_TONE, type Status } from "../lib/types";
+import {
+  STATUS_NAME,
+  STATUS_ORDER,
+  tone,
+  type Status,
+} from "../lib/types";
 import { useStore } from "../state/store";
-import { Icon, Loading } from "../components/ui";
+import { Glyph, Loading, mono, truncate } from "../components/ui";
 
 /** Moves the board offers by hand; anything else needs an override. */
 const LEGAL: Record<Status, Status[]> = {
@@ -13,16 +18,124 @@ const LEGAL: Record<Status, Status[]> = {
   done: [],
 };
 
+const COLUMN_COLOR: Record<Status, string> = {
+  backlog: "var(--text4)",
+  ready: "var(--info)",
+  running: "var(--accent)",
+  review: "var(--warn)",
+  done: "var(--ok)",
+};
+
+/** The one place a card is created by hand: a line, who takes it, and whether
+ *  it starts now. */
+function NewCard({ close }: { close: () => void }) {
+  const { agents, createCard } = useStore();
+  const takers = agents.filter((a) => a.tasks_enabled && !a.paused);
+  const [title, setTitle] = useState("");
+  const [who, setWho] = useState(takers.find((a) => a.id !== "director")?.id ?? takers[0]?.id ?? "");
+
+  const add = (mode: "later" | "plan" | "start") => {
+    if (!title.trim()) return;
+    createCard(title, who, mode);
+    close();
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 16px",
+        borderBottom: "1px solid var(--line)",
+        background: "var(--surface)",
+        animation: "sheetIn .28s cubic-bezier(.2,.8,.25,1) both",
+      }}
+    >
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") add(e.shiftKey ? "start" : "plan");
+          if (e.key === "Escape") close();
+        }}
+        placeholder="What should happen? One card, one outcome."
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: "7px 11px",
+          borderRadius: 9,
+          border: "1px solid var(--line3)",
+          background: "var(--bg)",
+          font: "400 12.5px var(--sans)",
+          color: "var(--text)",
+          outline: "none",
+        }}
+      />
+      <select
+        value={who}
+        onChange={(e) => setWho(e.target.value)}
+        style={{
+          padding: "7px 9px",
+          borderRadius: 9,
+          border: "1px solid var(--line3)",
+          background: "var(--bg)",
+          font: "500 11.5px var(--sans)",
+          color: "var(--text2)",
+          cursor: "pointer",
+        }}
+      >
+        {takers.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name}
+          </option>
+        ))}
+      </select>
+      {[
+        { label: "Later", mode: "later" as const, strong: false },
+        { label: "Ready", mode: "plan" as const, strong: false },
+        { label: "Start now", mode: "start" as const, strong: true },
+      ].map((b) => (
+        <span
+          key={b.mode}
+          className={b.strong ? "primary" : "chip"}
+          onClick={() => add(b.mode)}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: b.strong ? "none" : "1px solid var(--line3)",
+            background: b.strong ? "var(--accent)" : "transparent",
+            color: b.strong ? "var(--onAccent)" : "var(--text2)",
+            font: `${b.strong ? 600 : 500} 11.5px var(--sans)`,
+            cursor: "pointer",
+            opacity: title.trim() ? 1 : 0.55,
+          }}
+        >
+          {b.label}
+        </span>
+      ))}
+      <span
+        onClick={close}
+        style={{ font: "500 11.5px var(--sans)", color: "var(--text4)", cursor: "pointer" }}
+      >
+        Cancel
+      </span>
+    </div>
+  );
+}
+
 export function Board({
   openRun,
-  openReject,
+  openReview,
 }: {
   openRun: (cardId: string) => void;
-  openReject: (cardId: string) => void;
+  openReview: (cardId: string) => void;
 }) {
-  const { snapshot, outputs, moveCard, startRun, cancelRun, approve, discard } = useStore();
+  const { snapshot, agents, outputs, streams, moveCard, startRun, cancelRun, discard } = useStore();
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<Status | null>(null);
+  const [adding, setAdding] = useState(false);
 
   if (!snapshot) return <Loading what="Reading the board" />;
   const cards = snapshot.cards;
@@ -34,53 +147,74 @@ export function Board({
     setDrag(null);
     if (!card || card.status === to || !LEGAL[card.status].includes(to)) return;
     if (to === "running") startRun(card.id);
-    else if (to === "done") approve(card.id);
+    else if (to === "done") openReview(card.id);
     else moveCard(card.id, to);
   };
 
   return (
     <div
       style={{
-        padding: "22px 26px 24px",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
+        flex: 1,
         minHeight: 0,
+        display: "grid",
+        gridTemplateRows: "auto auto minmax(0,1fr)",
+        overflow: "hidden",
+        animation: "paneIn .4s cubic-bezier(.2,.8,.25,1) both",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h1
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "9px 16px",
+          borderBottom: "1px solid var(--line)",
+        }}
+      >
+        <span style={{ font: "400 11px var(--sans)", color: "var(--text4)" }}>
+          A card moves one column at a time. Anything else is an override, and an override needs a
+          reason.
+        </span>
+        <div style={{ flex: 1 }} />
+        <span
+          className="chip"
+          onClick={() => setAdding((v) => !v)}
           style={{
-            margin: 0,
-            fontSize: "var(--t-xl)",
-            fontWeight: 800,
-            letterSpacing: "-.03em",
-            lineHeight: 1.2,
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "5px 11px",
+            borderRadius: 999,
+            border: "1px solid var(--line3)",
+            font: "500 11px var(--sans)",
+            color: "var(--text2)",
+            cursor: "pointer",
           }}
         >
-          Work
-        </h1>
-        <span style={{ fontSize: "var(--t-sm)", color: "var(--text3)" }}>
-          Drag a card to move it
+          New card
         </span>
       </div>
 
+      {adding ? <NewCard close={() => setAdding(false)} /> : <span />}
+
       <div
+        className="cols"
         style={{
-          flex: 1,
           minHeight: 0,
           display: "grid",
           gridTemplateColumns: "repeat(5,minmax(0,1fr))",
-          gap: 11,
+          gap: 1,
+          background: "var(--line)",
+          overflow: "hidden",
         }}
       >
         {STATUS_ORDER.map((status) => {
           const list = cards.filter((c) => c.status === status);
-          const t = STATUS_TONE[status];
+          const color = COLUMN_COLOR[status];
           const canDrop = dragged ? LEGAL[dragged.status].includes(status) : false;
           const hot = over === status && canDrop;
           return (
-            <section
+            <div
               key={status}
               onDragOver={(e) => {
                 if (!canDrop) return;
@@ -93,36 +227,33 @@ export function Board({
                 drop(status);
               }}
               style={{
-                display: "flex",
-                flexDirection: "column",
                 minHeight: 0,
-                borderRadius: 18,
-                border: `1px solid ${hot ? "var(--accentLine)" : "var(--line)"}`,
-                background: hot ? "var(--accentSoft)" : "var(--recess)",
-                transition: "all .2s ease",
+                display: "grid",
+                gridTemplateRows: "auto minmax(0,1fr)",
+                background: hot ? "var(--hover)" : "var(--bg)",
+                transition: "background .2s ease",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "13px 14px 11px" }}>
-                <span
-                  style={{ width: 7, height: 7, borderRadius: "50%", background: t.color }}
-                />
+              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 13px 9px" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
                 <span
                   style={{
-                    fontSize: "var(--t-xs)",
-                    fontWeight: 700,
-                    letterSpacing: ".06em",
-                    textTransform: "uppercase",
-                    color: "var(--text2)",
+                    flex: 1,
+                    font: "600 10.5px var(--sans)",
+                    color,
+                    letterSpacing: ".09em",
                   }}
                 >
-                  {STATUS_NAME[status]}
+                  {STATUS_NAME[status].toUpperCase()}
                 </span>
-                <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{list.length}</span>
+                <span style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text3)" }}>
+                  {list.length}
+                </span>
               </div>
 
               <div
+                className="stagger"
                 style={{
-                  flex: 1,
                   minHeight: 0,
                   overflowY: "auto",
                   padding: "0 9px 10px",
@@ -132,40 +263,36 @@ export function Board({
                 }}
               >
                 {list.map((card) => {
+                  const agent = agents.find((a) => a.id === card.agent_id);
+                  const t = tone(agent?.tone);
                   const isRun = status === "running";
                   const isReview = status === "review";
                   const isReady = status === "ready";
                   const log = outputs[card.id] ?? [];
-                  const badge = isRun
-                    ? "live"
-                    : isReview
-                      ? "diff ready"
-                      : status === "done" && card.cost_usd
-                        ? money(card.cost_usd)
-                        : null;
-                  const badgeColor = isRun
-                    ? "var(--accent)"
-                    : isReview
-                      ? "var(--warn)"
-                      : "var(--text3)";
-                  const badgeSoft = isRun
-                    ? "var(--accentSoft)"
-                    : isReview
-                      ? "var(--warnSoft)"
-                      : "var(--surface2)";
-                  const actionLabel = isRun ? "Stop" : isReview ? "Approve" : "Start";
-                  const actionColor = isRun
-                    ? "var(--bad)"
-                    : isReview
-                      ? "var(--ok)"
-                      : "var(--info)";
-                  const actionSoft = isRun
-                    ? "var(--badSoft)"
-                    : isReview
-                      ? "var(--okSoft)"
-                      : "var(--infoSoft)";
+                  const stream = streams[card.id];
+                  const meta = isRun
+                    ? `${plural(card.turns, "turn")} · ${money(card.cost_usd, 2)}`
+                    : card.runs > 0
+                      ? `${plural(card.turns, "turn")} · ${money(card.cost_usd, 2)}`
+                      : `${card.runs} runs`;
+
+                  // One line under the title: the review that sent it back, what
+                  // it is doing right now, or nothing.
+                  let note = "";
+                  let noteColor = "var(--text3)";
+                  if (isRun) {
+                    note =
+                      stream?.thinking?.slice(-70) ||
+                      (log.length > 0 ? `${log[log.length - 1]!.label} ${log[log.length - 1]!.text}` : "starting…");
+                  } else if (card.last_review && status !== "done") {
+                    note = `${card.last_review.by === "director" ? "Director" : "You"}: ${card.last_review.reason}`;
+                    noteColor = card.last_review.approved ? "var(--ok)" : "var(--warn)";
+                  } else if (status === "done" && card.branch) {
+                    note = `${card.branch} still unmerged`;
+                  }
+
                   return (
-                    <article
+                    <div
                       key={card.id}
                       draggable
                       onDragStart={() => setDrag(card.id)}
@@ -173,175 +300,126 @@ export function Board({
                         setDrag(null);
                         setOver(null);
                       }}
-                      onClick={() => openRun(card.id)}
-                      className="hv-tile"
+                      onClick={() => (isReview ? openReview(card.id) : openRun(card.id))}
+                      className="tile"
                       style={{
-                        padding: "12px 13px",
-                        border: "1px solid var(--line)",
-                        borderRadius: 15,
+                        padding: "11px 12px",
+                        borderRadius: 12,
                         background: "var(--surface)",
+                        border: "1px solid var(--line2)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
                         cursor: "grab",
                         opacity: drag === card.id ? 0.45 : 1,
-                        transition: "all .2s cubic-bezier(.2,.8,.2,1)",
-                        animation: "fadeUp .3s ease both",
                       }}
                     >
-                      <div
-                        style={{ display: "flex", alignItems: "flex-start", gap: 6, margin: "0 0 9px" }}
-                      >
-                        <p
-                          style={{
-                            margin: 0,
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: "var(--t-md)",
-                            fontWeight: 500,
-                            lineHeight: 1.45,
-                          }}
-                        >
-                          {card.title}
-                        </p>
+                      <span style={{ font: "500 12.5px/1.42 var(--sans)", color: "var(--text)" }}>
+                        {card.title}
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <Glyph color={t.color} soft={t.soft} size={16} font={8}>
+                          {agent?.initial ?? "?"}
+                        </Glyph>
+                        <span className="card-id" style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>
+                          {card.id}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        <span style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>{meta}</span>
                         {!isRun && (
-                          <button
-                            type="button"
-                            className="hv-danger"
+                          <span
                             title="Delete this card"
                             onClick={(e) => {
                               e.stopPropagation();
                               discard(card.id);
                             }}
-                            style={{
-                              flex: "none",
-                              width: 20,
-                              height: 20,
-                              border: "none",
-                              borderRadius: 6,
-                              background: "transparent",
-                              color: "var(--text3)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              lineHeight: 1,
-                              cursor: "pointer",
-                              transition: "all .16s ease",
-                            }}
+                            style={{ ...mono, fontSize: 11, color: "var(--text4)", cursor: "pointer" }}
                           >
-                            <Icon.close />
-                          </button>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          fontSize: 11,
-                          color: "var(--text3)",
-                        }}
-                      >
-                        <span
-                          className="card-id"
-                          style={{ fontFamily: "var(--mono)", letterSpacing: "-.01em" }}
-                        >
-                          {card.id}
-                        </span>
-                        {badge && (
-                          <span
-                            style={{
-                              padding: "2px 8px",
-                              borderRadius: 999,
-                              background: badgeSoft,
-                              color: badgeColor,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {badge}
+                            ✕
                           </span>
                         )}
-                        {status === "done" && card.turns > 0 && (
-                          <span>{plural(card.turns, "turn")}</span>
-                        )}
-                      </div>
+                      </span>
 
-                      {card.last_review && status !== "done" && (
-                        <p
+                      {note && (
+                        <span
                           style={{
-                            margin: "9px 0 0",
-                            fontSize: 11,
-                            lineHeight: 1.5,
-                            color: card.last_review.approved ? "var(--ok)" : "var(--warn)",
-                          }}
-                        >
-                          {card.last_review.by === "director" ? "Director" : "You"}:{" "}
-                          {card.last_review.reason}
-                        </p>
-                      )}
-
-                      {isRun && log.length > 0 && (
-                        <p
-                          style={{
-                            margin: "9px 0 0",
-                            fontFamily: "var(--mono)",
-                            fontSize: 10.5,
-                            color: "var(--text3)",
+                            font: "400 10.5px/1.5 var(--sans)",
+                            color: noteColor,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {log[log.length - 1]!.text}
-                        </p>
+                          {note}
+                        </span>
+                      )}
+
+                      {card.session_id && (
+                        <span
+                          style={{
+                            alignSelf: "flex-start",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 5,
+                            padding: "1px 7px",
+                            borderRadius: 6,
+                            background: "var(--surface2)",
+                            ...mono,
+                            fontSize: 9.5,
+                            fontWeight: 500,
+                            color: "var(--text3)",
+                            maxWidth: "100%",
+                            ...truncate,
+                          }}
+                        >
+                          resumes {card.session_id.slice(0, 8)}
+                        </span>
                       )}
 
                       {(isRun || isReview || isReady) && (
-                        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                          <button
-                            type="button"
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span
                             onClick={(e) => {
                               e.stopPropagation();
                               if (isRun) cancelRun(card.id);
-                              else if (isReview) approve(card.id);
+                              else if (isReview) openReview(card.id);
                               else startRun(card.id);
                             }}
                             style={{
                               flex: 1,
-                              padding: "7px 9px",
-                              border: "none",
+                              padding: 6,
                               borderRadius: 9,
-                              background: actionSoft,
-                              color: actionColor,
-                              fontSize: "var(--t-sm)",
-                              fontWeight: 700,
+                              background: isRun
+                                ? "var(--badSoft)"
+                                : isReview
+                                  ? "var(--okSoft)"
+                                  : "var(--infoSoft)",
+                              color: isRun ? "var(--bad)" : isReview ? "var(--ok)" : "var(--info)",
+                              font: "600 11px var(--sans)",
+                              textAlign: "center",
                               cursor: "pointer",
-                              transition: "filter .18s ease",
                             }}
                           >
-                            {actionLabel}
-                          </button>
-                          <button
-                            type="button"
-                            className="hv-soft"
+                            {isRun ? "Stop" : isReview ? "Read the diff" : "Start"}
+                          </span>
+                          <span
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (isReview) openReject(card.id);
-                              else openRun(card.id);
+                              openRun(card.id);
                             }}
                             style={{
-                              padding: "7px 10px",
-                              border: "none",
+                              padding: "6px 10px",
                               borderRadius: 9,
-                              background: "transparent",
+                              font: "500 11px var(--sans)",
                               color: "var(--text3)",
-                              fontSize: "var(--t-sm)",
                               cursor: "pointer",
-                              transition: "all .18s ease",
                             }}
                           >
-                            {isReview ? "Send back" : "Log"}
-                          </button>
-                        </div>
+                            {isRun ? "Transcript" : isReview ? "Session" : "Log"}
+                          </span>
+                        </span>
                       )}
-                    </article>
+                    </div>
                   );
                 })}
 
@@ -350,17 +428,17 @@ export function Board({
                     style={{
                       padding: "14px 8px",
                       textAlign: "center",
-                      fontSize: "var(--t-sm)",
-                      color: "var(--text3)",
-                      border: "1px dashed var(--line)",
-                      borderRadius: 13,
+                      font: "400 11px var(--sans)",
+                      color: "var(--text4)",
+                      border: "1px dashed var(--line2)",
+                      borderRadius: 12,
                     }}
                   >
                     {hot ? "Drop here" : "Empty"}
                   </div>
                 )}
               </div>
-            </section>
+            </div>
           );
         })}
       </div>

@@ -1,450 +1,495 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { money, plural } from "../lib/format";
+import type { ReactNode } from "react";
+import { initials, money, shortAgo } from "../lib/format";
 import { tone } from "../lib/types";
 import { useStore } from "../state/store";
 import type { View } from "../views/views";
-import { Icon, Meter, truncate } from "./ui";
+import { Eyebrow, Glyph, Icon, Spinner, mono, truncate } from "./ui";
 
-/** Project picker at the top of the rail, with the popover list. */
-function Switcher() {
-  const { projects, project, selectProject, addProject } = useStore();
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement | null>(null);
+/** The 246px sidebar: where you are, what you were talking about, and which
+ *  repository the answers are about. */
+export function NavRail({
+  view,
+  go,
+  openChat,
+  onPalette,
+  onApprovals,
+}: {
+  view: View;
+  go: (v: View) => void;
+  /** Open one stored conversation, and show the chat screen. */
+  openChat: (conversationId?: string) => void;
+  onPalette: () => void;
+  onApprovals: () => void;
+}) {
+  const {
+    snapshot,
+    agents,
+    settings,
+    stats,
+    project,
+    projects,
+    projectId,
+    selectProject,
+    conversations,
+    conversationId,
+    approvals,
+    newConversation,
+  } = useStore();
 
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", away);
-    return () => window.removeEventListener("mousedown", away);
-  }, [open]);
+  const cards = snapshot?.cards ?? [];
+  const running = cards.filter((c) => c.status === "running").length;
+  const inReview = cards.filter((c) => c.status === "review").length;
+  const open = cards.filter((c) => c.status !== "done").length;
+  const spendToday = stats?.spend_today ?? 0;
+  const budget = settings?.daily_budget_usd ?? 10;
+  const name = settings?.user_name ?? "Operator";
 
-  const t = tone(project?.tone);
-  const meta = !project
-    ? "no project yet"
-    : !project.exists
-      ? "folder is missing"
-      : project.stats.running
-        ? `${plural(project.stats.running, "run")} live`
-        : project.stats.review
-          ? `${plural(project.stats.review, "diff")} waiting`
-          : project.paused
-            ? "paused"
-            : "idle";
-
-  return (
-    <div style={{ position: "relative", padding: "0 12px 14px", zIndex: 30 }} ref={box}>
-      <button
-        type="button"
-        className="hv-pill"
-        onClick={() => setOpen((v) => !v)}
+  const item = (
+    v: View,
+    label: string,
+    icon: ReactNode,
+    iconColor: string,
+    right?: ReactNode,
+  ) => {
+    const on = view === v;
+    return (
+      <div
+        key={v}
+        onClick={() => (v === "chat" ? openChat() : go(v))}
+        className="row"
         style={{
-          width: "100%",
+          position: "relative",
           display: "flex",
           alignItems: "center",
           gap: 10,
-          padding: "8px 10px",
-          border: "1px solid var(--line)",
-          borderRadius: 14,
-          background: "var(--surface2)",
-          color: "var(--text)",
+          height: 32,
+          padding: "0 9px",
+          borderRadius: 9,
           cursor: "pointer",
-          textAlign: "left",
-          transition: "all .18s ease",
         }}
       >
+        {on && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: 9,
+              background: "var(--active)",
+              boxShadow: "inset 0 0 0 1px var(--line3)",
+              animation: "fadeIn .22s ease both",
+            }}
+          />
+        )}
         <span
           style={{
-            width: 28,
-            height: 28,
-            flex: "none",
-            borderRadius: 9,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: t.soft,
-            color: t.color,
-            fontSize: 12,
-            fontWeight: 800,
+            position: "relative",
+            display: "grid",
+            placeItems: "center",
+            width: 15,
+            height: 15,
+            color: iconColor,
           }}
         >
-          {project?.glyph ?? "+"}
+          {icon}
         </span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span
-            style={{
-              display: "block",
-              fontSize: 12.5,
-              fontWeight: 700,
-              letterSpacing: "-.01em",
-              ...truncate,
-            }}
-          >
-            {project?.name ?? "Add a project"}
-          </span>
-          <span
-            style={{ display: "block", marginTop: 1, fontSize: 10.5, color: "var(--text3)", ...truncate }}
-          >
-            {meta}
-          </span>
-        </span>
-        <Icon.chevron />
-      </button>
-
-      {open && (
-        <div
+        <span
           style={{
-            position: "absolute",
-            top: "calc(100% - 6px)",
-            left: 12,
-            right: 12,
-            background: "var(--elev)",
-            border: "1px solid var(--line)",
-            borderRadius: 16,
-            boxShadow: "var(--shadow)",
-            padding: 6,
-            animation: "popIn .16s ease both",
-            maxHeight: 360,
-            overflowY: "auto",
+            position: "relative",
+            flex: 1,
+            font: "500 12.5px var(--sans)",
+            color: on ? "var(--text)" : "var(--text1)",
           }}
         >
-          {projects.length === 0 && (
-            <div style={{ padding: "10px 9px", fontSize: 11.5, color: "var(--text3)", lineHeight: 1.5 }}>
-              Point Harness at a git repository to start.
-            </div>
-          )}
-          {projects.map((p) => {
-            const pt = tone(p.tone);
-            const on = p.id === project?.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className="hv-hover"
-                onClick={() => {
-                  selectProject(p.id);
-                  setOpen(false);
-                }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "8px 9px",
-                  border: "none",
-                  borderRadius: 11,
-                  background: on ? "var(--accentSoft)" : "transparent",
-                  color: "var(--text)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <span
-                  style={{
-                    width: 24,
-                    height: 24,
-                    flex: "none",
-                    borderRadius: 8,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: pt.soft,
-                    color: pt.color,
-                    fontSize: 10.5,
-                    fontWeight: 800,
-                  }}
-                >
-                  {p.glyph}
-                </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, ...truncate }}>
-                    {p.name}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 10.5,
-                      color: !p.exists
-                        ? "var(--bad)"
-                        : p.stats.running
-                          ? "var(--accent)"
-                          : p.stats.review
-                            ? "var(--warn)"
-                            : "var(--text3)",
-                    }}
-                  >
-                    {!p.exists
-                      ? "folder is missing"
-                      : p.stats.running
-                        ? `${p.stats.running} live`
-                        : p.stats.review
-                          ? `${p.stats.review} waiting`
-                          : p.paused
-                            ? "paused"
-                            : "idle"}
-                  </span>
-                </span>
-                <span style={{ opacity: on ? 1 : 0, color: "var(--accent)", fontSize: 12 }}>✓</span>
-              </button>
-            );
-          })}
-          <div style={{ height: 1, background: "var(--line)", margin: "6px 4px" }} />
-          <button
-            type="button"
-            className="hv-hover"
-            onClick={() => {
-              setOpen(false);
-              addProject();
-            }}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 9px",
-              border: "none",
-              borderRadius: 11,
-              background: "transparent",
-              color: "var(--text2)",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-          >
-            <span
-              style={{
-                width: 24,
-                height: 24,
-                flex: "none",
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "var(--surface2)",
-                color: "var(--text2)",
-              }}
-            >
-              <Icon.plus />
-            </span>
-            <span style={{ fontSize: 12.5, fontWeight: 600 }}>Add a project…</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionLabel({ children, top }: { children: ReactNode; top?: number }) {
-  return (
-    <div
-      style={{
-        marginTop: top,
-        padding: "0 20px 8px",
-        fontSize: 10.5,
-        fontWeight: 700,
-        letterSpacing: ".12em",
-        textTransform: "uppercase",
-        color: "var(--text3)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-export function NavRail({ view, go }: { view: View; go: (v: View) => void }) {
-  const { snapshot, agents, settings, stats, project, projects } = useStore();
-  const cards = snapshot?.cards ?? [];
-  const running = cards.filter((c) => c.status === "running").length;
-  const director = agents.find((a) => a.id === "director");
-  const dt = tone(director?.tone ?? "info");
-
-  const on = (v: View) =>
-    view === v ||
-    (v === "agents" && view === "agent") ||
-    (v === "projects" && view === "project");
-
-  const item = (v: View, label: string, icon: ReactNode, right?: ReactNode) => {
-    const active = on(v);
-    return (
-      <button
-        key={v}
-        type="button"
-        className={active ? undefined : "hv-hover"}
-        onClick={() => go(v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 11,
-          height: 38,
-          padding: "0 13px",
-          border: "none",
-          borderRadius: 11,
-          cursor: "pointer",
-          textAlign: "left",
-          fontSize: 13.5,
-          transition: "all .18s ease",
-          background: active ? "var(--accentSoft)" : "transparent",
-          color: active ? "var(--accent)" : "var(--text2)",
-          fontWeight: active ? 700 : 500,
-          boxShadow: active ? "inset 0 0 0 1px var(--accentLine)" : "none",
-        }}
-      >
-        {icon}
-        <span style={{ flex: 1 }}>{label}</span>
+          {label}
+        </span>
         {right}
-      </button>
+      </div>
     );
   };
 
-  const count = (n: number) =>
-    n > 0 ? <span style={{ fontSize: 11.5, opacity: 0.75 }}>{n}</span> : undefined;
-
-  const spendToday = stats?.spend_today ?? 0;
-  const budget = settings?.daily_budget_usd ?? 5;
+  const countToken = (n: number) =>
+    n > 0 ? (
+      <span style={{ position: "relative", ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
+        {n}
+      </span>
+    ) : undefined;
 
   return (
     <nav
       style={{
-        width: 224,
+        width: 246,
         flex: "none",
         display: "flex",
         flexDirection: "column",
-        background: "var(--surface)",
+        background: "var(--recess)",
         borderRight: "1px solid var(--line)",
-        padding: "16px 0 14px",
-        minHeight: 0,
+        overflow: "hidden",
       }}
     >
-      <Switcher />
-
-      <div style={{ padding: "0 12px 14px" }}>
-        <button
-          type="button"
-          className={on("director") ? undefined : "hv-hover"}
-          onClick={() => go("director")}
+      <div
+        style={{
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "13px 12px 11px",
+        }}
+      >
+        <span
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 11,
-            width: "100%",
-            height: 42,
-            padding: "0 12px",
-            border: "none",
-            borderRadius: 12,
-            cursor: "pointer",
-            textAlign: "left",
-            fontSize: 13.5,
-            transition: "all .18s ease",
-            background: on("director") ? "var(--accentSoft)" : "transparent",
-            color: on("director") ? "var(--accent)" : "var(--text2)",
-            fontWeight: on("director") ? 700 : 500,
-            boxShadow: on("director") ? "inset 0 0 0 1px var(--accentLine)" : "none",
+            width: 22,
+            height: 22,
+            borderRadius: 7,
+            background: "linear-gradient(140deg,var(--accent),var(--warn))",
+            display: "grid",
+            placeItems: "center",
+            font: "700 11px var(--sans)",
+            color: "var(--onAccent)",
           }}
         >
-          <span
-            style={{
-              width: 26,
-              height: 26,
-              flex: "none",
-              borderRadius: "50%",
-              background: dt.soft,
-              color: dt.color,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11.5,
-              fontWeight: 800,
-            }}
-          >
-            {director?.initial ?? "D"}
-          </span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 13, fontWeight: 700, letterSpacing: "-.01em" }}>
-              Director
-            </span>
-            <span style={{ display: "block", fontSize: 10.5, color: "var(--text3)" }}>
-              {director?.paused ? "paused" : "watching"} · all projects
-            </span>
-          </span>
-        </button>
-      </div>
-
-      <SectionLabel>This project</SectionLabel>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 12px" }}>
-        {item("home", "Home", <Icon.home />)}
-        {item(
-          "project",
-          "Code",
-          <Icon.code />,
-          project && (
-            <span style={{ fontSize: 11, opacity: 0.7, fontFamily: "var(--mono)" }}>
-              {project.base_branch}
-            </span>
-          ),
-        )}
-        {item("agents", "Agents", <Icon.agents />, count(agents.length))}
-        {item("board", "Work", <Icon.board />, count(cards.filter((c) => c.status !== "done").length))}
-        {item(
-          "runs",
-          "Sessions",
-          <Icon.runs />,
-          running > 0 ? (
+          H
+        </span>
+        <span style={{ font: "600 15px var(--sans)", color: "var(--text)", letterSpacing: "-.02em" }}>
+          Harness
+        </span>
+        <div style={{ flex: 1 }} />
+        <span
+          title="Command palette ⌘K"
+          onClick={onPalette}
+          style={{
+            display: "grid",
+            placeItems: "center",
+            width: 23,
+            height: 23,
+            borderRadius: 7,
+            color: "var(--text2)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon.search />
+        </span>
+        <span
+          title="Waiting on you"
+          onClick={onApprovals}
+          style={{
+            position: "relative",
+            display: "grid",
+            placeItems: "center",
+            width: 23,
+            height: 23,
+            borderRadius: 7,
+            color: "var(--text2)",
+            cursor: "pointer",
+          }}
+        >
+          <Icon.bell />
+          {approvals.length > 0 && (
             <span
               style={{
+                position: "absolute",
+                top: 1,
+                right: 1,
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: "var(--accent)",
-                animation: "breathe 2.2s ease-in-out infinite",
+                background: "var(--warn)",
+                border: "1.5px solid var(--recess)",
+              }}
+            />
+          )}
+        </span>
+      </div>
+
+      <div
+        style={{
+          flex: "none",
+          padding: "0 8px 6px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 1,
+        }}
+      >
+        {item("chat", "Chat", <Icon.chat />, "var(--accent)", (
+          <span style={{ position: "relative", ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)" }}>
+            ⌘J
+          </span>
+        ))}
+        {item(
+          "review",
+          "Review",
+          <Icon.check />,
+          inReview > 0 ? "var(--warn)" : "var(--text2)",
+          inReview > 0 ? (
+            <span
+              style={{
+                position: "relative",
+                padding: "1px 6px",
+                borderRadius: 6,
+                background: "var(--warnSoft)",
+                color: "var(--warn)",
+                ...mono,
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            >
+              {inReview}
+            </span>
+          ) : undefined,
+        )}
+        {item("board", "Board", <Icon.board />, "var(--text2)", countToken(open))}
+        {item(
+          "sessions",
+          "Sessions",
+          <Icon.runs />,
+          "var(--text2)",
+          running > 0 ? (
+            <span
+              style={{
+                position: "relative",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--ok)",
+                animation: "pulse 2.4s ease-in-out infinite",
               }}
             />
           ) : undefined,
         )}
+        {item("agents", "Agents", <Icon.crew />, "var(--text2)", countToken(agents.length))}
+        {item(
+          "code",
+          "Code",
+          <Icon.code />,
+          "var(--text2)",
+          project ? (
+            <span
+              style={{ position: "relative", ...mono, fontSize: 10, color: "var(--text4)", maxWidth: 74, ...truncate }}
+            >
+              {project.base_branch}
+            </span>
+          ) : undefined,
+        )}
+        {item("activity", "Activity", <Icon.pulse />, "var(--text2)")}
       </div>
 
-      <SectionLabel top={16}>Records</SectionLabel>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 12px" }}>
-        {item("trees", "Worktrees", <Icon.trees />)}
-        {item("log", "Activity", <Icon.log />)}
-        {item("projects", "Projects", <Icon.folder />, count(projects.length))}
-      </div>
-
-      <div style={{ flex: 1 }} />
-
-      <div
-        style={{
-          margin: "0 12px 10px",
-          padding: 14,
-          borderRadius: 16,
-          background: "var(--surface2)",
-          border: "1px solid var(--line)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 9,
-          }}
-        >
-          <span style={{ fontSize: 11.5, color: "var(--text2)", fontWeight: 500 }}>Today</span>
-          <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-            {money(spendToday)}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 7, padding: "12px 9px 5px" }}>
+          <Eyebrow>CHATS</Eyebrow>
+          <div style={{ flex: 1 }} />
+          <span
+            onClick={() => {
+              newConversation();
+              go("chat");
+            }}
+            style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+          >
+            new
           </span>
         </div>
-        <Meter
-          pct={(spendToday / Math.max(0.01, budget)) * 100}
-          color={spendToday > budget ? "var(--bad)" : "var(--accent)"}
-        />
-        <div style={{ marginTop: 7, fontSize: 11, color: "var(--text3)" }}>
-          of {money(budget)} daily budget
+
+        {conversations.length === 0 && (
+          <div
+            style={{
+              padding: "4px 9px 8px",
+              font: "400 11px var(--sans)",
+              lineHeight: 1.6,
+              color: "var(--text4)",
+            }}
+          >
+            Nothing yet. Anything you ask starts a chat, and it is kept.
+          </div>
+        )}
+
+        {conversations.slice(0, 12).map((c) => {
+          const on = c.id === conversationId;
+          const speaker = agents.find((a) => a.id === c.profile_id);
+          const pinned = projects.find((p) => p.id === c.project_id);
+          const t = tone(speaker?.tone ?? "accent");
+          return (
+            <div
+              key={c.id}
+              onClick={() => openChat(c.id)}
+              className="row"
+              style={{
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                padding: "6px 9px",
+                borderRadius: 8,
+                cursor: "pointer",
+                background: on ? "var(--active)" : "transparent",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    flex: "none",
+                    borderRadius: "50%",
+                    background: on ? t.color : "var(--line4)",
+                  }}
+                />
+                <span
+                  style={{
+                    flex: 1,
+                    font: "400 12px var(--sans)",
+                    color: on ? "var(--text)" : "var(--text2)",
+                    ...truncate,
+                  }}
+                >
+                  {c.title}
+                </span>
+                <span style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>
+                  {shortAgo(c.updated_ms)}
+                </span>
+              </span>
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingLeft: 12,
+                  ...mono,
+                  fontSize: 10,
+                  color: "var(--text4)",
+                }}
+              >
+                {speaker?.name ?? c.profile_id}
+                <span style={{ color: "var(--line4)" }}>·</span>
+                {pinned?.name ?? "no project"}
+              </span>
+              {c.resume_failed && (
+                <span
+                  title="The Claude session behind this chat could not be resumed."
+                  style={{
+                    margin: "2px 0 1px 12px",
+                    alignSelf: "flex-start",
+                    padding: "1px 6px",
+                    borderRadius: 6,
+                    background: "var(--badSoft)",
+                    color: "var(--bad2)",
+                    ...mono,
+                    fontSize: 9.5,
+                    fontWeight: 500,
+                  }}
+                >
+                  resume refused · transcript only
+                </span>
+              )}
+            </div>
+          );
+        })}
+
+        <div style={{ display: "flex", alignItems: "baseline", gap: 7, padding: "14px 9px 5px" }}>
+          <Eyebrow>PROJECTS</Eyebrow>
+          <div style={{ flex: 1 }} />
+          <span
+            onClick={() => go("projects")}
+            style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+          >
+            all
+          </span>
         </div>
+        {projects.map((p) => {
+          const t = tone(p.tone);
+          const on = p.id === projectId;
+          const state = !p.exists
+            ? "missing"
+            : p.stats.running
+              ? `${p.stats.running} live`
+              : p.stats.review
+                ? `${p.stats.review} waiting`
+                : p.paused
+                  ? "paused"
+                  : "idle";
+          const stateColor = !p.exists
+            ? "var(--bad2)"
+            : p.stats.running
+              ? "var(--accent2)"
+              : p.stats.review
+                ? "var(--warn)"
+                : "var(--text4)";
+          return (
+            <div
+              key={p.id}
+              onClick={() => selectProject(p.id)}
+              className="row"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                padding: "6px 9px",
+                borderRadius: 8,
+                cursor: "pointer",
+                background: on ? "var(--active)" : "transparent",
+              }}
+            >
+              <Glyph color={t.color} soft={t.soft} size={17} font={8.5}>
+                {p.glyph}
+              </Glyph>
+              <span style={{ flex: 1, ...mono, fontSize: 12, fontWeight: 500, color: "var(--text1)", ...truncate }}>
+                {p.name}
+              </span>
+              <span style={{ font: "500 10px var(--sans)", color: stateColor }}>{state}</span>
+            </div>
+          );
+        })}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 12px" }}>
-        {item("settings", "Settings", <Icon.gear />)}
+      <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "10px 12px 11px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, paddingBottom: 9 }}>
+          {running > 0 ? <Spinner /> : <span style={{ width: 16, height: 16, flex: "none" }} />}
+          <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)" }}>
+            {running > 0 ? `${running} ${running === 1 ? "run" : "runs"} live` : "nothing running"}
+          </span>
+          <span
+            style={{
+              ...mono,
+              fontSize: 10.5,
+              fontWeight: 500,
+              color: spendToday > budget ? "var(--bad2)" : "var(--text4)",
+            }}
+          >
+            {money(spendToday)} / {money(budget, 0)}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              background: "var(--accentDeep)",
+              color: "var(--accent2)",
+              display: "grid",
+              placeItems: "center",
+              ...mono,
+              fontSize: 9,
+              fontWeight: 600,
+            }}
+          >
+            {initials(name)}
+          </span>
+          <span style={{ flex: 1, font: "500 12px var(--sans)", color: "var(--text1)", ...truncate }}>
+            {name}
+          </span>
+          <span
+            title="Settings"
+            onClick={() => go("settings")}
+            style={{
+              display: "grid",
+              placeItems: "center",
+              width: 20,
+              height: 20,
+              color: view === "settings" ? "var(--text) " : "var(--text4)",
+              cursor: "pointer",
+            }}
+          >
+            <Icon.gear />
+          </span>
+        </div>
       </div>
     </nav>
   );

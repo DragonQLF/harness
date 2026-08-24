@@ -1,28 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TitleBar } from "./components/TitleBar";
 import { NavRail } from "./components/NavRail";
+import { RightNow, RightNowStrip } from "./components/RightNow";
 import {
   ApprovalSheet,
   CommandPalette,
-  DirectorDock,
-  DirectorRail,
-  RejectSheet,
   Toasts,
   type PaletteAction,
 } from "./components/Overlays";
-import { Loading } from "./components/ui";
+import { Icon, Loading, mono, truncate } from "./components/ui";
 import { api } from "./lib/ipc";
+import { money, plural } from "./lib/format";
 import { STATUS_TONE, tone } from "./lib/types";
 import { StoreProvider, useStore } from "./state/store";
-import { Overview } from "./views/Overview";
+import { Chat } from "./views/Chat";
+import { Review } from "./views/Review";
 import { FirstRun } from "./views/FirstRun";
 import { Board } from "./views/Board";
 import { Sessions } from "./views/Sessions";
-import { AgentDrawer, AgentList } from "./views/Agents";
+import { Agents } from "./views/Agents";
 import { ProjectPage, Projects } from "./views/Projects";
-import { Activity, DirectorPage, Settings, Worktrees } from "./views/Misc";
+import { Activity, Settings, Worktrees } from "./views/Misc";
 import { VIEW_TITLES, type View } from "./views/views";
 import "./styles/theme.css";
+
+/** The rail is about work in flight. The two screens that already are a wall of
+ *  work do not need it beside them. */
+const RAIL_HIDDEN: View[] = ["board", "agents"];
 
 function Shell() {
   const {
@@ -34,116 +38,202 @@ function Shell() {
     status,
     agents,
     approvals,
+    conversation,
+    conversations,
     addProject,
     selectProject,
     installSidecar,
     startRun,
+    newConversation,
+    openConversation,
+    chatWithProfile,
+    renameConversation,
+    archiveConversation,
+    deleteConversation,
     navigation,
     clearNavigation,
   } = useStore();
 
-  const [view, setView] = useState<View>("home");
+  // One history of screens, so the title bar's arrows mean something.
+  const [history, setHistory] = useState<{ list: View[]; at: number }>({ list: ["chat"], at: 0 });
+  const view = history.list[history.at] ?? "chat";
+
   const [agentId, setAgentId] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [reviewCard, setReviewCard] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [approvalSheet, setApprovalSheet] = useState(false);
-  const [dock, setDock] = useState(false);
+  const [sidebar, setSidebar] = useState(true);
+  const [rail, setRail] = useState(true);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
 
-  const go = useCallback((v: View) => setView(v), []);
-
-  const openRun = useCallback((cardId: string) => {
-    setSelectedCard(cardId);
-    setView("runs");
+  const go = useCallback((v: View) => {
+    setHistory((h) => {
+      if (h.list[h.at] === v) return h;
+      const list = [...h.list.slice(0, h.at + 1), v].slice(-40);
+      return { list, at: list.length - 1 };
+    });
   }, []);
 
-  const openAgent = useCallback((id: string) => {
-    setAgentId(id);
-    setView("agent");
-  }, []);
+  const back = useCallback(
+    () => setHistory((h) => ({ ...h, at: Math.max(0, h.at - 1) })),
+    [],
+  );
+  const forward = useCallback(
+    () => setHistory((h) => ({ ...h, at: Math.min(h.list.length - 1, h.at + 1) })),
+    [],
+  );
+
+  const openRun = useCallback(
+    (cardId: string) => {
+      setSelectedCard(cardId);
+      go("sessions");
+    },
+    [go],
+  );
+
+  const openReview = useCallback(
+    (cardId: string) => {
+      setReviewCard(cardId);
+      go("review");
+    },
+    [go],
+  );
+
+  const openAgent = useCallback(
+    (id: string) => {
+      setAgentId(id);
+      go("agents");
+    },
+    [go],
+  );
+
+  /** Open the chat screen: a stored conversation, a profile's standing chat, or
+   *  whatever was already on screen. */
+  const openChat = useCallback(
+    (conversationId?: string, profileId?: string) => {
+      if (conversationId) openConversation(conversationId);
+      else if (profileId) chatWithProfile(profileId);
+      go("chat");
+    },
+    [chatWithProfile, go, openConversation],
+  );
 
   // The Director can take the operator somewhere: it calls open_screen, the
   // shell follows. Screen names are its vocabulary, mapped to real views here.
   useEffect(() => {
     if (!navigation) return;
     const map: Record<string, View> = {
-      home: "home",
+      home: "chat",
+      chat: "chat",
+      director: "chat",
       board: "board",
       work: "board",
-      runs: "runs",
-      sessions: "runs",
-      code: "project",
-      project: "project",
+      review: "review",
+      runs: "sessions",
+      sessions: "sessions",
+      sessions_list: "sessions",
+      code: "code",
+      project: "code",
       trees: "trees",
       worktrees: "trees",
-      sessions_list: "runs",
-      log: "log",
-      activity: "log",
+      log: "activity",
+      activity: "activity",
       agents: "agents",
       projects: "projects",
       settings: "settings",
-      director: "director",
     };
-    const view = map[navigation.screen.toLowerCase()];
-    if (view) {
-      if (navigation.card_id) setSelectedCard(navigation.card_id);
-      setView(view);
+    const next = map[navigation.screen.toLowerCase()];
+    if (next) {
+      if (navigation.card_id) {
+        setSelectedCard(navigation.card_id);
+        setReviewCard(navigation.card_id);
+      }
+      go(next);
     }
     clearNavigation();
-  }, [navigation, clearNavigation]);
+  }, [navigation, clearNavigation, go]);
 
-  // A permission request takes the front when nothing else is open.
+  // A permission request has to be answerable from wherever you are. The rail
+  // shows it when the rail is there; when it is not, the sheet takes the front.
+  const railVisible = rail && !RAIL_HIDDEN.includes(view);
   useEffect(() => {
-    if (approvals.length > 0 && !palette && !rejecting) setApprovalSheet(true);
+    if (approvals.length > 0 && !railVisible && !palette) setApprovalSheet(true);
     if (approvals.length === 0) setApprovalSheet(false);
-  }, [approvals.length, palette, rejecting]);
+  }, [approvals.length, railVisible, palette]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPalette((p) => !p);
         return;
       }
+      if (meta && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        go("chat");
+        return;
+      }
+      if (meta && e.key === ",") {
+        e.preventDefault();
+        go("settings");
+        return;
+      }
       if (e.key !== "Escape") return;
       if (palette) setPalette(false);
-      else if (rejecting) setRejecting(null);
       else if (approvalSheet) setApprovalSheet(false);
-      else if (view === "agent") setView("agents");
-      else if (dock) setDock(false);
+      else if (renaming) setRenaming(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [approvalSheet, dock, palette, rejecting, view]);
+  }, [approvalSheet, go, palette, renaming]);
+
+  const cards = snapshot?.cards ?? [];
+  const running = cards.filter((c) => c.status === "running").length;
+  const reviewing = cards.filter((c) => c.status === "review").length;
+  const recorded = cards.filter((c) => c.runs > 0 || c.status === "running").length;
 
   const actions = useMemo<PaletteAction[]>(() => {
     const screens: View[] = [
-      "home",
-      "director",
-      "project",
-      "projects",
-      "agents",
+      "chat",
+      "review",
       "board",
-      "runs",
+      "sessions",
+      "agents",
+      "code",
+      "activity",
       "trees",
-      "log",
+      "projects",
       "settings",
     ];
     const list: PaletteAction[] = screens.map((v) => ({
       name: VIEW_TITLES[v],
       hint: "screen",
       color: "var(--accent)",
-      run: () => setView(v),
+      run: () => go(v),
     }));
 
     list.push({
-      name: "Ask the Director",
-      hint: "panel",
+      name: "New chat",
+      hint: "action",
       color: "var(--info)",
-      run: () => setDock(true),
+      run: () => {
+        newConversation();
+        go("chat");
+      },
     });
     list.push({ name: "Add a project", hint: "action", color: "var(--ok)", run: addProject });
 
+    conversations.forEach((c) =>
+      list.push({
+        name: c.title,
+        hint: "chat",
+        color: "var(--accent2)",
+        run: () => openChat(c.id),
+      }),
+    );
     projects.forEach((p) =>
       list.push({
         name: p.name,
@@ -151,7 +241,7 @@ function Shell() {
         color: tone(p.tone).color,
         run: () => {
           selectProject(p.id);
-          setView("board");
+          go("board");
         },
       }),
     );
@@ -163,15 +253,15 @@ function Shell() {
         run: () => openAgent(a.id),
       }),
     );
-    (snapshot?.cards ?? []).forEach((c) =>
+    cards.forEach((c) =>
       list.push({
         name: c.title,
         hint: c.id,
         color: STATUS_TONE[c.status].color,
-        run: () => openRun(c.id),
+        run: () => (c.status === "review" ? openReview(c.id) : openRun(c.id)),
       }),
     );
-    (snapshot?.cards ?? [])
+    cards
       .filter((c) => c.status === "ready")
       .forEach((c) =>
         list.push({
@@ -182,20 +272,34 @@ function Shell() {
         }),
       );
     return list;
-  }, [addProject, agents, openAgent, openRun, projects, selectProject, snapshot, startRun]);
+  }, [
+    addProject,
+    agents,
+    cards,
+    conversations,
+    go,
+    newConversation,
+    openAgent,
+    openChat,
+    openReview,
+    openRun,
+    projects,
+    selectProject,
+    startRun,
+  ]);
 
   if (fatal) {
     return (
       <div style={{ padding: 40, maxWidth: 640 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>
           Harness could not start
         </h1>
         <pre
           style={{
             padding: "14px 16px",
             borderRadius: 14,
-            background: "var(--surface2)",
-            border: "1px solid var(--line)",
+            background: "var(--surface)",
+            border: "1px solid var(--line3)",
             fontFamily: "var(--mono)",
             fontSize: 12,
             whiteSpace: "pre-wrap",
@@ -212,7 +316,7 @@ function Shell() {
 
   if (!ready) {
     return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
         <Loading what="Starting Harness" />
       </div>
     );
@@ -221,13 +325,47 @@ function Shell() {
   // With no project there is no board, no history and no sessions: every one of
   // those screens becomes the on-ramp instead of an empty panel.
   const needsProject =
-    view === "home" ||
-    view === "board" ||
-    view === "runs" ||
-    view === "log" ||
-    view === "trees" ||
-    view === "project";
+    view === "board" || view === "sessions" || view === "review" || view === "activity" ||
+    view === "trees" || view === "code";
   const firstRun = !project && needsProject;
+
+  const speaker = agents.find((a) => a.id === (conversation?.profile_id ?? "director"));
+  const pinned = projects.find((p) => p.id === conversation?.project_id);
+
+  const heads: Record<View, [string, string]> = {
+    chat: [
+      conversation?.title && conversation.title !== "New conversation"
+        ? conversation.title
+        : `Ask ${speaker?.name ?? "the Director"}`,
+      [
+        speaker?.name ?? "Director",
+        pinned ? `pinned to ${pinned.name}` : "no project pinned",
+        conversation ? plural(conversation.messages, "message") : "nothing said yet",
+        conversation ? money(conversation.cost_usd, 2) : money(0, 2),
+      ].join(" · "),
+    ],
+    review: [
+      "Review",
+      reviewing === 0
+        ? "nothing waiting on you"
+        : `${plural(reviewing, "finished run")} · the reviewer read them first`,
+    ],
+    board: [
+      "Board",
+      `${project?.name ?? "no project"} · ${plural(cards.length, "card")} · ${running} running`,
+    ],
+    sessions: [
+      "Sessions",
+      `${recorded} recorded · ${running} live · replayed from disk`,
+    ],
+    agents: ["Agents", `${plural(agents.length, "profile")} · the crew that can be given cards`],
+    code: ["Code", project ? `${project.name} · ${project.base_branch}` : "no project"],
+    activity: ["Activity", `every board change, newest first`],
+    trees: ["Worktrees", "one checkout per card, until you remove it"],
+    projects: ["Projects", plural(projects.length, "repository")],
+    settings: ["Settings", "what Harness may do without asking"],
+  };
+  const [headTitle, headMeta] = heads[view];
 
   return (
     <div
@@ -235,12 +373,25 @@ function Shell() {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        background: "var(--bg)",
+        background: "var(--recess)",
         overflow: "hidden",
         position: "relative",
       }}
     >
-      <TitleBar onPalette={() => setPalette(true)} onApprovals={() => setApprovalSheet(true)} />
+      <TitleBar
+        go={go}
+        back={back}
+        forward={forward}
+        canBack={history.at > 0}
+        canForward={history.at < history.list.length - 1}
+        toggleSidebar={() => setSidebar((v) => !v)}
+        toggleRail={() => setRail((v) => !v)}
+        onPalette={() => setPalette(true)}
+        onNewChat={() => {
+          newConversation();
+          go("chat");
+        }}
+      />
 
       {status && !status.ready && status.blocker && (
         <div
@@ -249,123 +400,286 @@ function Shell() {
             display: "flex",
             alignItems: "center",
             gap: 12,
-            padding: "9px 26px",
+            padding: "8px 18px",
             background: status.claude.logged_in ? "var(--warnSoft)" : "var(--badSoft)",
-            color: status.claude.logged_in ? "var(--warn)" : "var(--bad)",
+            color: status.claude.logged_in ? "var(--warn)" : "var(--bad2)",
             borderBottom: "1px solid var(--line)",
-            fontSize: 12.5,
-            fontWeight: 600,
+            font: "500 11.5px var(--sans)",
           }}
         >
           <span>{status.blocker}</span>
           <span style={{ flex: 1 }} />
           {!status.claude.logged_in && (
-            <button
-              type="button"
-              className="hv-bright"
+            <span
+              className="quiet"
               onClick={() => api.openClaudeTerminal().catch(() => {})}
               style={{
-                padding: "6px 13px",
+                padding: "5px 12px",
                 border: "1px solid currentColor",
                 borderRadius: 999,
-                background: "transparent",
-                color: "inherit",
-                fontSize: 12,
-                fontWeight: 700,
+                font: "600 11px var(--sans)",
                 cursor: "pointer",
               }}
             >
               Open a terminal
-            </button>
+            </span>
           )}
           {status.claude.logged_in && !status.sidecar.ready && status.sidecar.node_found && (
-            <button
-              type="button"
-              className="hv-bright"
+            <span
+              className="quiet"
               onClick={installSidecar}
               style={{
-                padding: "6px 13px",
+                padding: "5px 12px",
                 border: "1px solid currentColor",
                 borderRadius: 999,
-                background: "transparent",
-                color: "inherit",
-                fontSize: 12,
-                fontWeight: 700,
+                font: "600 11px var(--sans)",
                 cursor: "pointer",
               }}
             >
               Install the sidecar
-            </button>
+            </span>
           )}
         </div>
       )}
 
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <NavRail view={view} go={go} />
+      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+        {sidebar && (
+          <NavRail
+            view={view}
+            go={go}
+            openChat={openChat}
+            onPalette={() => setPalette(true)}
+            onApprovals={() => setApprovalSheet(true)}
+          />
+        )}
 
         <main
           style={{
-            position: "relative",
             flex: 1,
             minWidth: 0,
             display: "flex",
             flexDirection: "column",
             background: "var(--bg)",
+            borderRight: railVisible ? "1px solid var(--line)" : undefined,
             overflow: "hidden",
           }}
         >
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-            {firstRun ? (
-              <FirstRun openChat={() => setDock(true)} />
+          <div
+            style={{
+              flex: "none",
+              height: 46,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "0 18px",
+              borderBottom: "1px solid var(--line)",
+            }}
+          >
+            {renaming && conversation ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => {
+                  if (draft.trim()) renameConversation(conversation.id, draft.trim());
+                  setRenaming(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (draft.trim()) renameConversation(conversation.id, draft.trim());
+                    setRenaming(false);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  maxWidth: 420,
+                  padding: "5px 9px",
+                  borderRadius: 8,
+                  border: "1px solid var(--accentLine)",
+                  background: "var(--surface)",
+                  font: "600 13px var(--sans)",
+                  color: "var(--text)",
+                  outline: "none",
+                }}
+              />
             ) : (
               <>
-                {view === "home" && (
-                  <Overview
-                    go={go}
-                    openRun={openRun}
-                    openAgent={openAgent}
-                    openReject={setRejecting}
-                    openApprovals={() => setApprovalSheet(true)}
-                  />
-                )}
-                {view === "director" && <DirectorPage go={go} openChat={() => setDock(true)} />}
-                {view === "projects" && <Projects go={go} />}
-                {view === "project" && <ProjectPage go={go} />}
-                {(view === "agents" || view === "agent") && (
-                  <AgentList open={openAgent} go={go} openChat={() => setDock(true)} />
-                )}
-                {view === "board" && <Board openRun={openRun} openReject={setRejecting} />}
-                {view === "runs" && (
-                  <Sessions
-                    selected={selectedCard}
-                    select={setSelectedCard}
-                    openReject={setRejecting}
-                  />
-                )}
-                {view === "trees" && <Worktrees />}
-                {view === "log" && <Activity openRun={openRun} />}
-                {view === "settings" && <Settings />}
+                <span
+                  style={{
+                    font: "600 13.5px var(--sans)",
+                    color: "var(--text)",
+                    letterSpacing: "-.01em",
+                    maxWidth: 460,
+                    ...truncate,
+                  }}
+                >
+                  {headTitle}
+                </span>
+                <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", ...truncate }}>
+                  {headMeta}
+                </span>
               </>
+            )}
+            <div style={{ flex: 1 }} />
+
+            {view === "chat" && conversation && (
+              <>
+                <span
+                  className="chip"
+                  title={
+                    conversation.session_id
+                      ? "The Claude session this chat continues"
+                      : "No session yet — your next message starts one"
+                  }
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "var(--surface)",
+                    border: "1px solid var(--line3)",
+                    ...mono,
+                    fontSize: 10.5,
+                    color: conversation.resume_failed ? "var(--bad2)" : "var(--text2)",
+                    cursor: "default",
+                  }}
+                >
+                  {conversation.session_id
+                    ? `${conversation.session_id.slice(0, 12)} · ${
+                        conversation.resume_failed ? "resume refused" : "resumed"
+                      }`
+                    : "no session yet"}
+                </span>
+                {[
+                  {
+                    label: "Rename",
+                    icon: <Icon.pencil />,
+                    run: () => {
+                      setDraft(conversation.title);
+                      setRenaming(true);
+                    },
+                  },
+                  {
+                    label: conversation.archived ? "Restore" : "Archive",
+                    icon: <Icon.archive />,
+                    run: () => archiveConversation(conversation.id, !conversation.archived),
+                  },
+                  {
+                    label: "Delete",
+                    icon: <Icon.close />,
+                    run: () => deleteConversation(conversation.id),
+                  },
+                ].map((b) => (
+                  <span
+                    key={b.label}
+                    className="chip"
+                    title={b.label}
+                    onClick={b.run}
+                    style={{
+                      display: "grid",
+                      placeItems: "center",
+                      width: 24,
+                      height: 24,
+                      borderRadius: 7,
+                      border: "1px solid var(--line3)",
+                      color: "var(--text2)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {b.icon}
+                  </span>
+                ))}
+              </>
+            )}
+
+            <span
+              className="chip"
+              title="New chat"
+              onClick={() => {
+                newConversation();
+                go("chat");
+              }}
+              style={{
+                display: "grid",
+                placeItems: "center",
+                width: 24,
+                height: 24,
+                borderRadius: 7,
+                border: "1px solid var(--line3)",
+                color: "var(--text2)",
+                cursor: "pointer",
+              }}
+            >
+              <Icon.plus />
+            </span>
+            {!railVisible && !RAIL_HIDDEN.includes(view) && (
+              <span
+                className="chip"
+                title="Right now"
+                onClick={() => setRail(true)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid var(--line3)",
+                  font: "500 10.5px var(--sans)",
+                  color: "var(--text2)",
+                  cursor: "pointer",
+                }}
+              >
+                Right now
+              </span>
             )}
           </div>
 
-          {view === "agent" && agentId && (
-            <AgentDrawer
-              agentId={agentId}
-              close={() => setView("agents")}
-              openRun={openRun}
-              go={go}
-              openChat={() => setDock(true)}
-            />
+          {firstRun ? (
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <FirstRun openChat={() => go("chat")} />
+            </div>
+          ) : (
+            <>
+              {view === "chat" && <Chat />}
+              {view === "review" && <Review selected={reviewCard} select={setReviewCard} />}
+              {view === "board" && <Board openRun={openRun} openReview={openReview} />}
+              {view === "sessions" && (
+                <Sessions selected={selectedCard} select={setSelectedCard} openReview={openReview} />
+              )}
+              {view === "agents" && (
+                <Agents
+                  selected={agentId}
+                  select={setAgentId}
+                  openChat={openChat}
+                  openSession={openRun}
+                />
+              )}
+              {(view === "code" || view === "activity" || view === "trees" || view === "projects" ||
+                view === "settings") && (
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  {view === "code" && <ProjectPage go={go} />}
+                  {view === "activity" && <Activity openRun={openRun} />}
+                  {view === "trees" && <Worktrees />}
+                  {view === "projects" && <Projects go={go} />}
+                  {view === "settings" && <Settings />}
+                </div>
+              )}
+            </>
           )}
         </main>
 
-        {dock ? <DirectorDock close={() => setDock(false)} /> : <DirectorRail open={() => setDock(true)} />}
+        {railVisible ? (
+          <RightNow
+            close={() => setRail(false)}
+            openReview={openReview}
+            openSession={openRun}
+            openTrees={() => go("trees")}
+          />
+        ) : (
+          !RAIL_HIDDEN.includes(view) && <RightNowStrip open={() => setRail(true)} />
+        )}
       </div>
 
       <CommandPalette open={palette} close={() => setPalette(false)} actions={actions} />
       {approvalSheet && <ApprovalSheet close={() => setApprovalSheet(false)} />}
-      <RejectSheet cardId={rejecting} close={() => setRejecting(null)} />
       <Toasts />
     </div>
   );

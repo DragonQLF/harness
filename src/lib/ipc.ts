@@ -9,6 +9,7 @@ import type {
   AgentProfile,
   AgentStats,
   Bootstrap,
+  CardDiff,
   CheckRow,
   Conversation,
   CreatedCard,
@@ -91,6 +92,9 @@ export const api = {
   activeRuns: (projectId: string) => invoke<ActiveRun[]>("active_runs", { projectId }),
   runLog: (projectId: string, runId: string) =>
     invoke<RunLogLine[]>("run_log", { projectId, runId }),
+  /** What a card changed against the base branch, read from its worktree. */
+  cardDiff: (projectId: string, cardId: string) =>
+    invoke<CardDiff>("card_diff", { projectId, cardId }),
   // ---- conversations ----
   /** Every chat, newest first. Archived ones only when asked for. */
   conversations: (includeArchived = false) =>
