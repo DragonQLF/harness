@@ -40,11 +40,17 @@ function callHarness(runId, name, input) {
   });
 }
 
+/** Every harness tool routes its calls through here. One bridge per process;
+ *  replies come back as tool_response messages matched by request id. */
+function callFor(runId) {
+  return (name) => (args) => callHarness(runId, name, args);
+}
+
 /** The board actions and navigation the Director is allowed to perform. Every
  *  one of these is a tool the agent does not hold by default, so it goes through
  *  `canUseTool` — the operator sees it before it happens. */
 function harnessTools(runId) {
-  const call = (name) => (args) => callHarness(runId, name, args);
+  const call = callFor(runId);
   return createSdkMcpServer({
     name: "harness",
     version: "1.0.0",
@@ -180,8 +186,10 @@ function harnessTools(runId) {
 
 /** The one tool a worker run carries: its own account of the work it did.
  *  The engine still owns the commit — this only feeds it, and records the
- *  durable notes for the memory layer. Absence of a call is normal and safe. */
-function reportWorkTool(runId) {
+ *  durable notes for the memory layer. Absence of a call is normal and safe.
+ *  `call` is injected: a free reference here passed node --check and only
+ *  exploded on the first real worker run. */
+function reportWorkTool(runId, call) {
   return createSdkMcpServer({
     name: "harness",
     version: "1.0.0",
@@ -315,7 +323,7 @@ async function handleRun({ id, spec }) {
     mcpServers: spec.harness_tools
       ? { harness: harnessTools(id) }
       : spec.report_work
-        ? { harness: reportWorkTool(id) }
+        ? { harness: reportWorkTool(id, callFor(id)) }
         : {},
     strictMcpConfig: true,
     canUseTool,
