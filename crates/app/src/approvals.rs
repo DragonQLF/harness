@@ -11,6 +11,7 @@ use std::time::Duration;
 use harness_ports::{ApprovalRequest, Approver, JsonValue};
 use serde::Serialize;
 use tokio::sync::oneshot;
+use ts_rs::TS;
 
 use crate::settings::Settings;
 
@@ -26,7 +27,8 @@ pub trait Notifier: Send + Sync + 'static {
 /// How long a request waits for an answer before it is denied.
 const WAIT: Duration = Duration::from_secs(30 * 60);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct PendingApproval {
     pub request_id: String,
     pub project_id: String,
@@ -35,6 +37,7 @@ pub struct PendingApproval {
     pub summary: String,
     /// What the agent actually asked for. Kept so a standing allowance can be
     /// scoped to *this* call rather than to the bare tool name.
+    #[ts(type = "unknown")]
     pub input: JsonValue,
     pub asked_ms: u64,
 }

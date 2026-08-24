@@ -96,6 +96,28 @@ impl StorePort for JsonlStore {
         }
         Ok(out)
     }
+
+    /// Rewrite the file to hold exactly `keep`. Written to a sibling and
+    /// renamed, so a crash mid-compaction leaves either the old log or the new
+    /// one, never half of each. Sequence numbers are untouched: `next_seq`
+    /// keeps going from where it was.
+    fn compact(&self, keep: &[StoredEvent]) -> Result<(), StoreError> {
+        let tmp = self.file_path.with_extension("jsonl.compact");
+        {
+            let mut file = File::create(&tmp).map_err(StoreError::Io)?;
+            for stored in keep {
+                let record = serde_json::json!({
+                    "seq": stored.seq,
+                    "ts_ms": stored.ts_ms,
+                    "event": stored.event,
+                });
+                writeln!(file, "{record}").map_err(StoreError::Io)?;
+            }
+            file.flush().map_err(StoreError::Io)?;
+            file.sync_all().map_err(StoreError::Io)?;
+        }
+        std::fs::rename(&tmp, &self.file_path).map_err(StoreError::Io)
+    }
 }
 
 /// One JSONL transcript per run, so a restart does not lose the log the
@@ -204,7 +226,7 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].seq, 1);
         assert_eq!(all[0].ts_ms, 1_700_000_000_000);
-        assert_eq!(all[0].event.card_id(), &CardId::new("c1"));
+        assert_eq!(all[0].event.card_id(), Some(&CardId::new("c1")));
         assert_eq!(reopened.next_seq.load(Ordering::SeqCst), 2);
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -354,6 +376,73 @@ mod tests {
         assert_eq!(one.len(), 2);
         assert!(matches!(one[0].event, RunEvent::Text { .. }));
         assert_eq!(log.read("run-2").unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Compaction rewrites the log to a snapshot and nothing else, sequence
+    /// numbers carry on from where they were, and the file on disk is replaced
+    /// whole rather than edited in place.
+    #[test]
+    fn compaction_folds_the_log_and_sequence_numbers_continue() {
+        let dir = temp_dir("compact-test");
+        let path = dir.join("events.jsonl");
+        let store = JsonlStore::open(&path).unwrap();
+
+        let board = Board::default();
+        for title in ["a", "b", "c"] {
+            let id = harness_domain::CardId::new(format!("c_{title}"));
+            for e in board
+                .decide(&Command::CreateCard { card_id: id.clone(), title: title.into() })
+                .unwrap()
+            {
+                store.append_event(&e, 1).unwrap();
+            }
+        }
+        assert_eq!(store.read_all().unwrap().len(), 3);
+
+        // Fold everything into one snapshot carrying the last card only —
+        // exactly what the engine writes at compaction time.
+        let snapshot = harness_domain::Event::BoardSnapshot {
+            cards: vec![harness_domain::Card {
+                id: harness_domain::CardId::new("c_c"),
+                title: "c".into(),
+                status: harness_domain::Status::Backlog,
+                current_run: None,
+                agent_id: "builder".into(),
+                cost_usd: 0.0,
+                turns: 0,
+                runs: 0,
+                last_review: None,
+                session_id: None,
+                worktree: None,
+                branch: None,
+                depends_on: Vec::new(),
+            }],
+        };
+        let stored = store.append_event(&snapshot, 2).unwrap();
+        store.compact(&[stored]).unwrap();
+
+        // The file holds one line now, and new events keep the numbering.
+        let after = store.read_all().unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].seq, 4);
+        assert!(matches!(after[0].event, harness_domain::Event::BoardSnapshot { .. }));
+
+        let e = board
+            .decide(&Command::CreateCard {
+                card_id: harness_domain::CardId::new("d1"),
+                title: "after compact".into(),
+            })
+            .unwrap();
+        let next = store.append_event(&e[0], 3).unwrap();
+        assert_eq!(next.seq, 5);
+
+        // A fresh reader sees the same two lines.
+        drop(store);
+        let reopened = JsonlStore::open(&path).unwrap();
+        assert_eq!(reopened.read_all().unwrap().len(), 2);
+        assert_eq!(reopened.next_seq.load(Ordering::SeqCst), 6);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

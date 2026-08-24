@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use harness_domain::Event;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -46,6 +47,14 @@ impl From<std::io::Error> for StoreError {
 pub trait StorePort: Send + Sync {
     fn append_event(&self, e: &Event, ts_ms: u64) -> Result<StoredEvent, StoreError>;
     fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError>;
+    /// Replace the log's contents with exactly these events — the shape
+    /// compaction takes: everything so far folded into one snapshot, and the
+    /// log restarted from it. Atomic, or not at all. The default refuses, for
+    /// stores that cannot rewrite themselves.
+    fn compact(&self, keep: &[StoredEvent]) -> Result<(), StoreError> {
+        let _ = keep;
+        Err(StoreError::Serde("this store cannot compact".to_string()))
+    }
 }
 
 pub trait ClockPort: Send + Sync {
@@ -153,8 +162,9 @@ pub type ToolRunner =
     Arc<dyn Fn(ToolCall) -> Pin<Box<dyn Future<Output = ToolReply> + Send>> + Send + Sync>;
 
 /// Where an agent does its work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum WorktreeMode {
     /// A fresh branch and worktree per card.
     PerCard,
@@ -188,8 +198,9 @@ pub struct RunProfile {
     pub max_concurrent: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum Reviewer {
     /// The Director reads the diff and approves or sends it back.
     Director,

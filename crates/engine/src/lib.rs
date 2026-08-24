@@ -21,6 +21,7 @@ use harness_ports::{
     StorePort, StoredEvent, WorktreeMode, WorktreePath,
 };
 use serde::Serialize;
+use ts_rs::TS;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -45,7 +46,8 @@ pub struct Envelope {
     pub event: Event,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct Snapshot {
     pub project_id: String,
     pub last_seq: u64,
@@ -63,7 +65,8 @@ pub struct RunUpdate {
     pub event: RunEvent,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct SessionView {
     pub card_id: CardId,
     pub run_id: Option<RunId>,
@@ -86,6 +89,10 @@ pub struct EngineConfig {
     pub worker_allowed_tools: Vec<String>,
     pub director_allowed_tools: Vec<String>,
     pub director_model: Option<String>,
+    /// When the stored log reaches this many events, startup folds it into a
+    /// single `BoardSnapshot` so the *next* startup replays one event instead
+    /// of thousands. Zero disables compaction.
+    pub compact_at: usize,
 }
 
 impl EngineConfig {
@@ -105,6 +112,7 @@ impl EngineConfig {
             ],
             director_allowed_tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             director_model: None,
+            compact_at: 1000,
         }
     }
 }
@@ -129,7 +137,8 @@ impl Default for EnginePolicy {
 }
 
 /// A run the engine is currently driving.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct ActiveRun {
     pub card_id: CardId,
     pub run_id: RunId,
@@ -441,6 +450,26 @@ impl Engine {
                 if let Err(e) = engine.persist_sync(events) {
                     eprintln!("recovery persist failed: {e}");
                 }
+            }
+        }
+
+        // Compaction. Everything the log has said is already folded into
+        // `engine.board`; writing that board as one event and restarting the
+        // file from it keeps startup flat no matter how long a project lives.
+        // A failure leaves the long log in place, which is only the old cost.
+        if engine.config.compact_at > 0 && history.len() >= engine.config.compact_at {
+            let snapshot = Event::BoardSnapshot {
+                cards: engine.board.cards().into_iter().cloned().collect(),
+            };
+            match engine.store.append_event(&snapshot, engine.now()) {
+                Ok(stored) => {
+                    engine.board.apply(&snapshot);
+                    engine.last_seq = stored.seq;
+                    if let Err(e) = engine.store.compact(&[stored]) {
+                        eprintln!("could not compact the log; it stays as it was: {e}");
+                    }
+                }
+                Err(e) => eprintln!("could not write the board snapshot: {e}"),
             }
         }
 

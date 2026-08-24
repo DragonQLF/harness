@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
+#[ts(export)]
 pub struct CardId(String);
 
 impl CardId {
@@ -23,8 +25,9 @@ impl fmt::Display for CardId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
+#[ts(export)]
 pub struct RunId(pub String);
 
 impl fmt::Display for RunId {
@@ -33,8 +36,9 @@ impl fmt::Display for RunId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum Status {
     Backlog,
     Ready,
@@ -43,8 +47,9 @@ pub enum Status {
     Done,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum RunOutcome {
     Completed,
     Cancelled,
@@ -92,8 +97,9 @@ impl Status {
 }
 
 /// Who took a decision. Reviews can come from the Director or from the operator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum Actor {
     #[default]
     Human,
@@ -102,14 +108,16 @@ pub enum Actor {
 
 /// The last review a card received, kept on the card so the board can show it
 /// without walking the log.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Review {
     pub by: Actor,
     pub approved: bool,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct Card {
     pub id: CardId,
     pub title: String,
@@ -142,6 +150,11 @@ pub struct Card {
     pub worktree: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
+    /// Cards that must be Done before this one may start. Order, not file
+    /// conflict — the path guard knows nothing of it. A dependency that was
+    /// discarded no longer blocks anybody.
+    #[serde(default)]
+    pub depends_on: Vec<CardId>,
 }
 
 fn default_agent() -> String {
@@ -197,10 +210,23 @@ pub enum Event {
         #[serde(default)]
         reason: String,
     },
+    /// The cards a card waits for. Replaces whatever was set before.
+    CardDependencies {
+        card_id: CardId,
+        #[serde(default)]
+        depends_on: Vec<CardId>,
+    },
+    /// The whole board as it stands, written so the log can be compacted: a
+    /// restart replays this one event instead of thousands. Written by the
+    /// engine alone; no command produces it.
+    BoardSnapshot {
+        #[serde(default)]
+        cards: Vec<Card>,
+    },
 }
 
 impl Event {
-    pub fn card_id(&self) -> &CardId {
+    pub fn card_id(&self) -> Option<&CardId> {
         match self {
             Event::CardCreated { card_id, .. }
             | Event::CardAssigned { card_id, .. }
@@ -211,7 +237,11 @@ impl Event {
             | Event::CardApproved { card_id, .. }
             | Event::CardRejected { card_id, .. }
             | Event::AgentSession { card_id, .. }
-            | Event::CardDiscarded { card_id, .. } => card_id,
+            | Event::CardDiscarded { card_id, .. }
+            | Event::CardDependencies { card_id, .. } => Some(card_id),
+            // A snapshot is the board itself, not something that happened to
+            // one card.
+            Event::BoardSnapshot { .. } => None,
         }
     }
 }
@@ -242,6 +272,8 @@ pub enum Command {
     RecordSession { card_id: CardId, session_id: String },
     /// Take a card off the board for good.
     DiscardCard { card_id: CardId, reason: String },
+    /// Say which cards must be Done before this one may start.
+    SetDependencies { card_id: CardId, depends_on: Vec<CardId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +291,10 @@ pub enum DecisionError {
     NotInReview(Status),
     RunMismatch,
     CannotOverrideToRunning,
+    /// The card waits on others before a run may start: id and where each
+    /// stands.
+    DependenciesNotMet(Vec<(CardId, Status)>),
+    DependencyCycle(CardId),
 }
 
 impl fmt::Display for DecisionError {
@@ -286,6 +322,17 @@ impl fmt::Display for DecisionError {
             DecisionError::RunMismatch => write!(f, "run id does not match the active run"),
             DecisionError::CannotOverrideToRunning => {
                 write!(f, "only starting a run puts a card in Running")
+            }
+            DecisionError::DependenciesNotMet(blocked) => {
+                let list = blocked
+                    .iter()
+                    .map(|(id, status)| format!("{id} ({status:?})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "waiting on: {list}")
+            }
+            DecisionError::DependencyCycle(id) => {
+                write!(f, "these dependencies would make a cycle through {id}")
             }
         }
     }
@@ -331,6 +378,7 @@ impl Board {
                         session_id: None,
                         worktree: None,
                         branch: None,
+                        depends_on: Vec::new(),
                     },
                 );
             }
@@ -409,6 +457,22 @@ impl Board {
             Event::CardDiscarded { card_id, .. } => {
                 self.cards.remove(card_id);
             }
+            Event::CardDependencies {
+                card_id,
+                depends_on,
+            } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.depends_on = depends_on.clone();
+                }
+            }
+            // A snapshot is the board as it stood: whatever came before is
+            // folded into it, so replay starts here.
+            Event::BoardSnapshot { cards } => {
+                self.cards.clear();
+                for card in cards {
+                    self.cards.insert(card.id.clone(), card.clone());
+                }
+            }
         }
     }
 
@@ -437,9 +501,57 @@ impl Board {
                 if card.status == Status::Running {
                     return Err(DecisionError::NotRunning(card.status));
                 }
+                // Cards waiting on this one are freed by the discard — that is
+                // the rule, so it goes in the record where the operator will
+                // see it rather than happening silently.
+                let mut freed: Vec<String> = self
+                    .cards
+                    .values()
+                    .filter(|c| c.depends_on.contains(card_id))
+                    .map(|c| c.id.to_string())
+                    .collect();
+                freed.sort();
+                let reason = if freed.is_empty() {
+                    reason.trim().to_string()
+                } else {
+                    format!("{}; frees {}", reason.trim(), freed.join(", "))
+                };
                 Ok(vec![Event::CardDiscarded {
                     card_id: card_id.clone(),
-                    reason: reason.trim().to_string(),
+                    reason,
+                }])
+            }
+            Command::SetDependencies { card_id, depends_on } => {
+                if !self.cards.contains_key(card_id) {
+                    return Err(DecisionError::CardNotFound(card_id.clone()));
+                }
+                for dep in depends_on {
+                    if *dep == *card_id {
+                        return Err(DecisionError::DependencyCycle(card_id.clone()));
+                    }
+                    if !self.cards.contains_key(dep) {
+                        return Err(DecisionError::CardNotFound(dep.clone()));
+                    }
+                }
+                // Following the edges from each dependency must never come
+                // back to the card itself.
+                let mut stack: Vec<CardId> = depends_on.clone();
+                let mut seen: std::collections::HashSet<CardId> =
+                    std::iter::once(card_id.clone()).collect();
+                while let Some(current) = stack.pop() {
+                    if !seen.insert(current.clone()) {
+                        continue;
+                    }
+                    if let Some(node) = self.cards.get(&current) {
+                        if node.depends_on.contains(card_id) {
+                            return Err(DecisionError::DependencyCycle(card_id.clone()));
+                        }
+                        stack.extend(node.depends_on.iter().cloned());
+                    }
+                }
+                Ok(vec![Event::CardDependencies {
+                    card_id: card_id.clone(),
+                    depends_on: depends_on.clone(),
                 }])
             }
             Command::AssignAgent { card_id, agent_id } => {
@@ -509,6 +621,18 @@ impl Board {
                     .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
                 if card.status != Status::Ready {
                     return Err(DecisionError::NotReady(card.status));
+                }
+                // Order the Director asked for: everything this card waits on
+                // must be finished. A dependency that was discarded no longer
+                // exists, so it cannot block anybody.
+                let blocked: Vec<(CardId, Status)> = card
+                    .depends_on
+                    .iter()
+                    .filter_map(|dep| self.cards.get(dep).map(|c| (c.id.clone(), c.status)))
+                    .filter(|(_, status)| *status != Status::Done)
+                    .collect();
+                if !blocked.is_empty() {
+                    return Err(DecisionError::DependenciesNotMet(blocked));
                 }
                 Ok(vec![Event::RunStarted {
                     card_id: card_id.clone(),
@@ -807,6 +931,173 @@ mod tests {
         ));
         assert_eq!(board.get(&id).unwrap().status, Ready);
         assert_eq!(board.get(&id).unwrap().current_run, None);
+    }
+
+    fn drive(board: &mut Board, cmd: &Command) {
+        for e in board.decide(cmd).unwrap() {
+            board.apply(&e);
+        }
+    }
+
+    /// Order, not file conflict: a card whose dependency has not reached Done
+    /// cannot start, and the error names what it is waiting on.
+    #[test]
+    fn dependencies_hold_a_card_until_they_are_done() {
+        let mut board = Board::default();
+        let first = CardId::new("d_first");
+        let second = CardId::new("d_second");
+        drive(&mut board, &Command::CreateCard { card_id: first.clone(), title: "first".into() });
+        drive(&mut board, &Command::CreateCard { card_id: second.clone(), title: "second".into() });
+        drive(
+            &mut board,
+            &Command::SetDependencies {
+                card_id: second.clone(),
+                depends_on: vec![first.clone()],
+            },
+        );
+        assert_eq!(
+            board.get(&second).unwrap().depends_on,
+            vec![first.clone()]
+        );
+
+        drive(&mut board, &Command::MoveCard { card_id: second.clone(), to: Ready });
+        assert!(matches!(
+            board.decide(&Command::StartRun {
+                card_id: second.clone(),
+                run_id: RunId("r".into()),
+                worktree: None,
+                branch: None,
+            }),
+            Err(DecisionError::DependenciesNotMet(_))
+        ));
+
+        // The dependency finishes; the dependent may now run.
+        drive(&mut board, &Command::OverrideCard {
+            card_id: first.clone(),
+            to: Done,
+            reason: "finished elsewhere".into(),
+        });
+        assert!(board
+            .decide(&Command::StartRun {
+                card_id: second.clone(),
+                run_id: RunId("r".into()),
+                worktree: None,
+                branch: None,
+            })
+            .is_ok());
+    }
+
+    #[test]
+    fn discarding_a_dependency_frees_the_dependents_with_a_note() {
+        let mut board = Board::default();
+        let first = CardId::new("f_first");
+        let second = CardId::new("f_second");
+        drive(&mut board, &Command::CreateCard { card_id: first.clone(), title: "first".into() });
+        drive(&mut board, &Command::CreateCard { card_id: second.clone(), title: "second".into() });
+        drive(
+            &mut board,
+            &Command::SetDependencies {
+                card_id: second.clone(),
+                depends_on: vec![first.clone()],
+            },
+        );
+
+        // Off the board means out of the way: the dependent is free, and the
+        // discard says so where the operator reads.
+        let events = board
+            .decide(&Command::DiscardCard {
+                card_id: first.clone(),
+                reason: "not wanted".into(),
+            })
+            .unwrap();
+        assert!(matches!(
+            &events[0],
+            Event::CardDiscarded { reason, .. }
+                if reason == "not wanted; frees f_second"
+        ));
+        for e in &events {
+            board.apply(e);
+        }
+        drive(&mut board, &Command::MoveCard { card_id: second.clone(), to: Ready });
+        assert!(board
+            .decide(&Command::StartRun {
+                card_id: second.clone(),
+                run_id: RunId("r".into()),
+                worktree: None,
+                branch: None,
+            })
+            .is_ok());
+    }
+
+    #[test]
+    fn dependencies_cannot_be_circular_or_dangle() {
+        let mut board = Board::default();
+        let a = CardId::new("cyc_a");
+        let b = CardId::new("cyc_b");
+        let ghost = CardId::new("ghost");
+        drive(&mut board, &Command::CreateCard { card_id: a.clone(), title: "a".into() });
+        drive(&mut board, &Command::CreateCard { card_id: b.clone(), title: "b".into() });
+
+        assert!(matches!(
+            board.decide(&Command::SetDependencies {
+                card_id: a.clone(),
+                depends_on: vec![a.clone()],
+            }),
+            Err(DecisionError::DependencyCycle(_))
+        ));
+        assert!(matches!(
+            board.decide(&Command::SetDependencies {
+                card_id: a.clone(),
+                depends_on: vec![ghost],
+            }),
+            Err(DecisionError::CardNotFound(_))
+        ));
+
+        // b waits on nothing yet; making a wait on b would close no cycle.
+        drive(
+            &mut board,
+            &Command::SetDependencies {
+                card_id: b.clone(),
+                depends_on: vec![a.clone()],
+            },
+        );
+        assert!(matches!(
+            board.decide(&Command::SetDependencies {
+                card_id: a.clone(),
+                depends_on: vec![b],
+            }),
+            Err(DecisionError::DependencyCycle(_))
+        ));
+    }
+
+    /// A snapshot folds everything that came before it into one event; replay
+    /// from there lands on exactly the same board.
+    #[test]
+    fn a_snapshot_replaces_the_board_and_replay_survives_it() {
+        let mut live = Board::default();
+        let id = CardId::new("snap_1");
+        drive(&mut live, &Command::CreateCard { card_id: id.clone(), title: "kept".into() });
+        drive(&mut live, &Command::MoveCard { card_id: id.clone(), to: Ready });
+
+        // What compaction writes: one event holding the whole board.
+        let snapshot = Event::BoardSnapshot {
+            cards: live.cards().into_iter().cloned().collect(),
+        };
+        let mut replayed = Board::default();
+        replayed.apply(&snapshot);
+        assert_eq!(live.cards(), replayed.cards());
+
+        // And the log goes on from there.
+        let run = Command::StartRun {
+            card_id: id.clone(),
+            run_id: RunId("post-snap".into()),
+            worktree: None,
+            branch: None,
+        };
+        for e in replayed.decide(&run).unwrap() {
+            replayed.apply(&e);
+        }
+        assert_eq!(replayed.get(&id).unwrap().status, Running);
     }
 
     #[test]

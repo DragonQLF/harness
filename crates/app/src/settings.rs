@@ -3,11 +3,13 @@
 
 use harness_engine::EnginePolicy;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::allow::AllowRule;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct Settings {
     pub theme: String,
     pub accent: String,

@@ -5,9 +5,11 @@ use std::path::Path;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct CheckRow {
     pub name: String,
     /// Shell command run from the repository root.

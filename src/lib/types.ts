@@ -1,52 +1,79 @@
 /** Mirrors of the Rust types crossing the IPC boundary.
- *  Field names are the serde names: snake_case in, camelCase out. */
+ *  Field names are the serde names: snake_case in, camelCase out.
+ *
+ *  Everything under `generated/` is produced from the Rust structs by ts-rs —
+ *  run `pnpm codegen` (cargo test --workspace --test export_types) after
+ *  changing a Rust type, and never edit those files by hand.
+ *
+ *  What stays handwritten here is the surface ts-rs cannot mirror faithfully:
+ *  - Envelope / RunUpdate / RunEventKind / RunLogLine: flattened event unions
+ *    where the UI reads loose fields;
+ *  - the shell response wrappers that live in src-tauri itself (Bootstrap and
+ *    friends), which are glue rather than domain.
+ */
 
-export type Status = "backlog" | "ready" | "running" | "review" | "done";
-export type Actor = "human" | "director";
-export type WorktreeMode = "per_card" | "shared" | "none";
-export type Reviewer = "director" | "human" | "nobody";
+// ---- generated from Rust ---------------------------------------------------
+import type { Actor } from "./generated/Actor";
+import type { ActiveRun } from "./generated/ActiveRun";
+import type { ActivityRow } from "./generated/ActivityRow";
+import type { AgentProfile } from "./generated/AgentProfile";
+import type { AgentStats } from "./generated/AgentStats";
+import type { AllowRule } from "./generated/AllowRule";
+import type { BranchRow } from "./generated/BranchRow";
+import type { BranchState } from "./generated/BranchState";
+import type { Card } from "./generated/Card";
+import type { CardId } from "./generated/CardId";
+import type { CheckRow } from "./generated/CheckRow";
+import type { CommitRow } from "./generated/CommitRow";
+import type { Conversation } from "./generated/Conversation";
+import type { FolderInfo } from "./generated/FolderInfo";
+import type { LanguageRow } from "./generated/LanguageRow";
+import type { PendingApproval } from "./generated/PendingApproval";
+import type { Project } from "./generated/Project";
+import type { ProjectStats } from "./generated/ProjectStats";
+import type { Review } from "./generated/Review";
+import type { Reviewer } from "./generated/Reviewer";
+import type { RunId } from "./generated/RunId";
+import type { RunOutcome } from "./generated/RunOutcome";
+import type { SessionView } from "./generated/SessionView";
+import type { Settings } from "./generated/Settings";
+import type { Snapshot } from "./generated/Snapshot";
+import type { Status } from "./generated/Status";
+import type { WorktreeMode } from "./generated/WorktreeMode";
+import type { WorktreeRow } from "./generated/WorktreeRow";
 
-export interface Review {
-  by: Actor;
-  approved: boolean;
-  reason: string;
-}
+export type {
+  Actor,
+  ActiveRun,
+  ActivityRow,
+  AgentProfile,
+  AgentStats,
+  AllowRule,
+  BranchRow,
+  BranchState,
+  Card,
+  CardId,
+  CheckRow,
+  CommitRow,
+  Conversation,
+  FolderInfo,
+  LanguageRow,
+  PendingApproval,
+  Project,
+  ProjectStats,
+  Review,
+  Reviewer,
+  RunId,
+  RunOutcome,
+  SessionView,
+  Settings,
+  Snapshot,
+  Status,
+  WorktreeMode,
+  WorktreeRow,
+};
 
-export interface Card {
-  id: string;
-  title: string;
-  status: Status;
-  current_run: string | null;
-  agent_id: string;
-  cost_usd: number;
-  turns: number;
-  runs: number;
-  last_review: Review | null;
-  /** The native agent session this card's runs continue. Survives a restart,
-   *  so the next run resumes instead of starting over. */
-  session_id: string | null;
-  /** Where the last run worked, and on which branch. */
-  worktree: string | null;
-  branch: string | null;
-}
-
-export interface SessionView {
-  card_id: string;
-  run_id: string | null;
-  worktree: string;
-  branch: string | null;
-  session_id: string | null;
-  agent_id: string;
-  started_ms: number;
-  live: boolean;
-}
-
-export interface Snapshot {
-  project_id: string;
-  last_seq: number;
-  cards: Card[];
-  sessions: SessionView[];
-}
+// ---- stream events: flattened unions, kept loose on purpose ----------------
 
 /** An engine event. `type` is the domain event tag; the rest is flattened. */
 export interface Envelope {
@@ -112,229 +139,12 @@ export interface RunLogLine {
   allow?: boolean;
 }
 
-export interface ActiveRun {
-  card_id: string;
-  run_id: string;
-  agent_id: string;
-  worktree: string;
-  started_ms: number;
-}
+// ---- shell wrappers that still live in src-tauri ---------------------------
 
-/** What a card changed against the project's base branch, read from its
- *  worktree: the facts the review screen states, and the patch it shows. */
-export interface CardDiff {
-  card_id: string;
-  base: string;
-  branch: string | null;
-  worktree: string | null;
-  session_id: string | null;
-  files: string[];
-  added: number;
-  removed: number;
-  patch: string;
-}
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  initial: string;
-  title: string;
-  role: string;
-  brief: string;
-  tone: string;
-  model: string | null;
-  permissions: string[];
-  budget_usd: number | null;
-  worktree: WorktreeMode;
-  reviewer: Reviewer;
-  paused: boolean;
-  permission_mode: string | null;
-  /** Grouping in the UI: leadership, engineering, growth. Free text. */
-  team: string;
-  /** Can you open a persistent conversation with it? */
-  chat_enabled: boolean;
-  /** Can it be handed a card? */
-  tasks_enabled: boolean;
-  max_concurrent: number;
-  skills: string[];
-  reports_to: string | null;
-  /** May it put work on a board and hand it to other agents? */
-  can_delegate: boolean;
-  expected_output: string;
-  escalate_to: string | null;
-}
-
-/** One chat, and the Claude session it continues. */
-export interface Conversation {
-  id: string;
-  /** The native Claude session. Null before the first answer, or after a
-   *  resume was refused. */
-  session_id: string | null;
-  profile_id: string;
-  project_id: string | null;
-  title: string;
-  created_ms: number;
-  updated_ms: number;
-  archived: boolean;
-  messages: number;
-  cost_usd: number;
-  /** The last resume was refused: the transcript is still readable, but the
-   *  model has lost its own memory of it. */
-  resume_failed: boolean;
-}
-
-/** A standing approval, scoped to the kind of call it came from. */
-export interface AllowRule {
-  tool: string;
-  /** The leading words of the command it covers. Absent means the tool takes
-   *  no command — and for a shell tool that rule authorises nothing. */
-  command?: string | null;
-}
-
-export interface AgentStats {
-  agent_id: string;
-  runs: number;
-  cards: number;
-  cards_done: number;
-  spend: number;
-  avg_cost: number;
-  turns: number;
-  reviews: number;
-  sent_back: number;
-  week_runs: number[];
-  lines_added: number;
-  lines_removed: number;
-  commits: number;
-}
-
-export interface Settings {
-  theme: string;
-  accent: string;
-  sidecar: boolean;
-  director_reviews_first: boolean;
-  commit_wip_on_close: boolean;
-  permission_mode: string;
-  daily_budget_usd: number;
-  always_allow: AllowRule[];
-  last_project: string | null;
-  user_name: string;
-}
-
-export interface Project {
-  id: string;
-  name: string;
-  path: string;
-  glyph: string;
-  tone: string;
-  base_branch: string;
-  added_ms: number;
-  paused: boolean;
-}
-
-export interface ProjectStats {
-  cards: number;
-  backlog: number;
-  ready: number;
-  running: number;
-  review: number;
-  done: number;
-  runs_total: number;
-  runs_today: number;
-  spend_total: number;
-  spend_today: number;
-  done_today: number;
-  cost_per_card: number;
-  week_runs: number[];
-  last_event_ms: number;
-}
-
-/** What a folder looks like before adopting it. */
-export interface FolderInfo {
-  path: string;
-  exists: boolean;
-  is_repo: boolean;
-  empty: boolean;
-  name: string;
-  already_added: boolean;
-  next: "open" | "init" | "confirm_init" | "missing";
-}
-
+/** What a folder looks like before adopting it — composed client-side. */
 export interface ProjectView extends Project {
   exists: boolean;
   stats: ProjectStats;
-}
-
-export interface BranchRow {
-  name: string;
-  when: string;
-  sha: string;
-  state: "default" | "live" | "merged" | "open";
-}
-
-export interface CommitRow {
-  sha: string;
-  short: string;
-  subject: string;
-  author: string;
-  when: string;
-  at_secs: number;
-  parents: string[];
-  refs: string;
-  card: string | null;
-  agent: string | null;
-  added: number;
-  removed: number;
-  files: number;
-  on_default: boolean;
-}
-
-export interface LanguageRow {
-  name: string;
-  bytes: number;
-  pct: number;
-}
-
-export interface WorktreeRow {
-  path: string;
-  head: string;
-  branch: string | null;
-  bare: boolean;
-  dirty: boolean;
-}
-
-export interface CheckRow {
-  name: string;
-  command: string;
-  status: "ok" | "warn" | "fail" | "idle";
-  detail: string;
-  ran_ms: number;
-  duration_ms: number;
-}
-
-export interface ProjectDetail {
-  project: Project;
-  head: string | null;
-  default_branch: string;
-  /** `origin`, when there is one. A local-only project has none. */
-  remote: string | null;
-  commit_count: number;
-  line_count: number;
-  branches: BranchRow[];
-  languages: LanguageRow[];
-  commits: CommitRow[];
-  week_commits: number[];
-  week_lines: number;
-  worktrees: WorktreeRow[];
-  checks: CheckRow[];
-}
-
-export interface ActivityRow {
-  seq: number;
-  ts_ms: number;
-  kind: "card" | "run" | "review" | "approval";
-  label: string;
-  card_id: string;
-  detail: string;
 }
 
 /** Where the Director asked the window to go. */
@@ -342,17 +152,6 @@ export interface Navigation {
   screen: string;
   card_id: string | null;
   why: string | null;
-}
-
-export interface PendingApproval {
-  request_id: string;
-  project_id: string;
-  card_id: string | null;
-  tool: string;
-  summary: string;
-  /** What the agent actually asked for, so "always allow" can be scoped. */
-  input: unknown;
-  asked_ms: number;
 }
 
 export interface ClaudeStatus {
@@ -397,6 +196,39 @@ export interface CreatedCard {
   card_id: string;
   run_id: string | null;
 }
+
+/** What a card actually changed against the project's base branch, read from
+ *  its worktree: the facts the review screen states, and the patch it shows. */
+export interface CardDiff {
+  card_id: string;
+  base: string;
+  branch: string | null;
+  worktree: string | null;
+  session_id: string | null;
+  files: string[];
+  added: number;
+  removed: number;
+  patch: string;
+}
+
+export interface ProjectDetail {
+  project: Project;
+  head: string | null;
+  default_branch: string;
+  /** `origin`, when there is one. A local-only project has none. */
+  remote: string | null;
+  commit_count: number;
+  line_count: number;
+  branches: BranchRow[];
+  languages: LanguageRow[];
+  commits: CommitRow[];
+  week_commits: number[];
+  week_lines: number;
+  worktrees: WorktreeRow[];
+  checks: CheckRow[];
+}
+
+// ---- constants and helpers -------------------------------------------------
 
 /** Column order and the words the UI uses for each status. */
 export const STATUS_ORDER: Status[] = ["backlog", "ready", "running", "review", "done"];

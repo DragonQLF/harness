@@ -54,6 +54,7 @@ pub fn run() {
             commands::board::create_card,
             commands::board::move_card,
             commands::board::override_card,
+            commands::board::set_dependencies,
             commands::board::assign_agent,
             commands::board::approve_card,
             commands::board::reject_card,

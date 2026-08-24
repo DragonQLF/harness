@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ts-rs = { version = '10', features = ['serde-compat'] }
 harness-ports = { path = "../../ports" }
 serde = { version = "1", features = ["derive"] }

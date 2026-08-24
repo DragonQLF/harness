@@ -1,9 +1,11 @@
 //! The project registry: git repositories the operator pointed Harness at.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -53,7 +55,8 @@ pub fn glyph_for(name: &str) -> String {
 
 /// What a folder looks like before we agree to adopt it, so the UI can offer
 /// the right next step instead of a flat refusal.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct FolderInfo {
     pub path: String,
     pub exists: bool,

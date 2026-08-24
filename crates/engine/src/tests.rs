@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use harness_domain::{Actor, CardId, Command, Event, RunOutcome as DomainOutcome, Status};
+use harness_domain::{Actor, Board, CardId, Command, Event, RunOutcome as DomainOutcome, Status};
 use harness_ports::{
     AgentPort, ApprovalRequest, ClockPort, GitError, GitPort, Reviewer, RunEvent, RunLogLine,
     RunLogPort, RunOutcome, RunProfile, RunSpec, StoreError, StorePort, StoredEvent, Trailers,
@@ -56,6 +56,13 @@ impl StorePort for MemStore {
 
     fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError> {
         Ok(self.records.lock().unwrap().clone())
+    }
+
+    fn compact(&self, keep: &[StoredEvent]) -> Result<(), StoreError> {
+        let mut records = self.records.lock().unwrap();
+        records.clear();
+        records.extend(keep.iter().cloned());
+        Ok(())
     }
 }
 
@@ -1117,6 +1124,59 @@ async fn a_commit_that_fails_is_reported_and_skips_review() {
         &l.event,
         RunEvent::Notice { text } if text.contains("could not commit")
     )));
+}
+
+/// A log past the threshold folds into one `BoardSnapshot` at startup: the
+/// file shrinks to a single event, the board comes back exactly as it was,
+/// and sequence numbers carry on from there.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_log_is_compacted_into_a_snapshot_on_startup() {
+    let store = Arc::new(MemStore::default());
+    let board = Board::default();
+    for name in ["k1", "k2", "k3"] {
+        let events = board
+            .decide(&Command::CreateCard {
+                card_id: CardId::new(name),
+                title: name.into(),
+            })
+            .unwrap();
+        for e in &events {
+            store.append_event(e, 1).unwrap();
+        }
+    }
+
+    let mut config = test_config();
+    config.compact_at = 2;
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        config,
+        EnginePolicy::default(),
+        store.read_all().unwrap(),
+    );
+
+    assert_eq!(store.count(), 1, "the log is one snapshot now");
+    let snap = handle.snapshot().await.unwrap();
+    assert_eq!(snap.cards.len(), 3, "the board survived the fold");
+    assert_eq!(snap.last_seq, 4);
+
+    // And life goes on top of it: new events append after the snapshot.
+    handle
+        .execute(Command::MoveCard {
+            card_id: CardId::new("k1"),
+            to: Status::Ready,
+        })
+        .await
+        .unwrap();
+    assert_eq!(store.count(), 2);
 }
 
 /// The wip commit on close keeps the *work*. This keeps the agent's *memory* of

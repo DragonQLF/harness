@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use harness_domain::{Actor, Card, Event, RunOutcome, Status};
 use harness_ports::StoredEvent;
 use serde::Serialize;
+use ts_rs::TS;
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -24,11 +25,13 @@ pub fn today_index(tz_offset_minutes: i64) -> i64 {
     day_index(now, tz_offset_minutes)
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
 pub struct ActivityRow {
     pub seq: u64,
     pub ts_ms: u64,
     /// `card`, `run`, `approval` or `review` — the Activity filters.
+    #[ts(type = "string")]
     pub kind: &'static str,
     /// Human label, e.g. "Run finished".
     pub label: String,
@@ -51,8 +54,8 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
     let start = shown.len().saturating_sub(limit);
     let mut rows: Vec<ActivityRow> = shown[start..]
         .iter()
-        .map(|stored| {
-            let card_id = stored.event.card_id().to_string();
+        .filter_map(|stored| {
+            let card_id = stored.event.card_id()?.to_string();
             let title = titles.get(card_id.as_str()).copied().unwrap_or("");
             let (kind, label, detail) = match &stored.event {
                 Event::CardCreated { title, .. } => ("card", "Card created", title.clone()),
@@ -121,15 +124,31 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                     },
                     reason.clone(),
                 ),
+                Event::CardDependencies { depends_on, .. } => (
+                    "card",
+                    "Order set",
+                    if depends_on.is_empty() {
+                        "no dependencies".to_string()
+                    } else {
+                        depends_on
+                            .iter()
+                            .map(|d| d.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    },
+                ),
+                // A snapshot is the board itself, not something that happened;
+                // compaction keeps the feed about work, not housekeeping.
+                Event::BoardSnapshot { .. } => return None,
             };
-            ActivityRow {
+            Some(ActivityRow {
                 seq: stored.seq,
                 ts_ms: stored.ts_ms,
                 kind,
                 label: label.to_string(),
                 card_id,
                 detail,
-            }
+            })
         })
         .collect();
     rows.reverse();
@@ -150,7 +169,8 @@ pub fn status_name(status: Status) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[ts(export)]
 pub struct ProjectStats {
     pub cards: usize,
     pub backlog: usize,
@@ -228,7 +248,8 @@ pub fn project_stats(
     stats
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[ts(export)]
 pub struct AgentStats {
     pub agent_id: String,
     pub runs: u32,
@@ -280,7 +301,10 @@ pub fn agent_stats(
     }
 
     for stored in history {
-        let card_id = stored.event.card_id().to_string();
+        let Some(id) = stored.event.card_id() else {
+            continue;
+        };
+        let card_id = id.to_string();
         let agent = owner.get(card_id.as_str()).copied().unwrap_or("builder");
         let day_ago = today - day_index(stored.ts_ms, tz_offset_minutes);
         match &stored.event {

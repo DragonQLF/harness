@@ -135,6 +135,24 @@ pub async fn override_card(
         .await
 }
 
+/// Say which cards must be Done before this one may start. Order, not file
+/// conflict; a discarded dependency frees its dependent automatically.
+#[tauri::command]
+pub async fn set_dependencies(
+    project_id: String,
+    card_id: String,
+    depends_on: Vec<String>,
+    ws: Shared<'_>,
+) -> Result<u64, String> {
+    ws.runtime(&project_id)?
+        .engine
+        .execute(Command::SetDependencies {
+            card_id: CardId::new(card_id),
+            depends_on: depends_on.into_iter().map(CardId::new).collect(),
+        })
+        .await
+}
+
 #[tauri::command]
 pub async fn assign_agent(
     project_id: String,

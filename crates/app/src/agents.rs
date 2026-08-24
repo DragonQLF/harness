@@ -4,14 +4,16 @@
 
 use harness_ports::{Reviewer, RunProfile, WorktreeMode};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::settings::Settings;
 
 pub const DIRECTOR_ID: &str = "director";
 pub const DEFAULT_WORKER: &str = "builder";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export)]
 pub struct AgentProfile {
     pub id: String,
     pub name: String,

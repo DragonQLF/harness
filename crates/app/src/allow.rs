@@ -20,14 +20,17 @@
 //!    becomes a rule, so `git status; rm -rf /` cannot ride in on `git status`.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// One standing allowance.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
 pub struct AllowRule {
     pub tool: String,
     /// The leading words of the command this rule covers. `None` means the tool
     /// takes no command at all — see rule 1 above.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub command: Option<String>,
 }
 

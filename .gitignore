@@ -23,3 +23,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ts-rs default output when a test runs without TS_RS_EXPORT_DIR set
+**/bindings/

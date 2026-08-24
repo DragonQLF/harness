@@ -18,7 +18,7 @@ function scopeOf(request: PendingApproval): AllowRule {
   const command = (input?.command ?? request.summary ?? "").trim();
   // Two words is what reads as a scope: `git push`, `cargo test`.
   const words = command.split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
-  return { tool: request.tool, command: words || null };
+  return { tool: request.tool, command: words || undefined };
 }
 
 /** A chained command cannot be narrowed into a rule, so Harness will not
