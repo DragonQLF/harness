@@ -12,6 +12,7 @@ import { Icon, Loading, mono, truncate } from "./components/ui";
 import { api } from "./lib/ipc";
 import { money, plural } from "./lib/format";
 import { STATUS_TONE, tone } from "./lib/types";
+import type { PendingUpdate } from "./lib/types";
 import { StoreProvider, useStore } from "./state/store";
 import { Chat } from "./views/Chat";
 import { Review } from "./views/Review";
@@ -23,6 +24,81 @@ import { ProjectPage, Projects } from "./views/Projects";
 import { Activity, Settings, Worktrees } from "./views/Misc";
 import { VIEW_TITLES, type View } from "./views/views";
 import "./styles/theme.css";
+
+/** Mirror mode's thread end: a slim line, on every screen, for as long as an
+ *  approved build sits uninstalled. Installing swaps the binary and relaunches
+ *  — the rollback machinery decides whether the next start keeps it. */
+function UpdateBanner() {
+  const [pending, setPending] = useState<PendingUpdate[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .updatesList()
+      .then((rows) => alive && setPending(rows))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!pending?.length) return null;
+  const update = pending[0];
+  if (update.card_id === dismissed) return null;
+
+  const install = () => {
+    setBusy(true);
+    api
+      .updateInstall(update.card_id)
+      .catch((e) => {
+        setBusy(false);
+        console.error("install failed", e);
+      });
+    // If the swap works, this process is already on its way out.
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "7px 16px",
+        borderBottom: "1px solid var(--line)",
+        background: "var(--accentSoft)",
+      }}
+    >
+      <span style={{ ...mono, fontSize: 9, color: "var(--accent2)" }}>UPDATE</span>
+      <span style={{ flex: 1, minWidth: 0, font: "400 12px var(--sans)", color: "var(--text)", ...truncate }}>
+        Built from{" "}
+        <b style={{ fontWeight: 600 }}>{update.card_id}</b> · {update.commit_sha.slice(0, 7)} ·
+        installing restarts the app (the previous version is kept)
+      </span>
+      {!busy && (
+        <span className="quiet" onClick={() => setDismissed(update.card_id)} style={{ padding: "3px 8px", borderRadius: 6, font: "500 11px var(--sans)", cursor: "pointer" }}>
+          Later
+        </span>
+      )}
+      <span
+        className="primary"
+        onClick={busy ? undefined : install}
+        style={{
+          padding: "4px 12px",
+          borderRadius: 7,
+          background: "var(--accent)",
+          color: "#fff",
+          font: "600 11px var(--sans)",
+          cursor: busy ? "default" : "pointer",
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? "installing…" : "Install & restart"}
+      </span>
+    </div>
+  );
+}
 
 /** The rail is about work in flight. The two screens that already are a wall of
  *  work do not need it beside them. */
@@ -638,6 +714,7 @@ function Shell() {
             </div>
           ) : (
             <>
+              <UpdateBanner />
               {view === "chat" && <Chat />}
               {view === "review" && <Review selected={reviewCard} select={setReviewCard} />}
               {view === "board" && <Board openRun={openRun} openReview={openReview} />}

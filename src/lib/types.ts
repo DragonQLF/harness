@@ -236,6 +236,14 @@ export interface QueueRow {
   reasons: string[];
 }
 
+/** A mirror build waiting for the operator's decision. */
+export interface PendingUpdate {
+  card_id: string;
+  commit_sha: string;
+  built_at_ms: number;
+  binary: string;
+}
+
 // ---- constants and helpers -------------------------------------------------
 
 /** Column order and the words the UI uses for each status. */

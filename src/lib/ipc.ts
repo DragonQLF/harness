@@ -16,6 +16,7 @@ import type {
   Envelope,
   Navigation,
   PendingApproval,
+  PendingUpdate,
   Project,
   FolderInfo,
   ProjectDetail,
@@ -98,6 +99,8 @@ export const api = {
     invoke<CardDiff>("card_diff", { projectId, cardId }),
   reviewQueue: (projectId: string) => invoke<QueueRow[]>("review_queue", { projectId }),
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
+  updatesList: () => invoke<PendingUpdate[]>("updates_list"),
+  updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),
   // ---- conversations ----
   /** Every chat, newest first. Archived ones only when asked for. */
   conversations: (includeArchived = false) =>
