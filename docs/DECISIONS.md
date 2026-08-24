@@ -275,6 +275,21 @@ Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
 uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
 que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
 
+### 57. A mensagem de commit é o título do cartão
+Pergunta do operador ao ler o fluxo de commits: "os programadores tratam commits
+como história, a mensagem não ajudava?". Não ajudava — era literalmente
+"harness: work for card c_e2e", um uuid disfarçado em `git log`.
+
+Agora o assunto de um run concluído é `harness: <título do cartão>`, com uma
+segunda linha em prosa (`harness card c_x, run abc12345, by builder`) e os
+trailers intactos — os ids continuam exatamente onde as máquinas os procuram
+(trailers, que é o que o ecrã Code lê para desenhar as pistas). Título vazio
+cai no formato antigo. Os wip mantêm-se genéricos ("wip: interrupted run"):
+são andaimes transitórios numa worktree que o próximo run recria, e alongar o
+`GitPort` por isso não pagava.
+
+Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
+"harness: Fix the retry loop" e continua a carregar `Harness-Card`.
 ## Dívida técnica conhecida (atualizada)
 
 - Compaction do event log (o botão do design não existe).
@@ -678,7 +693,127 @@ Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
 uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
 que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
 
-## Revisão externa — corridas, actor desbloqueado e limites que limitam (2026-08-24)
+## O resto da revisão externa — compaction, tipos gerados e a arquitectura mínima (2026-08-24)
+
+A segunda metade do handoff: a dívida que era código e as quatro peças de
+arquitectura, na versão mínima que já serve.
+
+### 50. Compaction: um snapshot em vez de milhares de eventos
+`Event::BoardSnapshot { cards }` novo — no replay, substitui o quadro inteiro,
+portanto é só mais um evento para os logs antigos. `StorePort::compact` (default:
+recusar) reescreve o ficheiro com exatamente os eventos dados; o `JsonlStore`
+escreve num irmão e faz rename, logo um crash a meio deixa ou o log antigo ou o
+novo, nunca metade de cada.
+
+Quando: no arranque, se o log passou `EngineConfig::compact_at` (1000). Tudo o que
+o log disse já está no board nesse momento; escreve-se o snapshot, trunca-se,
+`last_seq` continua de onde estava. Falhar compaction não é fatal: fica o log
+longo, que é só o custo antigo. A recuperação de crash atravessa snapshots sem
+saber que existem — um cartão Running dentro do snapshot continua a ser marcado
+como falhado pelo caminho de sempre. Há teste dos dois lados (store e engine).
+
+### 51. ts-rs: os tipos TypeScript nascem do Rust
+`src/lib/types.ts` tinha 467 linhas escritas à mão a duplicar structs Rust; cada
+campo novo se escrevia duas vezes e a divergência era silenciosa. Agora 28 tipos
+(`Card`, `Snapshot`, `AgentProfile`, `Settings`, `Project`, …) derivam `TS` e são
+gerados para `src/lib/generated/` por `pnpm codegen`
+(= `cargo test --workspace --test export_types`). Os testes de export vivem nas
+crates donas dos tipos, não no `src-tauri`: os testes unitários do binário Tauri
+não correm no Windows (decisão #16), logo tudo o que precisasse deles saiu de lá
+— nada saiu, porque os wrappers que ficam no shell continuam à mão.
+
+Duas decisões dentro da decisão:
+
+- **u64 → number**, não bigint. O que atravessa a IPC é um número JSON (carimbos
+  de milissegundos e contadores); bigint seria fiel ao Rust mas mentiroso sobre
+  o fio. A normalização corre no passo de geração.
+- **Envelope / RunUpdate / RunLogLine** continuam à mão: são unions achatadas de
+  eventos onde a UI lê campos soltos, e gerar a union exata quebraria mais do
+  que protege. Estão marcados como exceção deliberada no cabeçalho do ficheiro.
+
+### 52. Memória curada: o piso
+O desenho completo — charter por projeto, árvore `memory/areas/`, índices
+gerados, Director curador — espera pelo teto. O piso é agora real:
+`charter.md` na raiz do projeto e `global.md` na appdata, ambos lidos com teto
+(4000/1500 caracteres, cortados numa fronteira de linha) e entram em todo o lado:
+no prompt de cada run de worker, no chat do Director (global sempre; charter só
+do projeto aberto, senão cada turno paga todos os quadros). Quem escreve é o
+operador; curadoria automática fica para quando houver o que curar.
+
+### 53. Dependências entre cartões: ordem, não conflito
+`Card.depends_on`, escrito por `SetDependencies` (valida cartões existentes e
+recusa ciclos, incluindo o trivial). `StartRun` recusa enquanto alguma
+dependência estiver no quadro sem estar Done — erro legível ("waiting on:
+c_x (Ready)"). Descartar uma dependência liberta os dependentes, e o próprio
+descarte leva a nota ("…; frees c_y"), porque uma regra que acontece em silêncio
+não se distingue de um bug. Na UI, o Review mostra a fila ordenada pelo Triador
+(#55) e o campo viaja nos tipos gerados (#51).
+
+### 54. Fan-out limitado a um nível, no canUseTool
+O sidecar agora sabe se o seu spec permite subagentes (`subagents` no RunSpec:
+workers sim, revisão e conversas não). Dentro do `canUseTool`, a ferramenta Task
+é negada fora dessa política e, dentro dela, enquanto `childDepth > 0`. O
+contador sobe quando um Task é aprovado e desce no hook PostToolUse; se o hook
+nunca chegar a correr, o contador fica alto e os spawns continuam negados —
+falha fechada, que é a direção certa para um limite.
+
+### 55. Triador e Analista
+- **Triador**: `insights::triage` ordena a fila de Review por risco mecânico —
+  superfície do diff (ficheiros ×4, linhas/25) mais espera (2/hora, ×6 ao fim de
+  um dia) — com razões verificáveis em texto. O comando `review_queue` junta as
+  peças (worktrees + log) e o Review usa-o para ordenar os chips e mostrar o
+  número. Ponderação de ficheiros protegidos fica para quando o operador puder
+  nomeá-los.
+- **Analista**: `analyst_ask` monta as tabelas já calculadas (stats + atividade
+  por projeto, JSON exato), abre uma conversa do Director e entrega-as ao prompt
+  de analista: interpretar sem recontar, citar evidência com ids de cartão,
+  terminar em cinco correções no máximo. Corre sob pedido, não semanal — o
+  agendador é infraestrutura nova e ninguém pediu cron ainda.
+
+### 56. Verificação end-to-end: feita, com modelo a correr
+Herdada de três sessões atrás. `src-tauri/examples/e2e_sidecar.rs` leva um
+cartão de Ready a Review headless, com sidecar, SDK e modelo reais (haiku,
+orçamento limitado, revisor humano para provar a fila e não o Director):
+
+```
+card status: Some(Review)
+session survived: true
+transcript written: true
+commit subject: harness: work for card c_e2e
+E2E PASS: Ready → running → Review, committed.
+```
+
+Corre só de propósito (`cargo run --release --example e2e_sidecar -p harness`),
+porque custa dinheiro e precisa de login. Foi corrido nesta máquina, hoje, e
+passou.
+
+### 57. A mensagem de commit é o título do cartão
+Pergunta do operador ao ler o fluxo de commits: "os programadores tratam commits
+como história, a mensagem não ajudava?". Não ajudava — era literalmente
+"harness: work for card c_e2e", um uuid disfarçado em `git log`.
+
+Agora o assunto de um run concluído é `harness: <título do cartão>`, com uma
+segunda linha em prosa (`harness card c_x, run abc12345, by builder`) e os
+trailers intactos — os ids continuam exatamente onde as máquinas os procuram
+(trailers, que é o que o ecrã Code lê para desenhar as pistas). Título vazio
+cai no formato antigo. Os wip mantêm-se genéricos ("wip: interrupted run"):
+são andaimes transitórios numa worktree que o próximo run recria, e alongar o
+`GitPort` por isso não pagava.
+
+Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
+"harness: Fix the retry loop" e continua a carregar `Harness-Card`.
+## Dívida técnica conhecida (atualizada)
+
+- **Compaction**: implementada (#50). Falta um botão na UI para compactar sob
+  pedido; o automático no arranque cobre o crescimento.
+- **ts-rs**: implementado (#51). Exceções manuais documentadas no cabeçalho de
+  `types.ts` (event streams achatados + wrappers do shell).
+- **Memória**: piso feito (#52); a árvore `memory/areas/` com índices gerados e
+  curadoria pelo Director espera pelo teto.
+- **Triador/Analista**: v1 feitas (#55). Falta ponderação de ficheiros protegidos
+  no risco, e o Analista é sob pedido em vez de semanal.
+- Grafo de commits como pistas com curvas do design (hoje é lista classificada).
+- Hooks de telemetria estruturada e zona congelada: não registados.
 
 Uma revisão ao `master` apontou três bugs e alguma dívida. O que se segue fecha os
 bugs e a parte da dívida que era código; o resto ficou escrito na secção de dívida,
@@ -752,6 +887,21 @@ ficheiro: cabeçalho com caminho e `+n −m` do próprio ficheiro, colapsável, 
 ao fazer scroll. Sem syntax highlighting a sério — primeiro existir, depois ser
 bonito.
 
+### 57. A mensagem de commit é o título do cartão
+Pergunta do operador ao ler o fluxo de commits: "os programadores tratam commits
+como história, a mensagem não ajudava?". Não ajudava — era literalmente
+"harness: work for card c_e2e", um uuid disfarçado em `git log`.
+
+Agora o assunto de um run concluído é `harness: <título do cartão>`, com uma
+segunda linha em prosa (`harness card c_x, run abc12345, by builder`) e os
+trailers intactos — os ids continuam exatamente onde as máquinas os procuram
+(trailers, que é o que o ecrã Code lê para desenhar as pistas). Título vazio
+cai no formato antigo. Os wip mantêm-se genéricos ("wip: interrupted run"):
+são andaimes transitórios numa worktree que o próximo run recria, e alongar o
+`GitPort` por isso não pagava.
+
+Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
+"harness: Fix the retry loop" e continua a carregar `Harness-Card`.
 ## Dívida técnica conhecida (atualizada)
 
 - **Compaction do event log.** O arranque relê tudo (`rebuild(&history)`), um

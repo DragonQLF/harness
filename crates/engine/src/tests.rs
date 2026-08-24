@@ -1338,6 +1338,55 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
     assert_eq!(card.session_id.as_deref(), Some("s2"));
 }
 
+/// `git log` is history: the subject of a finished run's commit is the card's
+/// title, not an id. The ids ride in the body and the trailers, where machines
+/// — and the Code screen — look.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_commit_subject_is_the_card_title() {
+    let mut r = rig_with(
+        FakeMode::Complete,
+        FakeMode::Complete,
+        None,
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+    );
+    let id = CardId::new("c_msg");
+    r.handle
+        .execute(Command::CreateCard {
+            card_id: id.clone(),
+            title: "Fix the retry loop".into(),
+        })
+        .await
+        .unwrap();
+    r.handle
+        .execute(Command::MoveCard {
+            card_id: id.clone(),
+            to: Status::Ready,
+        })
+        .await
+        .unwrap();
+
+    r.handle.start_run(id.clone(), "work".into(), profile()).await.unwrap();
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    let commit = r
+        .git
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("commit:"))
+        .expect("a commit was made");
+    assert!(
+        commit.contains("commit:harness: Fix the retry loop"),
+        "subject reads like history, got {commit}"
+    );
+    assert!(commit.contains("Harness-Card=c_msg"), "trailers survive: {commit}");
+}
+
 /// A worktree that cannot be created must not leave a card marked Running with
 /// no run behind it: the checkout is resolved before the run is recorded.
 #[tokio::test(flavor = "multi_thread")]

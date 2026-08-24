@@ -178,6 +178,14 @@ impl Engine {
         }
 
         let started_ms = self.now();
+        // The commit message a successful run leaves behind is the card's own
+        // title — history should read like work, not like ids. Captured before
+        // the task spawns; the board owns it until then.
+        let card_title = self
+            .board
+            .get(&card_id)
+            .map(|c| c.title.clone())
+            .unwrap_or_default();
         // What the last run left behind, whether that was a minute ago or
         // before the last restart: the board carries it now, so it is the
         // board that is asked.
@@ -257,6 +265,7 @@ impl Engine {
         let done_run = run_id.clone();
         let task_worktree = worktree.clone();
         let commit_flag = Arc::clone(&commit_on_cancel);
+        let task_title = card_title;
 
         let handle = tokio::spawn(async move {
             // Forwarding lives in the spawned task so a slow UI never blocks the
@@ -307,7 +316,19 @@ impl Engine {
                             ("Harness-Run".to_string(), done_run.to_string()),
                             ("Harness-Agent".to_string(), task_agent_id.clone()),
                         ]);
-                        let msg = format!("harness: work for card {done_card}");
+                        // The subject is the card's title, so `git log` reads
+                        // like history; the ids live in the body and in the
+                        // trailers, where machines look.
+                        let subject = match task_title.trim() {
+                            "" => format!("harness: work for card {done_card}"),
+                            title => format!("harness: {title}"),
+                        };
+                        let run_short: String =
+                            done_run.0.chars().take(8).collect();
+                        let msg = format!(
+                            "{subject}\n\nharness card {done_card}, run {run_short}, by {}",
+                            task_agent_id
+                        );
                         git.commit(&task_worktree, &msg, &trailers).map(|_| ())
                     }
                     harness_ports::RunOutcome::Cancelled
