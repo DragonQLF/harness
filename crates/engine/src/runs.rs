@@ -432,7 +432,11 @@ impl Engine {
                 }
             };
             let (result, _) = tokio::join!(fut, forward);
-            let outcome = result.unwrap_or_else(harness_ports::RunOutcome::Failed);
+            let outcome = result.unwrap_or_else(|e| harness_ports::RunOutcome::Failed {
+                message: e,
+                cost_usd: None,
+                turns: None,
+            });
 
             // What the agent said about its own work, as it last stood. An
             // absent report is normal: the body stays generic and a Notice
@@ -480,7 +484,7 @@ impl Engine {
                         }
                     }
                     harness_ports::RunOutcome::Cancelled
-                    | harness_ports::RunOutcome::Failed(_) => {
+                    | harness_ports::RunOutcome::Failed { .. } => {
                         if commit_flag.load(Ordering::SeqCst) {
                             match git.commit_wip(&task_worktree) {
                                 Ok(_) => Ok(()),
@@ -604,15 +608,21 @@ impl Engine {
                 (RunOutcome::Completed, *cost_usd, *turns)
             }
             harness_ports::RunOutcome::Cancelled => (RunOutcome::Cancelled, None, None),
-            harness_ports::RunOutcome::Failed(msg) => {
+            harness_ports::RunOutcome::Failed {
+                message,
+                cost_usd,
+                turns,
+            } => {
                 self.emit_run(
                     &card_id,
                     &run_id,
                     RunEvent::Notice {
-                        text: format!("run failed: {msg}"),
+                        text: format!("run failed: {message}"),
                     },
                 );
-                (RunOutcome::Failed, None, None)
+                // A failed run spent what it spent: the card sums it either
+                // way, so budgets and analyst numbers stay honest.
+                (RunOutcome::Failed, *cost_usd, *turns)
             }
         };
 

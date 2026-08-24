@@ -52,6 +52,32 @@ export function candidatePaths(input) {
   return found;
 }
 
+/** Heuristic Bash scan — declared heuristic, not a border (#62). Absolute
+ *  paths outside the worktree are refused, both Windows styles (`C:\…`,
+ *  `\\?\C:\…`) and POSIX (`/Users/…`). On a Windows host every POSIX-absolute
+ *  token counts as outside: git-bash silently rewrites `/Users/nandi/site` to
+ *  a real drive path, which is exactly how work escaped. Redirection into
+ *  `/dev/null` will be caught too — strictness over cleverness. */
+export function classifyBash(cwd, command) {
+  const winHost = process.platform === "win32";
+  const cmd = String(command ?? "");
+  for (const m of cmd.matchAll(/(?:\\\\\?\\)?[A-Za-z]:[\\/][^\s"'&|;<>()]*/g)) {
+    const v = classifyWrite(cwd, { file_path: m[0].replace(/[\\/]$/, "") });
+    if (!v.ok) return { ok: false, path: m[0] };
+  }
+  if (winHost) {
+    for (const m of cmd.matchAll(/(?:^|[\s=('"`])\/([A-Za-z0-9._-][^\s"'&|;<>()]*)/g)) {
+      return { ok: false, path: `/${m[1]}` };
+    }
+  } else {
+    for (const m of cmd.matchAll(/(?:^|[\s=('"`])(\/[^\s"'&|;<>()]+)/g)) {
+      const v = classifyWrite(cwd, { file_path: m[1] });
+      if (!v.ok) return { ok: false, path: m[1] };
+    }
+  }
+  return { ok: true, path: null };
+}
+
 /** The verdict for one tool call, whoever owns the tool.
  *
  *  - Reads never touch files destructively: skipped outright.
@@ -67,6 +93,12 @@ export function inspect(toolName, cwd, input) {
   }
   if (toolName.startsWith("mcp__harness__")) {
     return { skip: true, ok: true, path: null };
+  }
+  if (toolName === "Bash") {
+    // Structured tools carry paths as fields; Bash carries them in text.
+    // This is the declared heuristic — OS-level confinement stays open (#2).
+    const verdict = classifyBash(cwd, input?.command);
+    return { ...verdict, skip: false };
   }
   const verdict = classifyWrite(cwd, input);
   return { ...verdict, skip: false };

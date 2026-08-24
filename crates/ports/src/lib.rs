@@ -353,7 +353,14 @@ pub enum RunOutcome {
         turns: Option<u32>,
     },
     Cancelled,
-    Failed(String),
+    /// A failure still spent money and turns — a budget cut after seventeen
+    /// rounds is real spend. Carried so the card sums it either way (#41's
+    /// cousin: a cost that vanishes because the outcome shape changed).
+    Failed {
+        message: String,
+        cost_usd: Option<f64>,
+        turns: Option<u32>,
+    },
 }
 
 impl RunOutcome {

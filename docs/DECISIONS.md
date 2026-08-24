@@ -953,3 +953,30 @@ quando algo falha, nada chega ao operador e ele improvisa.
   ■ stop junto ao composer enquanto `chatBusy`. E trocar de conversa já
   limpava o busy (rede de segurança que lá estava); a causa real do
   "thinking…" preso era a pergunta sem resposta acima.
+
+
+
+### 71. O trabalho saiu da worktree — três falhas de uma sessão real
+Cartão `c_19a1`: dez ficheiros escritos em `C:\Users\nandi\site\`, tecto de
+orçamento rebentado, `$0.00` no cartão, retoma com worktree vazia. Três falhas
+independentes; duas fechadas, uma decidida.
+
+- **Bash no pathguard (#62 dizia-heurística; agora é código).** No Windows,
+  git-bash reescreve `/Users/nandi/site/` para um caminho real — o buraco não
+  era teórico. `classifyBash` varre o comando por absolutos fora da worktree:
+  estilos Windows (`C:\`, `\\?\`) e POSIX (`/Users/…`, `/c/…`), recusando com o
+  caminho nomeado. Declarado como heurística: confinamento de shell a sério é
+  sandbox ao nível do SO (WSL2 ou contentor) — decisão ainda aberta em POR
+  DECIDIR, agora com um caso concreto a empurrá-la.
+- **Run falhado soma custo e turnos.** `RunOutcome::Failed` carrega
+  `{message, cost_usd, turns}`; o sidecar preenche-os do mesmo `done` que
+  reporta o erro, e o cartão soma seja qual for o desfecho. Tecto de cartão,
+  tectos globais e Analista deixam de ler números falsos.
+- **Uma linha que diz a verdade.** Um `done` com `error` renderiza como
+  falha — nunca mais "done · 17 turns · $0.77" seguido de um notice a
+  desmenti-lo.
+- **"resumes 36e9afb4" → "Start continues session …"**: o cartão dizia que
+  tinha sido retomado quando significava que será.
+- **Por fazer:** ao retomar, verificar que a worktree tem o trabalho que a
+  memória alega (uma linha no transcript poupava os 17 turnos); pausa-e-pergunta
+  no corte de orçamento em vez de falhar.

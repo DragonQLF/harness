@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { READ_TOOLS, candidatePaths, contains, classifyWrite, inspect } from "./pathguard.mjs";
+import { READ_TOOLS, candidatePaths, contains, classifyBash, classifyWrite, inspect } from "./pathguard.mjs";
 
 function worktree() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-"));
@@ -98,6 +98,33 @@ test("harness's own mcp tools are exempt — they act on the app", () => {
 });
 
 test("bash has no structured paths and passes the guard untouched", () => {
-  const verdict = inspect("Bash", worktree(), { command: "echo hi" });
-  assert.ok(verdict.skip === false && verdict.ok === true);
+  const cwd = worktree();
+  for (const command of ["echo hi", "cd site && ls -la", 'git commit -m "fix"', "> out.txt"]) {
+    const v = inspect("Bash", cwd, { command });
+    assert.ok(v.skip === false && v.ok === true, `${command}: ${JSON.stringify(v)}`);
+  }
+});
+
+/** The escape that happened: git-bash rewrites POSIX paths to drive paths on
+ *  Windows, so `/Users/nandi/site/…` wrote outside the worktree. Both styles
+ *  must be caught by the heuristic, and it names the path. */
+test("bash with absolute paths outside is refused in both styles", () => {
+  const cwd = worktree();
+  for (const command of [
+    "cat > /Users/nandi/site/feed.xml",
+    "cp x /c/Users/nandi/site/feed.xml",
+    String.raw`echo hi > C:\Users\nandi\site\feed.xml`,
+    "ls -la /Users/nandi/",
+  ]) {
+    const v = inspect("Bash", cwd, { command });
+    assert.equal(v.ok, false, `${command} must be refused`);
+    assert.ok(v.path && v.path.length > 1, `${command} names the path: ${v.path}`);
+  }
+});
+
+test("bash writing inside the worktree by absolute path still passes", () => {
+  const cwd = worktree();
+  const inside = path.join(cwd, "out.txt");
+  const v = classifyBash(cwd, `echo hi > "${inside}"`);
+  assert.equal(v.ok, true);
 });

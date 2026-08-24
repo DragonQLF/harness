@@ -231,7 +231,11 @@ impl AgentPort for ClaudeCliAgent {
             match pump_lines(&mut child, tx, cancel).await? {
                 None => Ok(RunOutcome::Cancelled),
                 Some((_sid, cost, _result, None)) => Ok(RunOutcome::completed(_sid, cost)),
-                Some((_sid, _cost, _result, Some(msg))) => Ok(RunOutcome::Failed(msg)),
+                Some((_sid, _cost, _result, Some(msg))) => Ok(RunOutcome::Failed {
+                    message: msg,
+                    cost_usd: _cost,
+                    turns: None,
+                }),
             }
         })
     }

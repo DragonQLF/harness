@@ -254,7 +254,11 @@ async fn drive(
                                 // difference, and a card would be committed and
                                 // reviewed on an answer that never came.
                                 break match failure {
-                                    Some(message) => Ok(RunOutcome::Failed(message)),
+                                    Some(message) => Ok(RunOutcome::Failed {
+                                        message,
+                                        cost_usd,
+                                        turns,
+                                    }),
                                     None => Ok(RunOutcome::Completed {
                                         session_id: session_id.clone(),
                                         cost_usd,
@@ -268,7 +272,11 @@ async fn drive(
                                     .and_then(|m| m.as_str())
                                     .unwrap_or("unknown sidecar failure")
                                     .to_string();
-                                break Ok(RunOutcome::Failed(message));
+                                break Ok(RunOutcome::Failed {
+                                        message,
+                                        cost_usd: None,
+                                        turns: None,
+                                    });
                             }
                             _ => {}
                         }
@@ -390,7 +398,11 @@ async fn drive(
         drop(stdin);
         let status = child.wait().await.map_err(|e| format!("wait sidecar: {e}"))?;
         if !status.success() {
-            return Ok(RunOutcome::Failed(format!("sidecar exited with {status}")));
+            return Ok(RunOutcome::Failed {
+        message: format!("sidecar exited with {status}"),
+        cost_usd: None,
+        turns: None,
+    });
         }
     }
 

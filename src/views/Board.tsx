@@ -372,7 +372,7 @@ export function Board({
                             ...truncate,
                           }}
                         >
-                          resumes {card.session_id.slice(0, 8)}
+                          Start continues session {card.session_id.slice(0, 8)}
                         </span>
                       )}
 

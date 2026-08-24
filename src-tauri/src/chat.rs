@@ -295,7 +295,7 @@ pub async fn send(
                 );
                 publish(event);
             }
-            Ok(RunOutcome::Failed(message)) | Err(message) => {
+            Ok(RunOutcome::Failed { message, .. }) | Err(message) => {
                 // A resume that could not be honoured is the one failure worth
                 // explaining rather than just reporting: the thread above is
                 // still readable, but the model no longer remembers it.

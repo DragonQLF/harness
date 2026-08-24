@@ -109,7 +109,11 @@ impl Engine {
                 }
             };
             let (res, _) = tokio::join!(fut, forward);
-            let outcome = res.unwrap_or_else(harness_ports::RunOutcome::Failed);
+            let outcome = res.unwrap_or_else(|e| harness_ports::RunOutcome::Failed {
+                message: e,
+                cost_usd: None,
+                turns: None,
+            });
             let verdict = last_result.lock().unwrap().clone();
             let _ = self_tx
                 .send(Msg::DirectorDone {

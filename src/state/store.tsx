@@ -223,6 +223,12 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
         "var(--text3)",
       );
     case "done": {
+      // One line that tells the truth: a done with an error is a failure
+      // that happens to know its own cost — never two contradicting lines.
+      const err = (u as RunUpdate & { error?: string | null }).error;
+      if (err) {
+        return line("failed", err, "var(--bad)", "var(--bad2)");
+      }
       const cost = u.cost_usd != null ? `$${u.cost_usd.toFixed(4)}` : "no cost recorded";
       const turns = u.turns != null ? `${u.turns} turns · ` : "";
       return line("done", `${turns}${cost}`, "var(--text4)", "var(--ok)");
