@@ -17,4 +17,4 @@ registarem como feitos).
 | Hooks de telemetria estruturada | Não registados | #24–#31 |
 | Grafo de commits com curvas | Hoje é lista classificada, não as pistas do design | #18b |
 | Sandbox / confinamento de shell | Adiado conscientemente; pathguard cobre caminhos estruturados, Bash fica na allowlist | #2, #62 |
-| UI: ToolResult aninhável/expansível (ids já no stream e no log; falta render com indent por `parent_tool_use_id`, pendente/verde/vermelho) | Por fazer; a cadeia sidecar→RunEvent→log está completa | #67 |`n| Drag & drop, timer de inatividade, inspector do event log | Nunca começados | — |
+| UI de resultados: fechado — resultado funde com a chamada pelo id, aninhamento por pai, detalhe expansível (chat + sessions) | Feito | #70 |`n| Drag & drop, timer de inatividade, inspector do event log | Nunca começados | — |

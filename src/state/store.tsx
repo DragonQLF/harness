@@ -72,6 +72,8 @@ export interface ChatMsg {
   tool?: string;
   ok?: boolean | null;
   detail?: string | null;
+  toolUseId?: string | null;
+  parentToolUseId?: string | null;
 }
 
 /** One stored transcript line as a chat bubble. Deltas never reach here: the
@@ -119,6 +121,28 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
     default:
       return null;
   }
+}
+
+/** Stored logs list call and result as separate lines; the transcript wants
+ *  one bubble that opens and closes. Results with no open call stay alone. */
+function foldToolResults(msgs: ChatMsg[]): ChatMsg[] {
+  const out: ChatMsg[] = [];
+  for (const m of msgs) {
+    if (m.role === "tool" && m.ok != null && m.toolUseId) {
+      let matched = false;
+      for (let i = out.length - 1; i >= 0; i--) {
+        const p = out[i];
+        if (p.role === "tool" && p.ok == null && p.toolUseId === m.toolUseId) {
+          out[i] = { ...p, ok: m.ok, detail: m.detail };
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+    }
+    out.push(m);
+  }
+  return out;
 }
 
 /** What is arriving right now for a card, before the final text lands. */
@@ -567,6 +591,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   ts: u.ts_ms,
                   tool,
                   toolUseId: ev.tool_use_id ?? null,
+                  parentToolUseId: ev.parent_tool_use_id ?? null,
                   ok: null,
                   detail: null,
                 },
@@ -574,25 +599,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               break;
             }
             case "tool_result": {
-              // Closes the matching call by id: green or red, expandable.
+              // Closes the matching call by id — replaces the pending bubble
+              // in place instead of appending a second line. A result with no
+              // open call (replay started mid-run) lands closed on its own.
               const res = u as RunUpdate & {
                 tool_use_id?: string;
                 ok?: boolean | null;
                 detail?: string | null;
                 summary?: string;
               };
-              setChat((cs) => [
-                ...cs,
-                {
-                  role: "tool",
-                  text: res.summary ?? "",
-                  ts: u.ts_ms,
-                  toolUseId: res.tool_use_id ?? null,
-                  isResult: true,
-                  ok: res.ok !== false,
-                  detail: res.detail ?? null,
-                } as ChatMsg & { isResult?: boolean },
-              ]);
+              setChat((cs) => {
+                let closed = false;
+                const next = cs.map((m) => {
+                  if (
+                    !closed &&
+                    m.role === "tool" &&
+                    m.ok == null &&
+                    m.toolUseId != null &&
+                    m.toolUseId === res.tool_use_id
+                  ) {
+                    closed = true;
+                    return { ...m, ok: res.ok !== false, detail: res.detail ?? null };
+                  }
+                  return m;
+                });
+                if (closed) return next;
+                return [
+                  ...next,
+                  {
+                    role: "tool",
+                    text: res.summary ?? "",
+                    ts: u.ts_ms,
+                    toolUseId: res.tool_use_id ?? null,
+                    ok: res.ok !== false,
+                    detail: res.detail ?? null,
+                  } as ChatMsg,
+                ];
+              });
               break;
             }
             case "text":
@@ -898,7 +941,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const lines = await api.conversationTranscript(id);
         setConversationId(conversation.id);
         chatRef.current = conversation.id;
-        setChat(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null));
+        setChat(foldToolResults(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null)));
         setChatThinking("");
         setChatBusy(false);
         streamedRef.current = false;

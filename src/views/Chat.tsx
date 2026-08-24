@@ -308,9 +308,9 @@ function RunPanel({ cardId }: { cardId: string }) {
 /** A tool call and its result. The call opens the bubble pending-grey; the
  *  result closes it green or red, matched by id, with the full output one
  *  click away instead of dumped inline (#28). */
-function ToolBubble({ msg }: { msg: ChatMsg & { isResult?: boolean } }) {
+function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
   const [open, setOpen] = useState(false);
-  const isResult = !!msg.isResult || msg.ok != null;
+  const isResult = msg.ok != null;
   const accent =
     !isResult
       ? "var(--info)"
@@ -318,7 +318,7 @@ function ToolBubble({ msg }: { msg: ChatMsg & { isResult?: boolean } }) {
         ? "var(--ok)"
         : "var(--bad)";
   return (
-    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", paddingLeft: depth * 16 }}>
       <span style={{ width: 27, flex: "none" }} />
       <div
         style={{
@@ -428,9 +428,23 @@ export function Chat() {
   };
 
   // One divider per day, the way the design dates the conversation.
+  const depthBy = useMemo(() => {
+    const map = new Map<string, number>();
+    return chat.map((m) => {
+      let depth = 0;
+      if (m.role === "tool" && m.toolUseId) {
+        if (!map.has(m.toolUseId)) {
+          const parent = m.parentToolUseId;
+          map.set(m.toolUseId, parent ? (map.get(parent) ?? 0) + 1 : 0);
+        }
+        depth = map.get(m.toolUseId) ?? 0;
+      }
+      return depth;
+    });
+  }, [chat]);
   const dated = useMemo(() => {
     let day = "";
-    return chat.map((m) => {
+    return chat.map((m, mi) => {
       const stamp = new Date(m.ts || Date.now());
       const key = stamp.toDateString();
       const fresh = key !== day;
@@ -438,6 +452,7 @@ export function Chat() {
       const today = new Date().toDateString();
       return {
         msg: m,
+        depth: depthBy[mi] ?? 0,
         divider: fresh
           ? `${key === today ? "TODAY" : stamp.toLocaleDateString(undefined, { day: "numeric", month: "short" }).toUpperCase()} · ${clock(m.ts)}`
           : null,
@@ -483,7 +498,7 @@ export function Chat() {
           </div>
         )}
 
-        {dated.map(({ msg, divider }, i) => (
+        {dated.map(({ msg, depth, divider }, i) => (
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {divider && (
               <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 10 }}>
@@ -588,7 +603,7 @@ export function Chat() {
             )}
 
             {msg.role === "tool" && (
-              <ToolBubble msg={msg} />
+              <ToolBubble msg={msg} depth={depth} />
             )}
 
             {msg.role === "notice" && (
