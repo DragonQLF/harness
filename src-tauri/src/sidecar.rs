@@ -82,7 +82,7 @@ fn seed_from_resources(app: &AppHandle, target: &Path) -> Result<(), String> {
         .map_err(|e| format!("no resource directory: {e}"))?
         .join("sidecar");
     std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
-    for name in ["index.mjs", "package.json"] {
+    for name in ["index.mjs", "pathguard.mjs", "package.json"] {
         let from = resource_dir.join(name);
         let to = target.join(name);
         if !from.exists() {

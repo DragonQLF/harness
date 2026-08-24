@@ -372,6 +372,58 @@ Consequências medidas pelos testes:
   checkouts adotados nunca são nossos para apagar, e o flag `created` na
   mensagem distingue.
 
+## Modo Espelho — a app altera-se por compilação (2026-08-24)
+
+O princípio substitui o desenho antigo: **um binário compilado não se altera a
+si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
+novo, e a instância a correr fica intocada por construção. A troca é decisão do
+operador. Consequência valiosa: o build é a validação — um cartão que parta o
+orquestrador nunca chega à app em uso, por enforcement determinístico.
+
+### 62. A zona congelada é uma comparação de caminhos (feito)
+O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
+a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
+módulos e passou a caminho: **um run escreve dentro da sua worktree e em mais
+lado nenhum**, decidido no `canUseTool` antes da fila de aprovações (uma recusa
+aqui não é pergunta para o operador).
+
+Vive em `sidecar/pathguard.mjs`, módulo puro sem SDK — testável offline com
+`pnpm test:sidecar` (8 testes): canonicalização resolve e segue o que existe,
+recusa o que não resolve (#39 de novo; nada de `starts_with` componente a
+componente), fronteira de diretório incluída (`/wt/c1` não contém `/wt/c11`),
+e qualquer string sob uma chave terminada em `path` é candidata — ferramenta
+nova cai no guardo por omissão. Ferramentas de escrita apenas; leituras ficam
+livres. A negação aparece no transcript com o caminho.
+
+Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
+e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
+adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
+
+### 63. O build como check do engine — desenhado, atrás do rollback
+Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
+--no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
+destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
+artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
+Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
+build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
+relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+um build verde seria convidativo a instalar algo de que não há volta — e isso
+é armadilha, não feature.
+
+### 64. Instalar com volta — desenhado, é a próxima peça
+Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
+
+- binário anterior guardado antes de trocar;
+- marca de "arranque em curso" escrita antes de lançar a nova, limpa quando o
+  `setup` completa;
+- ao arrancar, marca órfã → repor o binário guardado e dizer porquê.
+
+Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
+implementação: o exe em execução não se substitui — troca por rename (velho
+guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
+**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
+acima o dispensa.
+
 ## Dívida técnica conhecida (atualizada)
 
 - Compaction do event log (o botão do design não existe).
@@ -966,6 +1018,58 @@ Consequências medidas pelos testes:
   checkouts adotados nunca são nossos para apagar, e o flag `created` na
   mensagem distingue.
 
+## Modo Espelho — a app altera-se por compilação (2026-08-24)
+
+O princípio substitui o desenho antigo: **um binário compilado não se altera a
+si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
+novo, e a instância a correr fica intocada por construção. A troca é decisão do
+operador. Consequência valiosa: o build é a validação — um cartão que parta o
+orquestrador nunca chega à app em uso, por enforcement determinístico.
+
+### 62. A zona congelada é uma comparação de caminhos (feito)
+O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
+a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
+módulos e passou a caminho: **um run escreve dentro da sua worktree e em mais
+lado nenhum**, decidido no `canUseTool` antes da fila de aprovações (uma recusa
+aqui não é pergunta para o operador).
+
+Vive em `sidecar/pathguard.mjs`, módulo puro sem SDK — testável offline com
+`pnpm test:sidecar` (8 testes): canonicalização resolve e segue o que existe,
+recusa o que não resolve (#39 de novo; nada de `starts_with` componente a
+componente), fronteira de diretório incluída (`/wt/c1` não contém `/wt/c11`),
+e qualquer string sob uma chave terminada em `path` é candidata — ferramenta
+nova cai no guardo por omissão. Ferramentas de escrita apenas; leituras ficam
+livres. A negação aparece no transcript com o caminho.
+
+Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
+e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
+adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
+
+### 63. O build como check do engine — desenhado, atrás do rollback
+Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
+--no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
+destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
+artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
+Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
+build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
+relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+um build verde seria convidativo a instalar algo de que não há volta — e isso
+é armadilha, não feature.
+
+### 64. Instalar com volta — desenhado, é a próxima peça
+Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
+
+- binário anterior guardado antes de trocar;
+- marca de "arranque em curso" escrita antes de lançar a nova, limpa quando o
+  `setup` completa;
+- ao arrancar, marca órfã → repor o binário guardado e dizer porquê.
+
+Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
+implementação: o exe em execução não se substitui — troca por rename (velho
+guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
+**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
+acima o dispensa.
+
 ## Dívida técnica conhecida (atualizada)
 
 - **Compaction**: implementada (#50). Falta um botão na UI para compactar sob
@@ -1147,6 +1251,58 @@ Consequências medidas pelos testes:
   acabada de criar é **removida** (`abandon_start`, destacada como o discard);
   checkouts adotados nunca são nossos para apagar, e o flag `created` na
   mensagem distingue.
+
+## Modo Espelho — a app altera-se por compilação (2026-08-24)
+
+O princípio substitui o desenho antigo: **um binário compilado não se altera a
+si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
+novo, e a instância a correr fica intocada por construção. A troca é decisão do
+operador. Consequência valiosa: o build é a validação — um cartão que parta o
+orquestrador nunca chega à app em uso, por enforcement determinístico.
+
+### 62. A zona congelada é uma comparação de caminhos (feito)
+O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
+a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
+módulos e passou a caminho: **um run escreve dentro da sua worktree e em mais
+lado nenhum**, decidido no `canUseTool` antes da fila de aprovações (uma recusa
+aqui não é pergunta para o operador).
+
+Vive em `sidecar/pathguard.mjs`, módulo puro sem SDK — testável offline com
+`pnpm test:sidecar` (8 testes): canonicalização resolve e segue o que existe,
+recusa o que não resolve (#39 de novo; nada de `starts_with` componente a
+componente), fronteira de diretório incluída (`/wt/c1` não contém `/wt/c11`),
+e qualquer string sob uma chave terminada em `path` é candidata — ferramenta
+nova cai no guardo por omissão. Ferramentas de escrita apenas; leituras ficam
+livres. A negação aparece no transcript com o caminho.
+
+Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
+e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
+adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
+
+### 63. O build como check do engine — desenhado, atrás do rollback
+Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
+--no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
+destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
+artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
+Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
+build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
+relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+um build verde seria convidativo a instalar algo de que não há volta — e isso
+é armadilha, não feature.
+
+### 64. Instalar com volta — desenhado, é a próxima peça
+Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
+
+- binário anterior guardado antes de trocar;
+- marca de "arranque em curso" escrita antes de lançar a nova, limpa quando o
+  `setup` completa;
+- ao arrancar, marca órfã → repor o binário guardado e dizer porquê.
+
+Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
+implementação: o exe em execução não se substitui — troca por rename (velho
+guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
+**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
+acima o dispensa.
 
 ## Dívida técnica conhecida (atualizada)
 

@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "codegen": "cargo test --workspace --test export_types",
+    "test:sidecar": "node --test sidecar/pathguard.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

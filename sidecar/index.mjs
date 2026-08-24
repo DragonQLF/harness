@@ -2,6 +2,7 @@ import { query, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk"
 import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { WRITE_TOOLS, classifyWrite } from "./pathguard.mjs";
 
 const controllers = new Map();
 const approvals = new Map();
@@ -220,6 +221,28 @@ async function handleRun({ id, spec }) {
   // which denies further spawns. Failing closed is the safe direction.
   let childDepth = 0;
   const canUseTool = async (toolName, input) => {
+    // The frozen zone is a path comparison, not a list of modules: a run
+    // writes inside its own worktree and nowhere else. Checked before the
+    // approval flow, because a refusal here is not a question for the
+    // operator — and the transcript names the path that was refused.
+    if (WRITE_TOOLS.has(toolName)) {
+      const verdict = classifyWrite(spec.cwd, input);
+      if (!verdict.ok) {
+        send({
+          type: "event",
+          run_id: id,
+          event: {
+            kind: "notice",
+            text: `write refused outside this run's worktree: ${verdict.path}`,
+          },
+        });
+        return {
+          behavior: "deny",
+          message: `runs may only write inside their worktree (${spec.cwd}); refused: ${verdict.path}`,
+        };
+      }
+    }
+
     if (toolName === "Task") {
       if (!spec.subagents) {
         return { behavior: "deny", message: "subagents are off for this run" };
