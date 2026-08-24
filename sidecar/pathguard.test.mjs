@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { WRITE_TOOLS, candidatePaths, contains, classifyWrite } from "./pathguard.mjs";
+import { READ_TOOLS, candidatePaths, contains, classifyWrite, inspect } from "./pathguard.mjs";
 
 function worktree() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-"));
@@ -71,7 +71,33 @@ test("every string under a key ending in path is a candidate", () => {
 });
 
 test("read tools are not in the write set", () => {
-  for (const tool of ["Read", "Glob", "Grep"]) {
-    assert.ok(!WRITE_TOOLS.has(tool), tool);
+  for (const tool of ["Read", "Glob", "Grep", "NotebookRead"]) {
+    assert.ok(READ_TOOLS.has(tool), tool);
+    const verdict = inspect(tool, os.tmpdir(), { file_path: "/etc/passwd" });
+    assert.ok(verdict.skip, `${tool} is exempt`);
   }
+});
+
+/** The handoff's test: an MCP tool nobody vetted, carrying a path field,
+ *  must hit the guard. The old gate checked four tool names; this one never
+ *  would have been seen. */
+test("an unknown mcp tool with a path field is inspected and refused", () => {
+  const cwd = worktree();
+  const verdict = inspect("mcp__other__save_file", cwd, { path: "/etc/passwd" });
+  assert.equal(verdict.skip, false);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.path, "/etc/passwd");
+});
+
+test("harness's own mcp tools are exempt — they act on the app", () => {
+  const cwd = worktree();
+  const verdict = inspect("mcp__harness__create_project", cwd, {
+    parent_path: "/etc/passwd",
+  });
+  assert.ok(verdict.skip, "board tools carry their own approval story");
+});
+
+test("bash has no structured paths and passes the guard untouched", () => {
+  const verdict = inspect("Bash", worktree(), { command: "echo hi" });
+  assert.ok(verdict.skip === false && verdict.ok === true);
 });

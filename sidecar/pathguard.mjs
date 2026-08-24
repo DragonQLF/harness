@@ -21,6 +21,17 @@ export const WRITE_TOOLS = new Set([
   "NotebookEdit",
 ]);
 
+/** Tools that only ever read. Everything else with path-bearing input gets
+ *  inspected — including tools we have never heard of, which is the point:
+ *  omission guards, an explicit list exempts. */
+export const READ_TOOLS = new Set([
+  "Read",
+  "Glob",
+  "Grep",
+  "NotebookRead",
+  "LS",
+]);
+
 /** Pull every candidate file path out of a tool input. Known fields first,
  *  then any string under a key that ends in `path` — new tools should trip
  *  the guard by default rather than need a rule each. */
@@ -39,6 +50,26 @@ export function candidatePaths(input) {
   };
   walk(input ?? {}, "");
   return found;
+}
+
+/** The verdict for one tool call, whoever owns the tool.
+ *
+ *  - Reads never touch files destructively: skipped outright.
+ *  - Harness's own MCP tools (`mcp__harness__*`) act on the app, not on
+ *    repositories — they carry their own approval story (decisions #27–#29)
+ *    and their arguments are board coordinates, not file paths.
+ *  - Everything else — including third-party MCP tools nobody vetted — is
+ *    inspected when its input carries candidate paths.
+ */
+export function inspect(toolName, cwd, input) {
+  if (READ_TOOLS.has(toolName)) {
+    return { skip: true, ok: true, path: null };
+  }
+  if (toolName.startsWith("mcp__harness__")) {
+    return { skip: true, ok: true, path: null };
+  }
+  const verdict = classifyWrite(cwd, input);
+  return { ...verdict, skip: false };
 }
 
 /** Resolve a possibly-relative path against the run's cwd, following symlinks
@@ -69,9 +100,10 @@ function canonical(cwd, raw) {
 /** Is `candidate` inside `root`? Boundary-aware: `/worktrees/c1` must not
  *  contain `/worktrees/c11`. Windows paths differ only by case. */
 export function contains(root, candidate) {
+  const splitPattern = process.platform === "win32" ? /[\\/]+/ : /\/+/;
   const norm = (p) => {
-    let s = p.split(/[\\/]+/).filter(Boolean).join("/");
-    return process.platform === "win32" ? s.toLowerCase() : s;
+    const joined = p.split(splitPattern).filter(Boolean).join("/");
+    return process.platform === "win32" ? joined.toLowerCase() : joined;
   };
   const r = norm(root);
   const c = norm(candidate);
@@ -84,7 +116,12 @@ export function contains(root, candidate) {
  *  because the transcript names what was refused. */
 export function classifyWrite(cwd, input) {
   const root = canonical(cwd, ".");
-  if (!root) return { ok: false, path: cwd };
+  if (!root) {
+    // The run's own root is unresolvable — naming it in the message would
+    // read as if the worktree were the offending path, so say null and let
+    // the caller explain.
+    return { ok: false, path: null };
+  }
   for (const raw of candidatePaths(input)) {
     const resolved = canonical(cwd, raw);
     if (!resolved || !contains(root, resolved)) {
