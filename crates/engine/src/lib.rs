@@ -47,7 +47,6 @@ pub struct Envelope {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct Snapshot {
     pub project_id: String,
     pub last_seq: u64,
@@ -66,7 +65,6 @@ pub struct RunUpdate {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct SessionView {
     pub card_id: CardId,
     pub run_id: Option<RunId>,
@@ -138,7 +136,6 @@ impl Default for EnginePolicy {
 
 /// A run the engine is currently driving.
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct ActiveRun {
     pub card_id: CardId,
     pub run_id: RunId,

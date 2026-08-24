@@ -64,6 +64,7 @@ pub fn run() {
             commands::board::active_runs,
             commands::board::run_log,
             commands::board::card_diff,
+            commands::board::review_queue,
             commands::board::activity,
             commands::board::project_stats,
             // conversations
@@ -81,6 +82,7 @@ pub fn run() {
             commands::chat::agent_create_from_template,
             commands::chat::agent_duplicate,
             commands::chat::agent_remove,
+            commands::chat::analyst_ask,
             // conversations
             commands::chat::conversations_list,
             commands::chat::conversation_new,
@@ -96,6 +98,7 @@ pub fn run() {
             commands::chat::agent_create_from_template,
             commands::chat::agent_duplicate,
             commands::chat::agent_remove,
+            commands::chat::analyst_ask,
             // projects
             commands::project::projects_list,
             commands::project::project_pick_folder,

@@ -9,7 +9,6 @@ use crate::allow::AllowRule;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
-#[ts(export)]
 pub struct Settings {
     pub theme: String,
     pub accent: String,

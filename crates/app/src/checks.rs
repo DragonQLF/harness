@@ -9,7 +9,6 @@ use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
-#[ts(export)]
 pub struct CheckRow {
     pub name: String,
     /// Shell command run from the repository root.

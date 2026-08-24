@@ -6,7 +6,6 @@ use ts_rs::TS;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
-#[ts(export)]
 pub struct CardId(String);
 
 impl CardId {
@@ -27,7 +26,6 @@ impl fmt::Display for CardId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(transparent)]
-#[ts(export)]
 pub struct RunId(pub String);
 
 impl fmt::Display for RunId {
@@ -38,7 +36,6 @@ impl fmt::Display for RunId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum Status {
     Backlog,
     Ready,
@@ -49,7 +46,6 @@ pub enum Status {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum RunOutcome {
     Completed,
     Cancelled,
@@ -99,7 +95,6 @@ impl Status {
 /// Who took a decision. Reviews can come from the Director or from the operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum Actor {
     #[default]
     Human,
@@ -109,7 +104,6 @@ pub enum Actor {
 /// The last review a card received, kept on the card so the board can show it
 /// without walking the log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct Review {
     pub by: Actor,
     pub approved: bool,
@@ -117,7 +111,6 @@ pub struct Review {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct Card {
     pub id: CardId,
     pub title: String,

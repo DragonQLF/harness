@@ -228,6 +228,14 @@ export interface ProjectDetail {
   checks: CheckRow[];
 }
 
+/** One card in the Review queue, ordered by the Triador. */
+export interface QueueRow {
+  card_id: string;
+  title: string;
+  risk: number;
+  reasons: string[];
+}
+
 // ---- constants and helpers -------------------------------------------------
 
 /** Column order and the words the UI uses for each status. */

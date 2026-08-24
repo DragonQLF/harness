@@ -28,7 +28,6 @@ pub trait Notifier: Send + Sync + 'static {
 const WAIT: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct PendingApproval {
     pub request_id: String,
     pub project_id: String,

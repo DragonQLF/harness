@@ -103,6 +103,9 @@ pub async fn send(
         .collect();
 
     let resume_session = conversation.resumes().map(str::to_string);
+    // global.md: small, always in the prompt on a fresh session.
+    let global_memory =
+        harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
     let prompt = director::chat_prompt(
         &ChatContext {
             speaker: Speaker {
@@ -120,6 +123,7 @@ pub async fn send(
             // them again would have it start the conversation over.
             resumed: resume_session.is_some(),
             crew: &crew,
+            global_memory: &global_memory,
         },
         &message,
     );

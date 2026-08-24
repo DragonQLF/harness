@@ -26,7 +26,6 @@ pub fn today_index(tz_offset_minutes: i64) -> i64 {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct ActivityRow {
     pub seq: u64,
     pub ts_ms: u64,
@@ -170,7 +169,6 @@ pub fn status_name(status: Status) -> &'static str {
 }
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
-#[ts(export)]
 pub struct ProjectStats {
     pub cards: usize,
     pub backlog: usize,
@@ -249,7 +247,6 @@ pub fn project_stats(
 }
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
-#[ts(export)]
 pub struct AgentStats {
     pub agent_id: String,
     pub runs: u32,
@@ -461,5 +458,126 @@ mod tests {
         let utc = day_index(ts, 0);
         assert_eq!(day_index(ts, 24 * 60), utc - 1);
         assert_eq!(day_index(ts, -24 * 60), utc + 1);
+    }
+}
+
+/// One card waiting in Review, scored by how much attention it deserves.
+/// The Triador orders the queue with this; it does not judge the work, only
+/// the surface and the wait.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct ReviewCandidate {
+    pub card_id: String,
+    pub title: String,
+    /// Higher wants eyes first. Mechanical, explainable, no model involved.
+    pub risk: u64,
+    /// Why the score says so, in words a person can check.
+    pub reasons: Vec<String>,
+}
+
+/// What the worktree changed, gathered by the shell from git.
+pub struct DiffSurface {
+    pub files: u64,
+    pub added: u64,
+    pub removed: u64,
+}
+
+/// Order the Review queue. Surface dominates (a wide diff is where surprises
+/// live), then how long the card has been waiting. Protected-file weighting
+/// belongs to a later pass, when the operator can name their protected paths.
+pub fn triage(
+    cards: &[Card],
+    waiting_since_ms: &std::collections::HashMap<String, u64>,
+    surfaces: &std::collections::HashMap<String, DiffSurface>,
+    now_ms: u64,
+) -> Vec<ReviewCandidate> {
+    let mut out: Vec<ReviewCandidate> = cards
+        .iter()
+        .filter(|c| c.status == Status::Review)
+        .map(|card| {
+            let mut reasons = Vec::new();
+            let mut risk: u64 = 0;
+            if let Some(s) = surfaces.get(card.id.as_str()) {
+                if s.files > 0 {
+                    reasons.push(format!("{} {}", s.files, if s.files == 1 { "file" } else { "files" }));
+                    risk += s.files * 4;
+                }
+                if s.added + s.removed > 0 {
+                    reasons.push(format!("+{} −{}", s.added, s.removed));
+                    risk += (s.added + s.removed) / 25;
+                }
+            }
+            if let Some(&since) = waiting_since_ms.get(card.id.as_str()) {
+                let hours = now_ms.saturating_sub(since) / 3_600_000;
+                if hours >= 24 {
+                    reasons.push(format!("waiting {} days", hours / 24));
+                    risk += (hours / 24) * 6;
+                } else if hours >= 2 {
+                    reasons.push(format!("waiting {} h", hours));
+                    risk += hours * 2;
+                }
+            }
+            ReviewCandidate {
+                card_id: card.id.to_string(),
+                title: card.title.clone(),
+                risk,
+                reasons,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| b.risk.cmp(&a.risk).then(a.card_id.cmp(&b.card_id)));
+    out
+}
+
+#[cfg(test)]
+mod triage_tests {
+    use super::*;
+    use harness_domain::{Actor, CardId, Review, RunOutcome};
+
+    fn card(id: &str, status: Status) -> Card {
+        Card {
+            id: CardId::new(id),
+            title: format!("card {id}"),
+            status,
+            current_run: None,
+            agent_id: "builder".into(),
+            cost_usd: 0.0,
+            turns: 0,
+            runs: 1,
+            last_review: Some(Review { by: Actor::Director, approved: true, reason: String::new() }),
+            session_id: None,
+            worktree: None,
+            branch: None,
+            depends_on: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn wide_diffs_and_long_waits_float_to_the_top() {
+        let now = 1_000_000_000_000u64;
+        let cards = vec![
+            card("small", Status::Review),
+            card("wide", Status::Review),
+            card("done_one", Status::Done),
+        ];
+        let mut since = std::collections::HashMap::new();
+        since.insert("small".to_string(), now - 3 * 3_600_000); // 3 h
+        since.insert("wide".to_string(), now - 50 * 3_600_000); // ~2 days
+        let mut surfaces = std::collections::HashMap::new();
+        surfaces.insert(
+            "small".to_string(),
+            DiffSurface { files: 1, added: 4, removed: 0 },
+        );
+        surfaces.insert(
+            "wide".to_string(),
+            DiffSurface { files: 14, added: 320, removed: 60 },
+        );
+
+        let queue = triage(&cards, &since, &surfaces, now);
+        assert_eq!(queue.len(), 2, "only Review cards are queued");
+        assert_eq!(queue[0].card_id, "wide");
+        assert!(queue[0].risk > queue[1].risk);
+        assert!(queue[0].reasons.iter().any(|r| r.contains("files")));
+        assert!(queue[0].reasons.iter().any(|r| r.contains("waiting 2 days")));
     }
 }

@@ -21,4 +21,5 @@ fn export_types() {
     harness_app::insights::ProjectStats::export().unwrap();
     harness_app::insights::AgentStats::export().unwrap();
     harness_app::checks::CheckRow::export().unwrap();
+    harness_app::insights::ReviewCandidate::export().unwrap();
 }

@@ -539,6 +539,13 @@ impl Workspace {
                 path: project.path.clone(),
                 active: active == Some(project.id.as_str()),
                 cards: lines,
+                // Only the open project carries its charter: every board
+                // carrying one would bloat every turn for no gain.
+                charter: if active == Some(project.id.as_str()) {
+                    harness_app::memory::charter_for(Path::new(&project.path))
+                } else {
+                    None
+                },
             });
         }
         Ok(briefs)
@@ -548,6 +555,11 @@ impl Workspace {
 
     pub fn projects(&self) -> Vec<Project> {
         self.projects.lock().unwrap().clone()
+    }
+
+    /// Every live runtime, for sweeps that must visit each project once.
+    pub fn runtimes(&self) -> Vec<Arc<ProjectRuntime>> {
+        self.runtimes.lock().unwrap().values().cloned().collect()
     }
 
     pub fn project(&self, id: &str) -> Option<Project> {

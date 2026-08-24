@@ -1,6 +1,7 @@
 //! Board, run and history commands. Each one is a thin translation from the
 //! UI's intent to an engine command; no state lives here.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use harness_domain::{Actor, CardId, Command, Status};
@@ -258,7 +259,22 @@ pub(crate) async fn start_run_inner(
     }
 
     let settings = ws.settings();
-    let prompt = profile.prompt_for(&card.title, extra.as_deref());
+    let mut prompt = profile.prompt_for(&card.title, extra.as_deref());
+
+    // Curated memory, minimal form: the project's charter and the operator's
+    // global notes ride with every run. Both are capped by the reader; a
+    // missing file contributes nothing.
+    let charter = harness_app::memory::charter_for(Path::new(&runtime.project.path));
+    if let Some(charter) = charter {
+        prompt.push_str("\n\nThis project's charter:\n");
+        prompt.push_str(&charter);
+    }
+    let global = harness_app::memory::global_for(ws.paths.root());
+    if let Some(global) = global {
+        prompt.push_str("\n\nStanding notes from the operator:\n");
+        prompt.push_str(&global);
+    }
+
     runtime
         .engine
         .start_run(card_id, prompt, profile.run_profile(&settings))
@@ -363,6 +379,93 @@ pub async fn card_diff(
     })
 }
 
+/// The Review queue, ordered by the Triador: surface and wait, mechanically
+/// scored, so wide diffs and old waits surface before quiet ones.
+#[derive(Debug, Serialize)]
+pub struct QueueRow {
+    pub card_id: String,
+    pub title: String,
+    pub risk: u64,
+    pub reasons: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn review_queue(
+    project_id: String,
+    ws: Shared<'_>,
+) -> Result<Vec<QueueRow>, String> {
+    let runtime = ws.runtime(&project_id)?;
+    let snap = runtime.engine.snapshot().await?;
+    let base = runtime.project.base_branch.clone();
+    let git = Arc::clone(&runtime.git);
+
+    // Wait times come from the event log: the last run finished, minus any
+    // reject that sent the work back out again.
+    let store = Arc::clone(&runtime.store);
+    let history = tauri::async_runtime::spawn_blocking(move || {
+        harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let now_ms = history.last().map(|h| h.ts_ms).unwrap_or(0);
+    let mut waiting: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    for stored in &history {
+        match &stored.event {
+            harness_domain::Event::RunFinished { card_id, .. } => {
+                waiting.insert(card_id.to_string(), stored.ts_ms);
+            }
+            harness_domain::Event::CardRejected { card_id, .. } => {
+                waiting.remove(card_id.as_str());
+            }
+            _ => {}
+        }
+    }
+
+    let review_cards: Vec<harness_domain::Card> = snap
+        .cards
+        .iter()
+        .filter(|c| c.status == harness_domain::Status::Review)
+        .cloned()
+        .collect();
+    let ids: Vec<String> = review_cards.iter().map(|c| c.id.to_string()).collect();
+    let worktree_of = move |card_id: &str| {
+        snap.sessions
+            .iter()
+            .find(|s| s.card_id.as_str() == card_id)
+            .map(|s| s.worktree.clone())
+    };
+    // Surface comes from each card's worktree, off the actor's back.
+    let surfaces = tauri::async_runtime::spawn_blocking(move || {
+        let mut map = std::collections::HashMap::new();
+        for id in ids {
+            if let Some(wt) = worktree_of(&id) {
+                let (files, added, removed) =
+                    git.changed_files(std::path::Path::new(&wt), &base);
+                map.insert(
+                    id,
+                    insights::DiffSurface {
+                        files: files.len() as u64,
+                        added,
+                        removed,
+                    },
+                );
+            }
+        }
+        map
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(insights::triage(&review_cards, &waiting, &surfaces, now_ms)
+        .into_iter()
+        .map(|c| QueueRow {
+            card_id: c.card_id,
+            title: c.title,
+            risk: c.risk,
+            reasons: c.reasons,
+        })
+        .collect())
+}
 #[tauri::command]
 pub async fn activity(
     project_id: String,

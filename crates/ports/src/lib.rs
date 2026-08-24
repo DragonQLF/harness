@@ -164,7 +164,6 @@ pub type ToolRunner =
 /// Where an agent does its work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum WorktreeMode {
     /// A fresh branch and worktree per card.
     PerCard,
@@ -200,7 +199,6 @@ pub struct RunProfile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum Reviewer {
     /// The Director reads the diff and approves or sends it back.
     Director,

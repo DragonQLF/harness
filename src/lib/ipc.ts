@@ -21,6 +21,7 @@ import type {
   ProjectDetail,
   ProjectStats,
   ProjectView,
+  QueueRow,
   RunLogLine,
   RunUpdate,
   Settings,
@@ -95,6 +96,8 @@ export const api = {
   /** What a card changed against the base branch, read from its worktree. */
   cardDiff: (projectId: string, cardId: string) =>
     invoke<CardDiff>("card_diff", { projectId, cardId }),
+  reviewQueue: (projectId: string) => invoke<QueueRow[]>("review_queue", { projectId }),
+  analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
   // ---- conversations ----
   /** Every chat, newest first. Archived ones only when asked for. */
   conversations: (includeArchived = false) =>

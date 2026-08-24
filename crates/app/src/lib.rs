@@ -11,6 +11,7 @@ pub mod conversations;
 pub mod checks;
 pub mod director;
 pub mod insights;
+pub mod memory;
 pub mod paths;
 pub mod projects;
 pub mod settings;

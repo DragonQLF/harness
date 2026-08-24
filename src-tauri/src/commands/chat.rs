@@ -137,3 +137,58 @@ pub async fn agent_duplicate(agent_id: String, ws: Shared<'_>) -> Result<AgentPr
 pub async fn agent_remove(agent_id: String, ws: Shared<'_>) -> Result<Vec<AgentProfile>, String> {
     ws.remove_agent(&agent_id)
 }
+
+/// The tables the Analyst reads: per project, the stats and recent activity
+/// Harness already derived. JSON because it is exact, and the model reads it.
+async fn analyst_tables(ws: &Arc<Workspace>, only: Option<&str>) -> Result<String, String> {
+    let mut out = String::new();
+    for project in ws.projects() {
+        if let Some(wanted) = only {
+            if &wanted != &project.id {
+                continue;
+            }
+        }
+        let Ok(runtime) = ws.runtime(&project.id) else {
+            continue;
+        };
+        let cards = runtime.engine.snapshot().await?.cards;
+        let store = std::sync::Arc::clone(&runtime.store);
+        let history = tauri::async_runtime::spawn_blocking(move || {
+            harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        let stats = harness_app::insights::project_stats(&history, &cards, 0);
+        let rows = harness_app::insights::activity(&history, &cards, 60);
+        out.push_str(&format!(
+            "### {} ({})\nstats: {}\nrecent: {}\n\n",
+            project.name,
+            project.id,
+            serde_json::to_string(&stats).unwrap_or_default(),
+            serde_json::to_string(&rows).unwrap_or_default(),
+        ));
+    }
+    Ok(out)
+}
+
+/// Ask the Analyst: opens (or reuses) a Director conversation, hands it the
+/// precomputed tables, and the answer streams back like any other chat. The
+/// model interprets numbers it was given — it never computes its own.
+#[tauri::command]
+pub async fn analyst_ask(
+    project_id: Option<String>,
+    ws: Shared<'_>,
+) -> Result<String, String> {
+    let tables = analyst_tables(&ws, project_id.as_deref()).await?;
+    if tables.trim().is_empty() {
+        return Err("no projects to analyse yet".to_string());
+    }
+    let conversation = ws.open_conversation(
+        Some(harness_app::agents::DIRECTOR_ID.to_string()),
+        project_id,
+    )?;
+    crate::chat::send(&ws, Some(conversation.id.clone()), harness_app::director::analyst_prompt(&tables))
+        .await?;
+    Ok(conversation.id)
+}

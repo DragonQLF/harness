@@ -29,6 +29,10 @@ pub struct ProjectBrief {
     /// True for the project the operator currently has open.
     pub active: bool,
     pub cards: Vec<CardLine>,
+    /// The project's charter (charter.md), when it has one. Filled in by the
+    /// shell for the open project; every board carrying its own charter would
+    /// bloat every turn for no gain.
+    pub charter: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +109,8 @@ pub struct ChatContext<'a> {
     pub resumed: bool,
     /// Agents the operator has configured, for delegation.
     pub crew: &'a [(String, String)],
+    /// The operator's standing notes (global.md), always worth repeating.
+    pub global_memory: &'a str,
 }
 
 fn status_word(status: Status) -> &'static str {
@@ -127,10 +133,18 @@ fn render(brief: &ProjectBrief) -> String {
         if brief.active { " — open right now" } else { "" },
         brief.path
     ));
-    if brief.cards.is_empty() {
-        out.push_str("(no cards yet)\n");
-        return out;
-    }
+        // The charter is the one thing that does not change with the board,
+        // so it reads before the cards rather than after them.
+        if let Some(charter) = &brief.charter {
+            out.push_str("Their charter for this project:\n");
+            for line in charter.lines() {
+                out.push_str(&format!("  {line}\n"));
+            }
+        }
+        if brief.cards.is_empty() {
+            out.push_str("(no cards yet)\n");
+            return out;
+        }
     for card in &brief.cards {
         out.push_str(&format!(
             "- [{}] {} — {} ({})",
@@ -286,6 +300,15 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
 
     prompt.push_str(&how_harness_works(ctx));
 
+    // Standing notes travel with every fresh session: they are the operator's
+    // "always, everywhere" and the model cannot know them otherwise. On a
+    // resumed session they are already in there.
+    if !ctx.global_memory.trim().is_empty() {
+        prompt.push_str("Standing notes from the operator (always apply):\n");
+        prompt.push_str(ctx.global_memory.trim());
+        prompt.push_str("\n\n");
+    }
+
     if ctx.projects.is_empty() {
         prompt.push_str(
             "No projects are registered yet, so there is no board and no code to read. That is \
@@ -337,6 +360,25 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
     prompt
 }
 
+/// The Analyst: reads the numbers the app already computed — never computes
+/// its own, models miscount — and answers with an ordered list of what to fix,
+/// citing card ids as evidence. It writes nothing; the answer is the work.
+pub fn analyst_prompt(tables: &str) -> String {
+    format!(
+        "You are the Analyst. Below are tables Harness already computed about its own \
+         operation: card flow, spend, runs, reviews.\n\n\
+         Rules:\n\
+         - Interpret; do not recompute. The arithmetic is given and trusted. If two numbers \
+         look inconsistent, say so instead of averaging them.\n\
+         - Every claim cites evidence: a card id, a number from the tables, or \"not in the \
+         data\".\n\
+         - End with at most five fixes, most urgent first, each one line: what to change, \
+         which card or number shows why.\n\
+         - You have no tools and write nothing. The answer is the work.\n\n\
+         TABLES:\n{tables}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,6 +414,7 @@ mod tests {
             repo: None,
             resumed: false,
             crew: &[],
+            global_memory: "",
         }
     }
 
@@ -425,6 +468,7 @@ mod tests {
                         ..card("c_2", "Scope the allowlist", Status::Review)
                     },
                 ],
+                charter: None,
             },
             ProjectBrief {
                 id: "atlas".into(),
@@ -432,6 +476,7 @@ mod tests {
                 path: "C:/src/atlas".into(),
                 active: false,
                 cards: vec![],
+                charter: None,
             },
         ];
         let mut c = ctx(&projects);
@@ -455,6 +500,7 @@ mod tests {
             path: "C:/src/atlas".into(),
             active: false,
             cards: vec![card("c_9", "Usage rollup", Status::Ready)],
+            charter: None,
         }];
         let mut c = ctx(&projects);
         c.resumed = true;
@@ -526,6 +572,7 @@ mod tests {
                 added: 3,
                 removed: 0,
             }))],
+            charter: None,
         }];
         let prompt = chat_prompt(&ctx(&projects), "what is in that card?");
         assert!(prompt.contains("1 file touched: docs/notes.md (+3 -0)"));
@@ -546,10 +593,35 @@ mod tests {
             path: "C:/src/atlas".into(),
             active: false,
             cards: vec![card("c_9", "Usage rollup", Status::Ready)],
+            charter: None,
         }];
         let prompt = chat_prompt(&ctx(&projects), "anything waiting?");
         assert!(prompt.contains("No project is open"));
         assert!(!prompt.contains("you may read its files"));
+    }
+
+    #[test]
+    fn curated_memory_rides_with_the_prompt() {
+        let projects = vec![ProjectBrief {
+            id: "atlas".into(),
+            name: "atlas".into(),
+            path: "C:/src/atlas".into(),
+            active: true,
+            cards: vec![],
+            charter: Some("Ship weekly. Never touch billing without a human.".into()),
+        }];
+        let mut c = ctx(&projects);
+        c.global_memory = "Write plainly. No marketing adjectives.";
+        let prompt = chat_prompt(&c, "what next?");
+
+        assert!(prompt.contains("Standing notes from the operator"));
+        assert!(prompt.contains("Write plainly. No marketing adjectives."));
+        // The charter reads under its own project, before the cards.
+        let charter_at = prompt.find("Their charter for this project").unwrap();
+        let boards_at = prompt.find("## atlas").unwrap();
+        assert!(boards_at < charter_at, "charter belongs to its board");
+        assert!(prompt.contains("Never touch billing without a human."));
+        assert!(!prompt.contains("(no cards yet)\nTheir"), "ordering holds");
     }
 
     #[test]

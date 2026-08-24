@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ago, money, plural } from "../lib/format";
 import { MODELS, tone } from "../lib/types";
+import type { QueueRow } from "../lib/types";
+import { api } from "../lib/ipc";
 import { useStore } from "../state/store";
 import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
 
@@ -126,11 +128,29 @@ export function Review({
   } = useStore();
 
   const [why, setWhy] = useState("");
+  const [queue, setQueue] = useState<QueueRow[]>([]);
   const cards = useMemo(
     () => (snapshot?.cards ?? []).filter((c) => c.status === "review"),
     [snapshot],
   );
-  const card = cards.find((c) => c.id === selected) ?? cards[0] ?? null;
+  // The Triador's ordering: widest surface and longest wait first.
+  useEffect(() => {
+    if (!project?.id) return;
+    let alive = true;
+    api
+      .reviewQueue(project.id)
+      .then((rows) => alive && setQueue(rows))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [project?.id, cards.length]);
+  const riskOf = (id: string) => queue.find((q) => q.card_id === id)?.risk ?? -1;
+  const sorted = useMemo(
+    () => [...cards].sort((a, b) => riskOf(b.id) - riskOf(a.id)),
+    [cards, queue],
+  );
+  const card = sorted.find((c) => c.id === selected) ?? sorted[0] ?? null;
   const diff = card ? diffs[card.id] : undefined;
 
   useEffect(() => {
@@ -214,27 +234,38 @@ export function Review({
             {plural(card.runs, "run")} · {money(card.cost_usd, 4)}
           </div>
         </div>
-        {cards.length > 1 && (
+        {sorted.length > 1 && (
           <div style={{ display: "flex", gap: 5 }}>
-            {cards.map((c) => (
-              <span
-                key={c.id}
-                className="chip"
-                onClick={() => select(c.id)}
-                style={{
-                  padding: "4px 9px",
-                  borderRadius: 999,
-                  border: `1px solid ${c.id === card.id ? "var(--accentLine)" : "var(--line3)"}`,
-                  background: c.id === card.id ? "var(--accentSoft)" : "transparent",
-                  ...mono,
-                  fontSize: 10,
-                  color: c.id === card.id ? "var(--accent2)" : "var(--text3)",
-                  cursor: "pointer",
-                }}
-              >
-                {c.id}
-              </span>
-            ))}
+            {sorted.map((c) => {
+              const r = riskOf(c.id);
+              return (
+                <span
+                  key={c.id}
+                  onClick={() => select(c.id)}
+                  title={r >= 0 ? `triage risk ${r}` : undefined}
+                  style={{
+                    padding: "4px 9px",
+                    borderRadius: 999,
+                    border: `1px solid ${c.id === card.id ? "var(--accentLine)" : "var(--line3)"}`,
+                    background: c.id === card.id ? "var(--accentSoft)" : "transparent",
+                    ...mono,
+                    fontSize: 10,
+                    color: c.id === card.id ? "var(--accent2)" : "var(--text3)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  {c.id}
+                  {queue.length > 0 && r >= 0 && (
+                    <b style={{ color: r > 40 ? "var(--warn)" : "var(--text4)", fontWeight: 600 }}>
+                      {r}
+                    </b>
+                  )}
+                </span>
+              );
+            })}
           </div>
         )}
         <span style={{ ...mono, fontSize: 11, fontWeight: 500, color: "var(--ok)" }}>

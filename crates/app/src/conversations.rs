@@ -16,7 +16,6 @@ use ts_rs::TS;
 /// One chat: a Harness conversation bound to a native Claude session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
-#[ts(export)]
 pub struct Conversation {
     /// Harness's own id, and the run-log file name. Prefixed `chat_` so it can
     /// never be mistaken for a card id (`c_…`).

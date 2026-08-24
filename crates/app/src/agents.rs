@@ -13,7 +13,6 @@ pub const DEFAULT_WORKER: &str = "builder";
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
-#[ts(export)]
 pub struct AgentProfile {
     pub id: String,
     pub name: String,

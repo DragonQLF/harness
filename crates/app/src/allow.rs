@@ -24,7 +24,6 @@ use ts_rs::TS;
 
 /// One standing allowance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(export)]
 pub struct AllowRule {
     pub tool: String,
     /// The leading words of the command this rule covers. `None` means the tool

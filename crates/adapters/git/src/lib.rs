@@ -522,7 +522,6 @@ fn language_for(path: &str) -> Option<&'static str> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum BranchState {
     Default,
     Live,
@@ -531,7 +530,6 @@ pub enum BranchState {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct BranchRow {
     pub name: String,
     pub when: String,
@@ -540,7 +538,6 @@ pub struct BranchRow {
 }
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
-#[ts(export)]
 pub struct WorktreeRow {
     pub path: String,
     pub head: String,
@@ -550,7 +547,6 @@ pub struct WorktreeRow {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct CommitRow {
     pub sha: String,
     pub short: String,
@@ -571,7 +567,6 @@ pub struct CommitRow {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct LanguageRow {
     pub name: String,
     pub bytes: u64,
