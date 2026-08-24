@@ -230,6 +230,10 @@ pub struct RunSpec {
     /// Room for the model to reason before answering. Without it there is no
     /// thinking to stream.
     pub thinking_tokens: Option<u32>,
+    /// May this run spawn subagents of its own? A run's children may never
+    /// spawn: fan-out is capped at one level, enforced in the sidecar's
+    /// `canUseTool`.
+    pub subagents: bool,
 }
 
 impl RunSpec {
@@ -245,6 +249,7 @@ impl RunSpec {
             resume_session: None,
             tools: None,
             thinking_tokens: None,
+            subagents: false,
         }
     }
 }

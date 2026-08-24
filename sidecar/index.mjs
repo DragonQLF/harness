@@ -180,6 +180,44 @@ async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
 
+  // Fan-out cap: a run may spawn subagents only when its spec allows it, and
+  // a subagent may never spawn one — depth is capped at one level. The
+  // counter rises when a Task is approved and falls on the SDK's PostToolUse
+  // hook; if that hook never fires (a crash mid-task), the counter stays up,
+  // which denies further spawns. Failing closed is the safe direction.
+  let childDepth = 0;
+  const canUseTool = async (toolName, input) => {
+    if (toolName === "Task") {
+      if (!spec.subagents) {
+        return { behavior: "deny", message: "subagents are off for this run" };
+      }
+      if (childDepth > 0) {
+        return {
+          behavior: "deny",
+          message: "subagents cannot spawn subagents; do the work directly",
+        };
+      }
+    }
+
+    const request_id = randomUUID();
+    const decision = new Promise((resolve) => approvals.set(request_id, resolve));
+    send({ type: "approval_request", request_id, run_id: id, tool: toolName, input });
+    let allow;
+    try {
+      allow = await Promise.race([
+        decision,
+        new Promise((resolve) =>
+          ac.signal.addEventListener("abort", () => resolve(false)),
+        ),
+      ]);
+    } finally {
+      approvals.delete(request_id);
+    }
+    if (!allow) return { behavior: "deny", message: "denied by operator" };
+    if (toolName === "Task") childDepth++;
+    return { behavior: "allow", updatedInput: input };
+  };
+
   const options = {
     cwd: spec.cwd,
     abortController: ac,
@@ -192,23 +230,19 @@ async function handleRun({ id, spec }) {
     settingSources: [],
     mcpServers: spec.harness_tools ? { harness: harnessTools(id) } : {},
     strictMcpConfig: true,
-    canUseTool: async (toolName, input) => {
-      const request_id = randomUUID();
-      const decision = new Promise((resolve) => approvals.set(request_id, resolve));
-      send({ type: "approval_request", request_id, run_id: id, tool: toolName, input });
-      let allow;
-      try {
-        allow = await Promise.race([
-          decision,
-          new Promise((resolve) =>
-            ac.signal.addEventListener("abort", () => resolve(false)),
-          ),
-        ]);
-      } finally {
-        approvals.delete(request_id);
-      }
-      if (!allow) return { behavior: "deny", message: "denied by operator" };
-      return { behavior: "allow", updatedInput: input };
+    canUseTool,
+    hooks: {
+      PostToolUse: [
+        {
+          matcher: "Task",
+          hooks: [
+            async () => {
+              childDepth = Math.max(0, childDepth - 1);
+              return {};
+            },
+          ],
+        },
+      ],
     },
   };
 

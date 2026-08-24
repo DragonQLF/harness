@@ -96,6 +96,8 @@ async fn drive(
             // Whether this run may act on Harness itself.
             "harness_tools": spec.tools.is_some(),
             "thinking_tokens": spec.thinking_tokens,
+            // Whether this run may spawn subagents of its own.
+            "subagents": spec.subagents,
         }
     });
     LineSink { stdin: &mut stdin }.send(run_msg).await?;

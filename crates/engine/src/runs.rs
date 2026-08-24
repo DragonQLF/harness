@@ -219,6 +219,8 @@ impl Engine {
             // worker acts on the repository, not on the app.
             tools: None,
             thinking_tokens: None,
+            // A worker may fan out one level; its children never may.
+            subagents: true,
         };
 
         self.emit_run(

@@ -75,6 +75,8 @@ impl Engine {
                 resume_session: None,
                 tools: None,
                 thinking_tokens: None,
+                // A review reads one diff; no fan-out.
+                subagents: false,
             };
 
             let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
