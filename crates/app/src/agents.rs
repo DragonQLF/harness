@@ -136,6 +136,8 @@ impl AgentProfile {
             } else {
                 self.reviewer
             },
+            // A hand-edited profile with 0 would otherwise mean "runs nothing".
+            max_concurrent: self.max_concurrent.max(1),
         }
     }
 

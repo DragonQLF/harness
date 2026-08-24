@@ -13,32 +13,19 @@ use crate::{extract_json_object, Engine, Msg};
 
 impl Engine {
     /// Read the diff a finished run produced and approve it or send it back.
+    /// Everything slow happens in the spawned task: reading the diff is git
+    /// work, and the actor must not sit still behind it.
     pub(crate) async fn run_director_review(&mut self, card_id: CardId, run_id: RunId) {
         let Some(session) = self.sessions.get(&card_id) else {
             return;
         };
         let worktree = session.worktree.clone();
 
-        let git = Arc::clone(&self.git);
-        let wt = WorktreePath(worktree.clone());
-        let base = self.config.base_branch.clone();
-        let diff = tokio::task::block_in_place(move || git.diff_summary(&wt, &base))
-            .unwrap_or_else(|_| "(diff unavailable)".to_string());
-
         let title = self
             .board
             .get(&card_id)
             .map(|c| c.title.clone())
             .unwrap_or_else(|| card_id.to_string());
-
-        let prompt = format!(
-            "You are the Director reviewing work done for the card '{title}' ({card_id}).\n\n\
-             Judge whether the diff below fulfils the task. Be strict about scope: work that \
-             widens permissions, touches unrelated files or skips tests should be sent back.\n\n\
-             Respond with ONLY a JSON object, no other text:\n\
-             {{\"decision\": \"approve\"|\"reject\", \"reason\": \"<one short sentence>\"}}\n\n\
-             DIFF:\n{diff}"
-        );
 
         self.emit_run(
             &card_id,
@@ -48,21 +35,12 @@ impl Engine {
             },
         );
 
-        let spec = RunSpec {
-            prompt,
-            cwd: worktree,
-            model: self.config.director_model.clone(),
-            allowed_tools: Some(self.config.director_allowed_tools.clone()),
-            max_budget_usd: None,
-            permission_mode: Some("dontAsk".to_string()),
-            approver: None,
-            resume_session: None,
-            tools: None,
-            thinking_tokens: None,
-        };
-
-        let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-        let fut = self.director.run(spec, ev_tx, CancellationToken::new());
+        let git = Arc::clone(&self.git);
+        let wt = WorktreePath(worktree.clone());
+        let base = self.config.base_branch.clone();
+        let director = Arc::clone(&self.director);
+        let model = self.config.director_model.clone();
+        let allowed_tools = self.config.director_allowed_tools.clone();
 
         let self_tx = self.self_tx.clone();
         let runs_tx = self.runs_tx.clone();
@@ -70,10 +48,41 @@ impl Engine {
         let project_id = self.config.project_id.clone();
         let review_card = card_id;
         let review_run = run_id;
-        let last_result = Arc::new(std::sync::Mutex::new(None::<String>));
-        let lr = Arc::clone(&last_result);
 
         tokio::spawn(async move {
+            let diff = tokio::task::spawn_blocking(move || git.diff_summary(&wt, &base))
+                .await
+                .unwrap_or_else(|_| Err(harness_ports::GitError::Git("task lost".into())))
+                .unwrap_or_else(|_| "(diff unavailable)".to_string());
+
+            let prompt = format!(
+                "You are the Director reviewing work done for the card '{title}' ({review_card}).\n\n\
+                 Judge whether the diff below fulfils the task. Be strict about scope: work that \
+                 widens permissions, touches unrelated files or skips tests should be sent back.\n\n\
+                 Respond with ONLY a JSON object, no other text:\n\
+                 {{\"decision\": \"approve\"|\"reject\", \"reason\": \"<one short sentence>\"}}\n\n\
+                 DIFF:\n{diff}"
+            );
+
+            let spec = RunSpec {
+                prompt,
+                cwd: worktree,
+                model,
+                allowed_tools: Some(allowed_tools),
+                max_budget_usd: None,
+                permission_mode: Some("dontAsk".to_string()),
+                approver: None,
+                resume_session: None,
+                tools: None,
+                thinking_tokens: None,
+            };
+
+            let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
+            let fut = director.run(spec, ev_tx, CancellationToken::new());
+
+            let last_result = Arc::new(std::sync::Mutex::new(None::<String>));
+            let lr = Arc::clone(&last_result);
+
             let forward = async {
                 while let Some(ev) = ev_rx.recv().await {
                     match &ev {

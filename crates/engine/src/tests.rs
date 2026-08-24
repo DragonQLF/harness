@@ -209,6 +209,9 @@ struct FakeGit {
     commit_fails: Option<String>,
     /// A checkout that cannot be created, the way a locked worktree is.
     fail_worktree: bool,
+    /// When set, wip commits are also recorded here, so a test can prove an
+    /// ordering against events the agent recorded in the same vec.
+    order: Option<Arc<Mutex<Vec<&'static str>>>>,
 }
 
 impl FakeGit {
@@ -218,6 +221,7 @@ impl FakeGit {
             calls: Mutex::new(Vec::new()),
             commit_fails: None,
             fail_worktree: false,
+            order: None,
         }
     }
 
@@ -229,6 +233,7 @@ impl FakeGit {
             calls: Mutex::new(Vec::new()),
             commit_fails: Some(reason.to_string()),
             fail_worktree: false,
+            order: None,
         }
     }
 
@@ -281,6 +286,9 @@ impl GitPort for FakeGit {
 
     fn commit_wip(&self, _wt: &WorktreePath) -> Result<Option<String>, GitError> {
         self.calls.lock().unwrap().push("wip".into());
+        if let Some(order) = &self.order {
+            order.lock().unwrap().push("wip");
+        }
         match &self.commit_fails {
             Some(reason) => Err(GitError::Git(reason.clone())),
             None => Ok(Some("wipbeef".into())),
@@ -342,6 +350,31 @@ impl AgentPort for ResumeSpy {
     }
 }
 
+/// An agent that keeps working for a while *after* being cancelled — what a
+/// sidecar mid-write looks like. It records when it actually stopped, so a
+/// test can prove the wip commit waited for it.
+struct SlowCancelAgent {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl AgentPort for SlowCancelAgent {
+    fn run(
+        &self,
+        _spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        let order = Arc::clone(&self.order);
+        Box::pin(async move {
+            cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            drop(tx);
+            order.lock().unwrap().push("agent-stopped");
+            Ok(RunOutcome::Cancelled)
+        })
+    }
+}
+
 fn test_config() -> EngineConfig {
     EngineConfig::new("proj-test", std::env::temp_dir())
 }
@@ -355,6 +388,7 @@ fn profile() -> RunProfile {
         max_budget_usd: None,
         worktree: WorktreeMode::PerCard,
         reviewer: Reviewer::Director,
+        max_concurrent: 1,
     }
 }
 
@@ -627,7 +661,106 @@ async fn shutdown_cancels_running_work_and_leaves_a_wip_commit() {
     .await;
 
     r.handle.shutdown().await.unwrap();
-    assert!(r.git.calls().iter().any(|c| c == "wip"));
+    assert_eq!(
+        r.git.calls().iter().filter(|c| c == &&"wip".to_string()).count(),
+        1,
+        "exactly one commit owns the worktree: two racing is how index.lock fights start"
+    );
+}
+
+/// The old shutdown cancelled the token and committed immediately, while the
+/// run task — seeing its cancellation — committed too. One wip commit per
+/// worktree, made by the run task, *after* the agent has stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_waits_for_the_agent_before_the_single_wip_commit() {
+    let order: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut git = FakeGit::new();
+    git.order = Some(Arc::clone(&order));
+    let git = Arc::new(git);
+    let store = Arc::new(MemStore::default());
+
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(SlowCancelAgent {
+                order: Arc::clone(&order),
+            }),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: true,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_slow");
+    card_ready(&handle, &id).await;
+    handle
+        .start_run(id.clone(), "long job".into(), profile())
+        .await
+        .unwrap();
+    wait_for("run registers as active", async || {
+        !handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    handle.shutdown().await.unwrap();
+
+    assert_eq!(
+        *order.lock().unwrap(),
+        vec!["agent-stopped", "wip"],
+        "the commit happened once, and only after the agent had actually stopped"
+    );
+}
+
+/// With "commit on close" off, a close-cancellation must not leave commits
+/// behind — that setting means the operator takes the risk, not that we
+/// pretend to honour it while a second code path commits anyway. An in-app
+/// cancel still commits (the flag is only cleared for shutdown).
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_without_commit_policy_leaves_nothing_behind() {
+    let mut git = FakeGit::new();
+    git.order = Some(Arc::new(Mutex::new(Vec::new())));
+    let git = Arc::new(git);
+    let store = Arc::new(MemStore::default());
+
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: true,
+            commit_wip_on_close: false,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_nocommit");
+    card_ready(&handle, &id).await;
+    handle.start_run(id.clone(), "work".into(), profile()).await.unwrap();
+    wait_for("run registers as active", async || {
+        !handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    handle.shutdown().await.unwrap();
+    assert!(
+        !git.calls().iter().any(|c| c == "wip"),
+        "no commit was asked for on close"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -887,6 +1020,45 @@ async fn a_second_run_on_the_same_card_is_refused() {
         .await
         .unwrap_err();
     assert!(err.contains("active run"), "unexpected error: {err}");
+}
+
+/// `max_concurrent` used to be stored and displayed but enforced nowhere. It
+/// counts active runs per agent across cards, and the engine refuses a start
+/// that would exceed it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_at_its_limit_refuses_another_card() {
+    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let first = CardId::new("c13a");
+    let second = CardId::new("c13b");
+    card_ready(&r.handle, &first).await;
+    card_ready(&r.handle, &second).await;
+
+    r.handle
+        .start_run(first.clone(), "one".into(), profile())
+        .await
+        .unwrap();
+    wait_for("first run is active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    // A different card, same agent: over the limit of 1.
+    let err = r
+        .handle
+        .start_run(second.clone(), "two".into(), profile())
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("its limit is 1"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(status_of(&r.handle, &second).await, Some(Status::Ready));
+
+    // Raising the limit lets it through.
+    let mut wider = profile();
+    wider.max_concurrent = 2;
+    r.handle.start_run(second, "two".into(), wider).await.unwrap();
+    assert_eq!(r.handle.active_runs().await.unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]

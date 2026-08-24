@@ -258,6 +258,7 @@ pub enum DecisionError {
     NotRunning(Status),
     NotInReview(Status),
     RunMismatch,
+    CannotOverrideToRunning,
 }
 
 impl fmt::Display for DecisionError {
@@ -283,6 +284,9 @@ impl fmt::Display for DecisionError {
                 write!(f, "card is not in Review (is {status:?})")
             }
             DecisionError::RunMismatch => write!(f, "run id does not match the active run"),
+            DecisionError::CannotOverrideToRunning => {
+                write!(f, "only starting a run puts a card in Running")
+            }
         }
     }
 }
@@ -478,6 +482,13 @@ impl Board {
                 }
                 if card.status == *to {
                     return Err(DecisionError::SameStatus(card.status));
+                }
+                // An override straight to Running would produce a card that is
+                // running nothing: no current_run, no worktree, and FinishRun,
+                // StartRun and DiscardCard all refuse it. Only a real run
+                // starts one.
+                if *to == Status::Running {
+                    return Err(DecisionError::CannotOverrideToRunning);
                 }
                 Ok(vec![Event::CardOverridden {
                     card_id: card_id.clone(),
@@ -778,6 +789,24 @@ mod tests {
             board.apply(&e);
         }
         assert_eq!(board.get(&id).unwrap().status, Backlog);
+    }
+
+    #[test]
+    fn override_to_running_is_refused() {
+        let mut board = Board::default();
+        let id = CardId::new("c4");
+        card_in(&mut board, &id, Ready);
+
+        assert!(matches!(
+            board.decide(&Command::OverrideCard {
+                card_id: id.clone(),
+                to: Running,
+                reason: "make it go".into(),
+            }),
+            Err(DecisionError::CannotOverrideToRunning)
+        ));
+        assert_eq!(board.get(&id).unwrap().status, Ready);
+        assert_eq!(board.get(&id).unwrap().current_run, None);
     }
 
     #[test]

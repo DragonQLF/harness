@@ -19,6 +19,93 @@ function classify(text: string): { bg: string; color: string } {
   return { bg: "transparent", color: "var(--text3)" };
 }
 
+/** A patch split into files, so a large change can be walked one file at a time. */
+type FilePatch = { path: string; added: number; removed: number; lines: string[] };
+
+function splitFiles(patch: string): FilePatch[] {
+  const files: FilePatch[] = [];
+  let current: FilePatch | null = null;
+  for (const text of patch.split("\n")) {
+    if (text.startsWith("diff --git ")) {
+      const match = /^diff --git a\/(.*) b\/(.*)$/.exec(text);
+      current = {
+        path: match ? match[2] : text.slice("diff --git ".length),
+        added: 0,
+        removed: 0,
+        lines: [],
+      };
+      files.push(current);
+      continue;
+    }
+    // Lines before the first header are mail-format noise; drop them.
+    if (!current) continue;
+    current.lines.push(text);
+    if (text.startsWith("+") && !text.startsWith("+++")) current.added++;
+    else if (text.startsWith("-") && !text.startsWith("---")) current.removed++;
+  }
+  return files;
+}
+
+/** One changed file: a header you can collapse, and the hunks under it. */
+function FileSection({ file }: { file: FilePatch }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "5px 18px",
+          cursor: "pointer",
+          position: "sticky",
+          top: 0,
+          background: "var(--bg)",
+          borderTop: "1px solid var(--line)",
+          borderBottom: "1px solid var(--line)",
+        }}
+      >
+        <span style={{ ...mono, fontSize: 9, color: "var(--text4)", width: 10 }}>
+          {open ? "▾" : "▸"}
+        </span>
+        <span
+          title={file.path}
+          style={{ flex: 1, minWidth: 0, ...mono, fontSize: 11, fontWeight: 600, color: "var(--text2)", ...truncate }}
+        >
+          {file.path}
+        </span>
+        <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--ok)" }}>
+          +{file.added}
+        </span>
+        <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--bad)" }}>
+          −{file.removed}
+        </span>
+      </div>
+      {open &&
+        file.lines.map((text, i) => {
+          const c = classify(text);
+          return (
+            <div
+              key={i}
+              style={{
+                padding: "0 18px",
+                background: c.bg,
+                color: c.color,
+                ...mono,
+                fontSize: 12,
+                lineHeight: 1.85,
+                whiteSpace: "pre",
+              }}
+            >
+              {text}
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
 export function Review({
   selected,
   select,
@@ -93,7 +180,7 @@ export function Review({
     },
   ];
 
-  const lines = (diff?.patch ?? "").split("\n");
+  const files = useMemo(() => (diff ? splitFiles(diff.patch) : []), [diff]);
 
   return (
     <div
@@ -300,25 +387,9 @@ export function Review({
                 work was already on the base branch.
               </div>
             )}
-            {lines.map((text, i) => {
-              const c = classify(text);
-              return (
-                <div
-                  key={i}
-                  style={{
-                    padding: "0 18px",
-                    background: c.bg,
-                    color: c.color,
-                    ...mono,
-                    fontSize: 12,
-                    lineHeight: 1.85,
-                    whiteSpace: "pre",
-                  }}
-                >
-                  {text}
-                </div>
-              );
-            })}
+            {files.map((file, i) => (
+              <FileSection key={`${i}:${file.path}`} file={file} />
+            ))}
           </div>
 
           <div

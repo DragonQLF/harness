@@ -183,6 +183,9 @@ pub struct RunProfile {
     pub worktree: WorktreeMode,
     /// Who reads the diff when the run finishes.
     pub reviewer: Reviewer,
+    /// How many cards this agent may work on at once. The engine refuses a
+    /// start that would exceed it.
+    pub max_concurrent: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,34 +1,155 @@
 //! Starting, cancelling and finishing agent runs.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use harness_domain::{Actor, CardId, Command, RunId, RunOutcome};
 use harness_ports::{
     RunEvent, RunProfile, RunSpec, Reviewer, Trailers, WorktreeMode, WorktreePath,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::{Engine, Msg, RunEntry, SessionEntry, worktree_label, SHARED_WORKTREE};
 
 impl Engine {
+    /// What must hold before a run may begin. Checked here for a fast answer
+    /// and again in `launch_run`, because between asking for a worktree and
+    /// being handed one, other messages get processed and the world can move.
+    fn check_run_start(&self, card_id: &CardId, profile: &RunProfile) -> Result<(), String> {
+        if self.runs.contains_key(card_id) {
+            return Err("card already has an active run".to_string());
+        }
+        let limit = profile.max_concurrent.max(1) as usize;
+        let active = self
+            .runs
+            .values()
+            .filter(|entry| entry.agent_id == profile.agent_id)
+            .count();
+        if active >= limit {
+            let unit = if active == 1 { "card" } else { "cards" };
+            return Err(format!(
+                "{} is already working on {} {}; its limit is {}",
+                profile.agent_id, active, unit, limit
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn start_run(
         &mut self,
         card_id: CardId,
         prompt: String,
         profile: RunProfile,
-    ) -> Result<RunId, String> {
-        if self.runs.contains_key(&card_id) {
-            return Err("card already has an active run".to_string());
+        reply: oneshot::Sender<Result<RunId, String>>,
+    ) {
+        if let Err(e) = self.check_run_start(&card_id, &profile) {
+            let _ = reply.send(Err(e));
+            return;
         }
+        match profile.worktree {
+            WorktreeMode::None => {
+                let worktree = WorktreePath(self.config.repo_root.clone());
+                self.launch_run(card_id, prompt, profile, reply, Ok(worktree))
+                    .await;
+            }
+            WorktreeMode::Shared => match self.shared_checkout() {
+                Some(existing) => {
+                    self.launch_run(card_id, prompt, profile, reply, Ok(existing))
+                        .await;
+                }
+                None => {
+                    self.resolve_worktree_off_actor(
+                        SHARED_WORKTREE.to_string(),
+                        card_id,
+                        prompt,
+                        profile,
+                        reply,
+                    );
+                }
+            },
+            WorktreeMode::PerCard => {
+                let name = card_id.to_string();
+                self.resolve_worktree_off_actor(name, card_id, prompt, profile, reply);
+            }
+        }
+    }
+
+    /// The shared checkout, adopted when it already exists on disk: recreating
+    /// it would take the branch its commits are on. Asking is pure path maths,
+    /// so this stays on the actor.
+    fn shared_checkout(&mut self) -> Option<WorktreePath> {
+        if let Some(cached) = self.shared_worktree.clone() {
+            if cached.0.exists() {
+                return Some(cached);
+            }
+        }
+        let path = self.git.worktree_path(SHARED_WORKTREE);
+        if path.is_dir() {
+            let found = WorktreePath(path);
+            self.shared_worktree = Some(found.clone());
+            return Some(found);
+        }
+        None
+    }
+
+    /// Create a worktree off the actor. `git worktree add` — preceded by
+    /// `worktree remove --force` and `branch -D` — takes seconds on a large
+    /// repository; doing that inline froze snapshots, cancels and run
+    /// completions behind it. The result comes back as a message.
+    fn resolve_worktree_off_actor(
+        &self,
+        name: String,
+        card_id: CardId,
+        prompt: String,
+        profile: RunProfile,
+        reply: oneshot::Sender<Result<RunId, String>>,
+    ) {
+        let git = Arc::clone(&self.git);
+        let base = self.config.base_branch.clone();
+        let self_tx = self.self_tx.clone();
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || git.create_worktree(&name, &base))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|inner| inner.map_err(|e| e.to_string()));
+            let _ = self_tx
+                .send(Msg::WorktreeResolved {
+                    card_id,
+                    prompt,
+                    profile: Box::new(profile),
+                    reply,
+                    result,
+                })
+                .await;
+        });
+    }
+
+    /// Record the run and set the agent loose. The worktree is settled by the
+    /// time this runs — resolved *before* the run is recorded, so a checkout
+    /// that cannot be created never leaves a card marked Running with no run
+    /// behind it, and the log can say where the work happened.
+    pub(crate) async fn launch_run(
+        &mut self,
+        card_id: CardId,
+        prompt: String,
+        profile: RunProfile,
+        reply: oneshot::Sender<Result<RunId, String>>,
+        worktree_result: Result<WorktreePath, String>,
+    ) {
+        if let Err(e) = self.check_run_start(&card_id, &profile) {
+            let _ = reply.send(Err(e));
+            return;
+        }
+        let worktree = match worktree_result {
+            Ok(wt) => wt,
+            Err(e) => {
+                let _ = reply.send(Err(format!("could not create the worktree: {e}")));
+                return;
+            }
+        };
         let run_id = RunId(uuid::Uuid::new_v4().to_string());
 
-        // The worktree is resolved *before* the run is recorded, for two
-        // reasons: a checkout that cannot be created must not leave a card
-        // marked Running with no run behind it, and the log needs to say where
-        // the work happened — that is not derivable afterwards, because the
-        // profile that chose the mode may have changed by then.
-        let worktree = self.worktree_for(&card_id, profile.worktree)?;
         let branch = match profile.worktree {
             WorktreeMode::None => None,
             _ => worktree
@@ -37,16 +158,24 @@ impl Engine {
                 .map(|n| format!("harness/{}", n.to_string_lossy())),
         };
 
-        let events = self
+        let events = match self
             .board
             .decide(&Command::StartRun {
                 card_id: card_id.clone(),
                 run_id: run_id.clone(),
                 worktree: Some(worktree.0.to_string_lossy().to_string()),
                 branch: branch.clone(),
-            })
-            .map_err(|e| e.to_string())?;
-        self.persist(events).await?;
+            }) {
+            Ok(events) => events,
+            Err(e) => {
+                let _ = reply.send(Err(e.to_string()));
+                return;
+            }
+        };
+        if let Err(e) = self.persist(events).await {
+            let _ = reply.send(Err(e));
+            return;
+        }
 
         let started_ms = self.now();
         // What the last run left behind, whether that was a minute ago or
@@ -63,27 +192,9 @@ impl Engine {
             });
 
         let token = CancellationToken::new();
-        self.runs.insert(
-            card_id.clone(),
-            RunEntry {
-                run_id: run_id.clone(),
-                token: token.clone(),
-                worktree: worktree.clone(),
-                agent_id: profile.agent_id.clone(),
-                started_ms,
-            },
-        );
-        self.sessions.insert(
-            card_id.clone(),
-            SessionEntry {
-                run_id: Some(run_id.clone()),
-                worktree: worktree.0.clone(),
-                branch,
-                session_id: resume_session.clone(),
-                agent_id: profile.agent_id.clone(),
-                started_ms,
-            },
-        );
+        // Only this task decides when cancellation turns into a wip commit:
+        // shutdown clears the flag when policy says closing must not commit.
+        let commit_on_cancel = Arc::new(AtomicBool::new(true));
 
         let spec = RunSpec {
             prompt,
@@ -103,7 +214,7 @@ impl Engine {
                     .unwrap_or_else(|| self.config.permission_mode.clone()),
             ),
             approver: self.approver.clone(),
-            resume_session,
+            resume_session: resume_session.clone(),
             // Only the Director's conversation gets Harness's own tools; a
             // worker acts on the repository, not on the app.
             tools: None,
@@ -123,7 +234,7 @@ impl Engine {
         );
 
         let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(256);
-        let fut = self.agent.run(spec, ev_tx, token);
+        let fut = self.agent.run(spec, ev_tx, token.clone());
 
         let self_tx = self.self_tx.clone();
         let run_log = self.run_log.clone();
@@ -134,13 +245,18 @@ impl Engine {
         let base = self.config.base_branch.clone();
         let commits_work = profile.worktree != WorktreeMode::None;
         let agent_id = profile.agent_id.clone();
+        let entry_agent_id = agent_id.clone();
+        let task_agent_id = agent_id.clone();
         let done_profile = profile;
+        let task_profile = done_profile.clone();
         let card_for_events = card_id.clone();
         let run_for_events = run_id.clone();
-        let done_card = card_id;
+        let done_card = card_id.clone();
         let done_run = run_id.clone();
+        let task_worktree = worktree.clone();
+        let commit_flag = Arc::clone(&commit_on_cancel);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Forwarding lives in the spawned task so a slow UI never blocks the
             // actor; the log write is the durable copy.
             let forward = async {
@@ -181,21 +297,24 @@ impl Engine {
             // Director would then review an empty diff and approve nothing.
             let mut commit_error = None;
             if commits_work {
-                let worktree = worktree.clone();
                 let outcome_for_commit = &outcome;
                 let result = tokio::task::block_in_place(|| match outcome_for_commit {
                     harness_ports::RunOutcome::Completed { .. } => {
                         let trailers = Trailers(vec![
                             ("Harness-Card".to_string(), done_card.to_string()),
                             ("Harness-Run".to_string(), done_run.to_string()),
-                            ("Harness-Agent".to_string(), agent_id.clone()),
+                            ("Harness-Agent".to_string(), task_agent_id.clone()),
                         ]);
                         let msg = format!("harness: work for card {done_card}");
-                        git.commit(&worktree, &msg, &trailers).map(|_| ())
+                        git.commit(&task_worktree, &msg, &trailers).map(|_| ())
                     }
                     harness_ports::RunOutcome::Cancelled
                     | harness_ports::RunOutcome::Failed(_) => {
-                        git.commit_wip(&worktree).map(|_| ())
+                        if commit_flag.load(Ordering::SeqCst) {
+                            git.commit_wip(&task_worktree).map(|_| ())
+                        } else {
+                            Ok(())
+                        }
                     }
                 });
                 if let Err(e) = result {
@@ -232,55 +351,37 @@ impl Engine {
                     card_id: done_card,
                     run_id: done_run,
                     outcome: Box::new(outcome),
-                    profile: Box::new(done_profile),
+                    profile: Box::new(task_profile),
                     commit_failed: commit_error.is_some(),
                 })
                 .await;
         });
 
-        Ok(run_id)
-    }
+        self.runs.insert(
+            card_id.clone(),
+            RunEntry {
+                run_id: run_id.clone(),
+                token,
+                commit_on_cancel,
+                handle: Some(handle),
+                worktree: worktree.clone(),
+                agent_id: entry_agent_id,
+                started_ms,
+            },
+        );
+        self.sessions.insert(
+            card_id.clone(),
+            SessionEntry {
+                run_id: Some(run_id.clone()),
+                worktree: worktree.0.clone(),
+                branch,
+                session_id: resume_session.clone(),
+                agent_id,
+                started_ms,
+            },
+        );
 
-    /// Resolve where this run works, creating the worktree when needed.
-    fn worktree_for(
-        &mut self,
-        card_id: &CardId,
-        mode: WorktreeMode,
-    ) -> Result<WorktreePath, String> {
-        match mode {
-            WorktreeMode::None => Ok(WorktreePath(self.config.repo_root.clone())),
-            WorktreeMode::Shared => {
-                if let Some(existing) = &self.shared_worktree {
-                    if existing.0.exists() {
-                        return Ok(existing.clone());
-                    }
-                }
-                // After a restart the engine has no memory of the shared
-                // checkout, but it is still on disk. Recreating it would take
-                // the branch its commits are on with it, so an existing one is
-                // adopted rather than rebuilt.
-                let existing = self.git.worktree_path(SHARED_WORKTREE);
-                if existing.is_dir() {
-                    let found = WorktreePath(existing);
-                    self.shared_worktree = Some(found.clone());
-                    return Ok(found);
-                }
-                let git = Arc::clone(&self.git);
-                let base = self.config.base_branch.clone();
-                let created =
-                    tokio::task::block_in_place(move || git.create_worktree(SHARED_WORKTREE, &base))
-                        .map_err(|e| e.to_string())?;
-                self.shared_worktree = Some(created.clone());
-                Ok(created)
-            }
-            WorktreeMode::PerCard => {
-                let git = Arc::clone(&self.git);
-                let cid = card_id.to_string();
-                let base = self.config.base_branch.clone();
-                tokio::task::block_in_place(move || git.create_worktree(&cid, &base))
-                    .map_err(|e| e.to_string())
-            }
-        }
+        let _ = reply.send(Ok(run_id));
     }
 
     pub(crate) fn cancel_run(&mut self, card_id: &CardId) -> Result<(), String> {

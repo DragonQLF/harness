@@ -12,6 +12,8 @@ mod tests;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use harness_domain::{Board, Card, CardId, Command, Event, RunId, RunOutcome};
 use harness_ports::{
@@ -20,6 +22,7 @@ use harness_ports::{
 };
 use serde::Serialize;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 /// Name of the one checkout shared by every agent configured for it.
@@ -27,6 +30,10 @@ pub(crate) const SHARED_WORKTREE: &str = "shared";
 
 const QUEUE_CAPACITY: usize = 256;
 const BROADCAST_CAPACITY: usize = 1024;
+/// How long shutdown waits for a run task to wind down before giving up on
+/// its wip commit. Generous: an agent that ignores cancellation should not
+/// hold the window open forever, but a commit needs seconds, not millis.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Envelope {
@@ -168,6 +175,16 @@ enum Msg {
         /// The work could not be committed, so there is no diff to review.
         commit_failed: bool,
     },
+    /// A worktree the start of a run asked for is ready — or failed. The
+    /// creation runs off the actor, because `git worktree add` takes seconds
+    /// on a large repository and nothing else should wait behind it.
+    WorktreeResolved {
+        card_id: CardId,
+        prompt: String,
+        profile: Box<RunProfile>,
+        reply: oneshot::Sender<Result<RunId, String>>,
+        result: Result<WorktreePath, String>,
+    },
     AgentSession {
         card_id: CardId,
         session_id: String,
@@ -298,9 +315,17 @@ fn restore_sessions(history: &[StoredEvent]) -> HashMap<CardId, SessionEntry> {
     out
 }
 
+#[derive(Debug)]
 struct RunEntry {
     run_id: RunId,
     token: CancellationToken,
+    /// Cleared by shutdown when the policy says closing must not commit. The
+    /// run task reads it when its agent reports a cancellation: the task, not
+    /// the actor, owns the wip commit — two `git commit`s racing on one
+    /// worktree is how index.lock fights and half-written states happen.
+    commit_on_cancel: Arc<AtomicBool>,
+    /// The task driving this run. Shutdown takes it to wait for that commit.
+    handle: Option<JoinHandle<()>>,
     worktree: WorktreePath,
     agent_id: String,
     started_ms: u64,
@@ -527,8 +552,7 @@ impl Engine {
                     profile,
                     reply,
                 } => {
-                    let outcome = self.start_run(card_id, prompt, *profile).await;
-                    let _ = reply.send(outcome);
+                    self.start_run(card_id, prompt, *profile, reply).await;
                 }
                 Msg::CancelRun { card_id, reply } => {
                     let _ = reply.send(self.cancel_run(&card_id));
@@ -554,6 +578,16 @@ impl Engine {
                     self.finish_run(card_id, run_id, *outcome, *profile, commit_failed)
                         .await;
                 }
+                Msg::WorktreeResolved {
+                    card_id,
+                    prompt,
+                    profile,
+                    reply,
+                    result,
+                } => {
+                    self.launch_run(card_id, prompt, *profile, reply, result)
+                        .await;
+                }
                 Msg::AgentSession {
                     card_id,
                     session_id,
@@ -575,16 +609,23 @@ impl Engine {
         let events = self.board.decide(&cmd).map_err(|e| e.to_string())?;
         let seq = self.persist(events).await?;
         // A discarded card leaves a branch and a checkout behind; the board no
-        // longer knows about it, so nothing else would ever clean it up.
+        // longer knows about it, so nothing else would ever clean it up. The
+        // removal is detached: `worktree remove --force` takes seconds and the
+        // card is already off the board, so nobody should wait behind it.
         if let Command::DiscardCard { card_id, .. } = &cmd {
             if let Some(session) = self.sessions.remove(card_id) {
                 let git = Arc::clone(&self.git);
                 let worktree = WorktreePath(session.worktree);
-                let removed =
-                    tokio::task::block_in_place(move || git.remove_worktree(&worktree));
-                if let Err(e) = removed {
-                    eprintln!("could not remove the worktree for {card_id}: {e}");
-                }
+                let cid = card_id.clone();
+                tokio::spawn(async move {
+                    let removed =
+                        tokio::task::spawn_blocking(move || git.remove_worktree(&worktree)).await;
+                    match removed {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => eprintln!("could not remove the worktree for {cid}: {e}"),
+                        Err(e) => eprintln!("could not remove the worktree for {cid}: {e}"),
+                    }
+                });
             }
         }
         Ok(seq)
@@ -632,23 +673,28 @@ impl Engine {
             .collect()
     }
 
-    /// Cancel every run, then (when configured) leave a wip commit behind so
-    /// closing the window never loses work.
+    /// Cancel every run and wait for the run tasks to wind down. Each task
+    /// performs its own wip commit when its agent reports a cancellation, so
+    /// committing here would race it: two `git commit`s on one worktree, the
+    /// second failing on index.lock or catching a half-written file.
     async fn shutdown(&mut self) {
-        let entries: Vec<(CancellationToken, WorktreePath)> = self
-            .runs
-            .values()
-            .map(|e| (e.token.clone(), e.worktree.clone()))
-            .collect();
-        for (token, _) in &entries {
-            token.cancel();
-        }
         if !self.policy.commit_wip_on_close {
-            return;
+            for entry in self.runs.values() {
+                entry.commit_on_cancel.store(false, Ordering::SeqCst);
+            }
         }
-        for (_, worktree) in entries {
-            let git = Arc::clone(&self.git);
-            let _ = tokio::task::block_in_place(move || git.commit_wip(&worktree));
+        let handles: Vec<JoinHandle<()>> = self
+            .runs
+            .values_mut()
+            .filter_map(|entry| {
+                entry.token.cancel();
+                entry.handle.take()
+            })
+            .collect();
+        for handle in handles {
+            if tokio::time::timeout(SHUTDOWN_GRACE, handle).await.is_err() {
+                eprintln!("a run did not stop within the grace period; its work may be uncommitted");
+            }
         }
     }
 }

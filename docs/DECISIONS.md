@@ -678,10 +678,96 @@ Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
 uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
 que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
 
+## Revisão externa — corridas, actor desbloqueado e limites que limitam (2026-08-24)
+
+Uma revisão ao `master` apontou três bugs e alguma dívida. O que se segue fecha os
+bugs e a parte da dívida que era código; o resto ficou escrito na secção de dívida,
+com plano.
+
+### 45. Dois `git commit` na mesma worktree ao fechar (bug)
+O `shutdown` cancelava os tokens e **não esperava**: commitava o wip ele próprio
+enquanto a tarefa do run — vendo o cancelamento — commitava também. Dois commits
+concorrentes na mesma worktree: o segundo falha com `index.lock`, ou o primeiro
+captura um estado a meio de uma escrita.
+
+Corrigido na propriedade: quem commita é a tarefa do run, sempre foi ela que sabia
+o *outcome*. O `shutdown` agora cancela e **espera** pelos handles (grace de 15s),
+e não commita nada por si. Como a política `commit_wip_on_close = false` tem de
+continuar a significar algo, cada run leva um `commit_on_cancel` partilhado: o
+shutdown limpa-o antes de cancelar quando a política está desligada, e a tarefa
+respeita-o no momento do commit. Um cancelamento *dentro* da app continua a
+commitar — a bandeira só é limpa para o fecho.
+
+Testes: um agente falso que dorme 200ms depois do cancelamento prova a ordem
+(`agent-stopped` antes de `wip`, exatamente uma vez); e com a política desligada
+nenhum commit acontece.
+
+### 46. O actor parado segundos atrás do git (bug)
+`create_worktree` (que faz `worktree remove --force` + `branch -D` +
+`worktree add`), `remove_worktree` e o `diff_summary` da revisão corriam dentro do
+loop do actor via `block_in_place`. Nesses segundos não entrava mensagem nenhuma:
+nem snapshot, nem `cancel_run`, nem `RunDone` — e com a fila limitada, os
+produtores bloqueavam. Não se conseguia cancelar um run enquanto outro criava
+worktree.
+
+Corrigido caso a caso:
+
+- **Criar worktree** passou para `spawn_blocking`, com o resultado a voltar como
+  mensagem nova (`Msg::WorktreeResolved`). O `start_run` ficou em duas fases: a
+  primeira valida e despacha, a segunda (`launch_run`) recebe a worktree pronta e
+  registra o run. A ordem da decisão #43 sobrevive — o checkout resolve-se antes
+  do `StartRun` ser persistido — só que agora através de uma fronteira de
+  mensagem. Como o mundo anda entre as duas fases, `launch_run` repete as
+  verificações (cartão ainda sem run, limite do agente).
+- **Remover worktree no discard** é destacado e esquecido: o cartão já saiu do
+  quadro, ninguém devia esperar pelo `rm -rf`.
+- **Diff da revisão** passou para dentro da tarefa que lança o Director; o actor
+  só emite o aviso "director is reading the diff" e lança.
+- O `persist` ficou como estava: um append a JSONL é rápido, e envolvê-lo em
+  mensagens complicaria todos os caminhos por nada.
+
+### 47. Um override podia pôr um cartão a correr sem run (bug)
+O `OverrideCard` validava razão e estado diferente, e mais nada. Um override para
+`Running` produzia um cartão que o domínio não conseguia representar: `DiscardCard`
+recusa, `FinishRun` recusa (`RunMismatch` com `current_run = None`), `StartRun`
+recusa (`NotReady`) — preso para sempre.
+
+Agora recusado à entrada, com erro próprio (`DecisionError::CannotOverrideToRunning`,
+"only starting a run puts a card in Running"). Só o `StartRun` põe um cartão a
+correr; o override continua a servir todos os outros estados.
+
+### 48. `max_concurrent` passou a limitar
+Era guardado no perfil e mostrado na UI, sem efeito nenhum. Agora viaja no
+`RunProfile` até ao engine, que conta os runs activos com o mesmo `agent_id` e
+recusa acima do limite com erro legível ("builder is already working on 1 card;
+its limit is 1"). Um perfil editado à mão com `0` conta como 1 — "zero em
+paralelo" não é um limite, é um perfil pausado. Há teste: dois cartões, mesmo
+agente, limite 1 — o segundo é recusado e o cartão fica Ready; limite 2, passa.
+
+### 49. O diff do Review, ficheiro a ficheiro
+Nota da revisão: "sem diff viewer dentro da UI". Já existia — `card_diff` traz o
+patch e o Review coloria-o linha a linha — mas era um bloco único, e num diff de
+vinte ficheiros isso é o mesmo que não estar lá. Agora o patch é dividido por
+ficheiro: cabeçalho com caminho e `+n −m` do próprio ficheiro, colapsável, sticky
+ao fazer scroll. Sem syntax highlighting a sério — primeiro existir, depois ser
+bonito.
+
 ## Dívida técnica conhecida (atualizada)
 
-- Compaction do event log.
-- Sem diff viewer dentro da UI.
-- `max_concurrent` é guardado e mostrado, mas ainda não limita runs em paralelo.
-- Continua não verificado com o modelo a correr: um Builder a levar um cartão de
-  ready a review dentro da app (herdado da sessão anterior).
+- **Compaction do event log.** O arranque relê tudo (`rebuild(&history)`), um
+  engine por projeto, todos no `setup`. Plano mínimo: `Event::BoardSnapshot`
+  periódico (cartões completos, `apply` substitui o quadro) + truncar o log antes
+  dele; logs antigos continuam a reproduzir porque o snapshot é só mais um evento.
+  Não feito nesta passagem porque mexe no caminho da recuperação de crash e esse
+  merece uma sessão própria.
+- **Verificação end-to-end** com modelo a correr: um Builder a levar um cartão de
+  ready a review dentro da app. Herdado há três sessões. Nada disto o dispensa.
+- **ts-rs.** `src/lib/types.ts` duplica à mão as structs Rust; divergência é
+  silenciosa. Os tipos do domínio já derivam `Serialize`, o custo é uma anotação
+  por struct e um passo de build que regenera `types.ts`.
+- **Pausar um projeto escolheu-se significar "não começa nada de novo"**: os runs
+  a meio continuam até acabarem. Está assim no `start_run_inner` e agora está dito;
+  se algum dia for para interromper, é um `cancel_run` por run activo no toggle.
+- Memória curada (charter.md + global.md no prompt), dependências entre cartões,
+  teto de profundidade de fan-out, Triador e Analista: sem começar, desenhados no
+  documento de arquitectura.
