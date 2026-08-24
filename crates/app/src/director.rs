@@ -263,6 +263,27 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         },
         ctx.user_name.trim()
     ));
+    // Identity, stated: a model that does not know which profile it IS speaks
+    // of itself in the third person and invents someone else to blame.
+    prompt.push_str(&format!(
+        "This conversation runs as your own profile ({}).{} When something fails or is \
+         refused, say so plainly and stop — never route around it.\n\n",
+        if ctx.speaker.name.trim().is_empty() { "unnamed" } else { ctx.speaker.name.trim() },
+        if ctx.speaker.can_delegate {
+            " You may put work on boards and hand it to agents."
+        } else {
+            " This profile cannot change boards; ask in text instead."
+        }
+    ));
+    // The failure mode seen in the wild: a refused board tool followed by
+    // hand-written files outside the system. Work outside cards has no
+    // review, no history, no cost — a refusal is information for the
+    // operator, not an obstacle.
+    prompt.push_str(
+        "If a board tool is refused or fails, tell the operator and stop. Do not work around \
+         refusals by editing files directly; work that never became a card has no review, no \
+         history and no cost attached.\n\n",
+    );
 
     if ctx.speaker.is_director {
         prompt.push_str(

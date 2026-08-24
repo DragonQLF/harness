@@ -99,6 +99,10 @@ pub struct Workspace {
     /// One transcript per conversation, through the same port every run
     /// transcript already uses.
     chat_log: Arc<JsonlRunLog>,
+    /// The cancellation token of the turn each conversation has in flight.
+    /// Without this a chat turn that never emits `done` leaves the operator
+    /// without a stop.
+    chat_turns: Mutex<HashMap<String, CancellationToken>>,
 }
 
 impl Workspace {
@@ -135,6 +139,7 @@ impl Workspace {
             runtimes: Mutex::new(HashMap::new()),
             conversations: Mutex::new(conversations),
             chat_log,
+            chat_turns: Mutex::new(HashMap::new()),
         });
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
@@ -726,8 +731,29 @@ impl Workspace {
         Ok(project)
     }
 
-    pub fn update_project(&self, project: Project) -> Result<Project, String> {
-        {
+    // ---- chat turns ----
+
+    /// A conversation has a turn in flight: remember its cancellation token.
+    pub fn register_chat_turn(&self, conversation_id: &str, token: CancellationToken) {
+        self.chat_turns
+            .lock()
+            .unwrap()
+            .insert(conversation_id.to_string(), token);
+    }
+
+    /// Take the turn's token out (None if the conversation had none). Taking
+    /// it is both how stop finds it and how completion cleans up.
+    pub fn finish_chat_turn(
+        &self,
+        conversation_id: &str,
+    ) -> Option<CancellationToken> {
+        self.chat_turns
+            .lock()
+            .unwrap()
+            .remove(conversation_id)
+    }
+
+    pub fn update_project(&self, project: Project) -> Result<Project, String> {        {
             let mut guard = self.projects.lock().unwrap();
             let slot = guard
                 .iter_mut()

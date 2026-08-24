@@ -100,6 +100,7 @@ pub fn run() {
             commands::chat::agent_duplicate,
             commands::chat::agent_remove,
             commands::chat::analyst_ask,
+            commands::chat::chat_stop,
             // conversations
             commands::chat::conversations_list,
             commands::chat::conversation_new,
@@ -116,6 +117,7 @@ pub fn run() {
             commands::chat::agent_duplicate,
             commands::chat::agent_remove,
             commands::chat::analyst_ask,
+            commands::chat::chat_stop,
             // projects
             commands::project::projects_list,
             commands::project::project_pick_folder,

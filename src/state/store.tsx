@@ -53,18 +53,25 @@ export interface LogLine {
   toolUseId?: string | null;
   parentToolUseId?: string | null;
   /** For a tool_result: did it succeed? */
-  ok?: boolean;
+  ok?: boolean | null;
   /** Full output for expandable results (#28: never dumped inline). */
   detail?: string | null;
   italic?: boolean;
 }
 
 export interface ChatMsg {
-  /** `notice` is Harness itself talking: a failed resume, a cancelled turn. */
-  role: "user" | "agent" | "notice";
+  /** `notice` is Harness itself talking: a failed resume, a cancelled turn.
+   *  `tool` is what the agent tried (`summary`) — its result arrives as a
+   *  second tool bubble matched by id, green or red, expandable. */
+  role: "user" | "agent" | "notice" | "tool";
   text: string;
   /** When it was said, so the transcript can date itself. */
   ts: number;
+  /** Tool bubble only: which tool, whether its result closed it, and the
+   *  full output kept for expansion (#28: never dumped inline). */
+  tool?: string;
+  ok?: boolean | null;
+  detail?: string | null;
 }
 
 /** One stored transcript line as a chat bubble. Deltas never reach here: the
@@ -80,6 +87,33 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
       return line.text?.trim() ? { role: "notice", text: line.text, ts } : null;
     case "failed":
       return { role: "notice", text: line.message ?? "the answer did not arrive", ts };
+    case "tool_use": {
+      const tool = (line.tool ?? "tool").replace(/^(harness|mcp__harness__)/, "").replace(/^__/, "");
+      const ids = line as RunLogLine & {
+        tool_use_id?: string | null;
+        parent_tool_use_id?: string | null;
+      };
+      return {
+        role: "tool",
+        text: line.summary ?? "",
+        ts,
+        tool,
+        toolUseId: ids.tool_use_id ?? null,
+        parentToolUseId: ids.parent_tool_use_id ?? null,
+        ok: null,
+        detail: null,
+      } as ChatMsg;
+    }
+    case "tool_result": {
+      const res = line as RunLogLine & { tool_use_id?: string; ok?: boolean; detail?: string | null; summary?: string };
+      return {
+        role: "tool",
+        text: res.summary ?? "",
+        ts,
+        ok: res.ok !== false,
+        detail: res.detail ?? null,
+      } as ChatMsg;
+    }
     // Tool calls and session boundaries are in the log but would clutter the
     // conversation; they show live as progress instead.
     default:
@@ -517,20 +551,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }
               break;
             case "tool_use": {
-              // Not every model streams its reasoning, but every model's tool
-              // calls are visible progress — show those instead of a bare
-              // spinner while it works.
-              const tool = (u.tool ?? "").replace(/^harness:/, "");
-              const said: Record<string, string> = {
-                read_diff: "reading the diff",
-                open_screen: "opening the screen",
-                move_card: "moving the card",
-                create_card: "adding the card",
-                approve_card: "approving",
-                reject_card: "sending it back",
-                delete_card: "deleting the card",
+              // A tool call is a transcript line, not a transient badge: five
+              // calls in a row used to leave the trace of one, and a failed
+              // one read like a clean one (#41 in the visual layer).
+              const ev = u as RunUpdate & {
+                tool_use_id?: string;
+                parent_tool_use_id?: string | null;
               };
-              setChatThinking(said[tool] ? `${said[tool]}…` : `using ${tool}…`);
+              const tool = (u.tool ?? "tool").replace(/^(harness:|mcp__harness__)/, "");
+              setChat((cs) => [
+                ...cs,
+                {
+                  role: "tool",
+                  text: u.summary ?? "",
+                  ts: u.ts_ms,
+                  tool,
+                  toolUseId: ev.tool_use_id ?? null,
+                  ok: null,
+                  detail: null,
+                },
+              ]);
+              break;
+            }
+            case "tool_result": {
+              // Closes the matching call by id: green or red, expandable.
+              const res = u as RunUpdate & {
+                tool_use_id?: string;
+                ok?: boolean | null;
+                detail?: string | null;
+                summary?: string;
+              };
+              setChat((cs) => [
+                ...cs,
+                {
+                  role: "tool",
+                  text: res.summary ?? "",
+                  ts: u.ts_ms,
+                  toolUseId: res.tool_use_id ?? null,
+                  isResult: true,
+                  ok: res.ok !== false,
+                  detail: res.detail ?? null,
+                } as ChatMsg & { isResult?: boolean },
+              ]);
               break;
             }
             case "text":

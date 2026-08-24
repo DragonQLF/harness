@@ -192,3 +192,13 @@ pub async fn analyst_ask(
         .await?;
     Ok(conversation.id)
 }
+
+
+
+/// Stop the turn a conversation has in flight. The transcript keeps whatever
+/// was already said; the busy indicator falls on the cancelled event.
+#[tauri::command]
+pub async fn chat_stop(conversation_id: String, ws: Shared<'_>) -> Result<(), String> {
+    crate::chat::stop_turn(&ws, &conversation_id);
+    Ok(())
+}

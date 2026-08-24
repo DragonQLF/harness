@@ -5,7 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { clock, money, plural } from "../lib/format";
 import { ruleLabel, tone, type AllowRule, type PendingApproval } from "../lib/types";
-import { useStore } from "../state/store";
+import { useStore, type ChatMsg } from "../state/store";
+import { api } from "../lib/ipc";
 import { Caret, Glyph, Icon, Spinner, mono, truncate } from "../components/ui";
 
 /** What a standing rule for this request would cover. Mirrors the backend: a
@@ -304,6 +305,86 @@ function RunPanel({ cardId }: { cardId: string }) {
   );
 }
 
+/** A tool call and its result. The call opens the bubble pending-grey; the
+ *  result closes it green or red, matched by id, with the full output one
+ *  click away instead of dumped inline (#28). */
+function ToolBubble({ msg }: { msg: ChatMsg & { isResult?: boolean } }) {
+  const [open, setOpen] = useState(false);
+  const isResult = !!msg.isResult || msg.ok != null;
+  const accent =
+    !isResult
+      ? "var(--info)"
+      : msg.ok
+        ? "var(--ok)"
+        : "var(--bad)";
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+      <span style={{ width: 27, flex: "none" }} />
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          borderRadius: 9,
+          background: "var(--surface)",
+          border: `1px solid ${isResult && msg.ok === false ? "rgba(255,107,129,.4)" : "var(--line2)"}`,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          onClick={msg.detail ? () => setOpen((o) => !o) : undefined}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 10px",
+            cursor: msg.detail ? "pointer" : "default",
+            ...mono,
+            fontSize: 11,
+          }}
+        >
+          <b style={{ color: accent, fontWeight: 600 }}>
+            {isResult ? (msg.ok ? "↳ ok" : "↳ failed") : "tool"}
+          </b>
+          <span
+            title={msg.tool}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              color: "var(--text3)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {msg.tool ? `${msg.tool} · ` : ""}
+            {msg.text}
+          </span>
+          {msg.detail && (
+            <span style={{ color: "var(--text4)", flex: "none" }}>{open ? "▾" : "▸"}</span>
+          )}
+        </div>
+        {open && msg.detail && (
+          <div
+            style={{
+              borderTop: "1px solid var(--line)",
+              padding: "8px 10px",
+              maxHeight: 260,
+              overflowY: "auto",
+              color: "var(--text3)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontSize: 11,
+              lineHeight: 1.7,
+            }}
+          >
+            {msg.detail}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function Chat() {
   const {
     chat,
@@ -319,6 +400,11 @@ export function Chat() {
     newConversation,
     pinConversation,
   } = useStore();
+  const conversationId = conversation?.id ?? null;
+
+  const stopTurn = () => {
+    if (conversationId) api.chatStop(conversationId).catch(() => {});
+  };
 
   const [text, setText] = useState("");
   const [pickProfile, setPickProfile] = useState(false);
@@ -501,6 +587,10 @@ export function Chat() {
               </div>
             )}
 
+            {msg.role === "tool" && (
+              <ToolBubble msg={msg} />
+            )}
+
             {msg.role === "notice" && (
               <div
                 style={{
@@ -522,7 +612,23 @@ export function Chat() {
         ))}
 
         {chatBusy && (
-          <div style={{ flex: "none", display: "flex", gap: 12 }}>
+          <div style={{ flex: "none", display: "flex", gap: 12, alignItems: "center" }}>
+            <span
+              onClick={stopTurn}
+              title="stop this turn"
+              style={{
+                marginLeft: "auto",
+                padding: "4px 10px",
+                borderRadius: 7,
+                border: "1px solid var(--line3)",
+                ...mono,
+                fontSize: 10.5,
+                color: "var(--text3)",
+                cursor: "pointer",
+              }}
+            >
+              ■ stop
+            </span>
             <span
               style={{
                 width: 27,

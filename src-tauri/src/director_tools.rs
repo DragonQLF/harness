@@ -68,10 +68,10 @@ pub async fn run(
     call: ToolCall,
 ) -> ToolReply {
     if !delegating && !is_read_only(&call.name) {
+        // Configuration, never roles: the reader may BE the Director.
         return ToolReply::refused(format!(
-            "you are not set up to change boards, so {} is not available to you. Say what should \
-             happen and who should do it, and let the operator or the Director put it on a board.",
-            call.name
+            "this profile does not have delegation enabled - turn on \"can delegate\" \
+             in the agent settings to let this profile change boards",
         ));
     }
 

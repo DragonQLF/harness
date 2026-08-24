@@ -926,3 +926,30 @@ monitor, depois placement multi-monitor, depois ciclo de vida, depois *uma
 semana de uso* antes de qualquer áudio. Não construir 1 e 6 ao mesmo tempo:
 depurar VAD e colocação de janelas em simultâneo torna impossível saber qual
 das duas está a estragar a experiência.
+
+
+
+### 70. A conversa não tem travões — cinco, fechados
+Uma sessão real do Director: não conseguiu criar cartões, a recusa falava do
+Director em terceira pessoa, e ele decidiu construir fora do quadro. O padrão:
+quando algo falha, nada chega ao operador e ele improvisa.
+
+- **`can_delegate` na origem**: perfis gravados antes do campo existirem
+  herdam `false` do default da struct — o Director ficava surdo por migração.
+  `normalise` força-o a true para o Director (agir no quadro É o trabalho dele,
+  #27; quem o quiser cego remove o perfil).
+- **Recusas falam de configuração, nunca de papéis**: "this profile does not
+  have delegation enabled" — o leitor pode ser o próprio Director.
+- **`AskUserQuestion` deixou de desaparecer**: intercepção no `canUseTool`,
+  aviso no transcript + negação com razão legível ("say what you need in text").
+  Confirmação que faltava: aprovações sem resposta **têm** timeout de 30 min
+  (`approvals.rs`, `WAIT`) — não esperam para sempre, mas meia hora de spinner
+  era o bug visível.
+- **Identidade e regra de parar no prompt**: quem é, o que o perfil pode, e
+  "se uma ferramenta do quadro é recusada, diz e para" — trabalho fora de
+  cartões não tem review, história nem custo.
+- **Stop na conversa**: o turno corria com token descartável, incancelável.
+  Agora registra-se por conversa (`chat_turns`), comando `chat_stop`, botão
+  ■ stop junto ao composer enquanto `chatBusy`. E trocar de conversa já
+  limpava o busy (rede de segurança que lá estava); a causa real do
+  "thinking…" preso era a pergunta sem resposta acima.

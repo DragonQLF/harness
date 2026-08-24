@@ -188,7 +188,16 @@ pub async fn send(
 
     let agent = ws.agent_port();
     let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-    let fut = agent.run(spec, ev_tx, CancellationToken::new());
+    // Registered by conversation id so the operator has a stop: a turn that
+    // never emits `done` must not leave them without an exit.
+    let token = CancellationToken::new();
+    ws.register_chat_turn(&conversation.id, token.clone());
+    let turn_conversation = conversation.id.clone();
+    let ws_for_cleanup = Arc::clone(ws);
+    let cleanup = move || {
+        ws_for_cleanup.finish_chat_turn(&turn_conversation);
+    };
+    let fut = agent.run(spec, ev_tx, token);
 
     let app = ws.app_handle();
     let ws = Arc::clone(ws);
@@ -321,9 +330,18 @@ pub async fn send(
                 publish(event);
             }
         }
+        // The turn is over, however it ended: done, failed or cancelled.
+        cleanup();
     });
 
     Ok(conversation)
+}
+
+/// Stop the turn a conversation has in flight. No-op when there is none.
+pub fn stop_turn(ws: &Workspace, conversation_id: &str) {
+    if let Some(token) = ws.finish_chat_turn(conversation_id) {
+        token.cancel();
+    }
 }
 
 /// The agent used for conversations: the sidecar or the command line, decided

@@ -232,6 +232,26 @@ async function handleRun({ id, spec }) {
     // Harness's own MCP tools are exempt. Checked before the approval flow,
     // because a refusal here is not a question for the operator — and the
     // transcript names the path that was refused.
+    // Native terminal-era tools assume a human in front of a terminal. Here
+    // the human may be anywhere, so a silent disappearance is #41's shape:
+    // name it on the transcript, refuse with a readable reason, and let the
+    // agent ask in text instead of deciding by omission.
+    if (toolName === "AskUserQuestion") {
+      send({
+        type: "event",
+        run_id: id,
+        event: {
+          kind: "notice",
+          text: "the agent tried to ask you a question through a terminal-only tool; refused — it should ask in text instead",
+        },
+      });
+      return {
+        behavior: "deny",
+        message:
+          "there is no way to show this question to the operator right now. Say what you need to know in plain text and wait for their reply.",
+      };
+    }
+
     const verdict = inspect(toolName, spec.cwd, input);
     if (!verdict.skip && !verdict.ok) {
       const detail = verdict.path

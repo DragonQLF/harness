@@ -511,6 +511,14 @@ pub fn normalise(mut agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
             if agent.role.trim() == "Splits your intent into cards, picks the order and reviews every finished diff before it reaches you." {
                 agent.role = "Your main assistant: answers, plans, and puts work on boards when you ask for it.".to_string();
             }
+            // Acting on boards IS the Director's job (decision #27). Profiles
+            // saved before `can_delegate` existed inherit the struct default
+            // of false, which silently muted him into a bystander who then
+            // improvises outside the system. The Director ships enabled; an
+            // operator who truly wants him blinded removes the profile.
+            if !agent.can_delegate {
+                agent.can_delegate = true;
+            }
         }
     }
 

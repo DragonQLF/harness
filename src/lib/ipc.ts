@@ -101,6 +101,7 @@ export const api = {
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
   updatesList: () => invoke<PendingUpdate[]>("updates_list"),
   updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),
+  chatStop: (conversationId: string) => invoke<void>("chat_stop", { conversationId }),
   // ---- conversations ----
   /** Every chat, newest first. Archived ones only when asked for. */
   conversations: (includeArchived = false) =>
