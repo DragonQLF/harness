@@ -1,9 +1,32 @@
 # Decision & Deviation Log
 
 Registo de tudo o que desviou do documento original (docs/SPEC-ORIGINAL.md) e das
-decisões tomadas em conjunto durante a construção. Ordem cronológica.
+decisões tomadas durante a construção. Os números são identificadores estáveis —
+o texto refere-se a eles constantemente.
 
-## Desvios ao spec
+> **Regras deste ficheiro:** blocos são *append-only* — nunca re-anexar a cauda;
+> cada decisão aparece exactamente uma vez, por ordem numérica. A dívida técnica
+> vive em `docs/DEBT.md`, reescrito a cada passagem em vez de acumulado.
+
+## Sessões
+
+| Data | Decisões | Tema |
+|---|---|---|
+| — | 1–6 | Spec original: desvios registados e adições fora dele |
+| 2026-08-23 | 7–18b | Redesign v4: multi-projeto, appdata, worktrees fora do repo, UI nova |
+| 2026-08-23 | 19–31 | Um só Director, git local sem remoto, assistente geral, streaming |
+| 2026-08-23 | 32–44 | Conversas persistentes, segurança das aprovações, perfis |
+| 2026-08-24 | 45–49 | Revisão externa: corrida no shutdown, actor bloqueado pelo git, override para Running |
+| 2026-08-24 | 50–56 | Compaction, ts-rs, memória mínima, dependências, fan-out, Triador/Analista, e2e |
+| 2026-08-24 | 57 | Mensagem de commit com o título do cartão |
+| 2026-08-24 | 58–60 | report_work e memória fora do repositório |
+| 2026-08-24 | 62–65 | Modo Espelho: zona congelada, build como check, instalar com volta |
+| 2026-08-24 | 66 | Pathguard guarda por omissão |
+
+> Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
+> Não reutilizar; os números são estáveis mesmo quando errados.
+
+## Decisões
 
 ### 1. `git` CLI em vez de `git2` — crates/adapters/git
 O spec pedia `git2 + worktrees`. Implementado com o executável `git` via subprocesso
@@ -40,46 +63,6 @@ Perfil escolhido: workers = `acceptEdits` + allowlist com âmbito
 (`Read Edit Write Glob Grep Bash(git *)`); director/chat = `dontAsk` + só-leitura.
 `bypassPermissions`/`auto` deliberadamente fora do default (subagentes herdam-nos
 silenciosamente — armadilha apontada pelo próprio spec). Modo é configurável por run.
-
-## Adições fora do spec
-
-- **Estado de auth na UI**: chip de estado (`agent_status`: CLI encontrado /
-  credenciais presentes) + botão que abre terminal real com `claude` interativo para `/login`.
-- **Captura de session_id** por run + botão "agent terminal" que faz `claude --resume <sid>`
-  dentro da worktree do cartão — entrar na sessão do agente.
-- **Director**: (a) revisor automático — quando um run termina OK, o engine faz commit com
-  trailers, extrai o diff e lança um segundo run "director" cujo veredito JSON
-  aprova (→ Done) ou rejeita com razão (→ Ready); (b) chat lateral interativo com o
-  director, com contexto do quadro.
-- **Recuperação de crash**: no arranque, cartões ficados em `Running` são marcados como
-  run falhado automaticamente (replay do log).
-- **Janela frameless** com titlebar custom (drag, minimizar/maximizar/fechar) e sidebar
-  de chat; layout shell + stage + aside.
-
-## POR DECIDIR — estado atual
-
-| # | Questão | Estado |
-|---|---|---|
-| 1 | CLI vs sidecar | **Resolvido: B (sidecar)** |
-| 2 | Contentores/sandbox | Adiado conscientemente; hoje = permission modes + cwd/worktree |
-| 3 | JSONL vs SQLite | JSONL mantido; snapshot compaction pendente |
-| 4 | Uma ou várias janelas | Uma, por agora |
-| 5 | Granularidade RunEvent | Mensagens completas do stream (não por-token); agregador só se houver token streaming |
-| 6 | Construções nativas vs próprias | Híbrido de facto: SDK sessions/resume nativos; skills/subagents próprios ainda não |
-| 7 | Auth | Login interativo OAuth funciona headless; `setup-token` continua como opção futura |
-
-## Dívida técnica conhecida
-
-- Encerramento gracioso (secção 7): fechar a janela a meio de um run mata filhos sem
-  commit `wip:` — o cancelamento in-app faz commit, o close da janela não espera.
-- Hooks (telemetria estruturada, zona congelada, limite de profundidade de fan-out):
-  não registados; enforcement atual = permission modes apenas.
-- Custo agregado entre runs, timer de inatividade, drag&drop, diff viewer,
-  inspector do event log: pendentes no UI/backend.
-
-## Redesign v4 — multi-projeto, appdata e UI nova (2026-08-23)
-
-Correspondente ao ficheiro de design `Harness v4.dc.html`. O que mudou e porque.
 
 ### 7. Multi-projeto: um engine por projeto
 O design v4 introduz um seletor de projetos. O backend tinha um único
@@ -175,264 +158,6 @@ substituem os atributos `style-hover` do design. Consequências:
   (`LANES`); para isso o adapter git passou a marcar cada commit com
   `on_default`, e a página classifica cada linha (main/branch/root/merge/tail).
 
-## POR DECIDIR — atualizado
-
-| # | Questão | Estado |
-|---|---|---|
-| 3 | JSONL vs SQLite | JSONL mantido; compaction continua pendente |
-| 4 | Uma ou várias janelas | Uma; o seletor de projetos substitui a necessidade |
-| 8 | Custo do Director | O custo da revisão fica na transcrição do run, não soma ao cartão |
-| 9 | Sandbox | Continua adiado: permission modes + worktree isolada |
-
-### 41. Um resultado de erro tinha exactamente a forma de um sucesso (bug)
-Descoberto ao verificar #35 com o SDK a correr, em vez de assumir. Retomar uma
-sessão que já não existe **não falha**: o SDK emite uma mensagem `result` normal
-com `is_error: true`, `num_turns: 0`, custo 0 e texto nenhum — e só lança a
-excepção *depois*, quando o nosso `case "result"` já fez `return`. Resultado
-medido antes da correcção:
-
-```
-{"kind":"done","session_id":"00000000-dead-...","cost_usd":0,"turns":0,"result":null}
-```
-
-Ou seja: a conversa aparecia respondida com uma resposta vazia. E não era só no
-chat — **qualquer** run com resultado de erro (orçamento excedido, max turns,
-erro de API) era reportado como `Completed`, o cartão era commitado e o Director
-revia um diff de nada.
-
-Corrigido na origem: o sidecar lê `is_error`/`subtype`/`errors` da mensagem
-`result` e envia um campo `error` novo no evento `done` (aditivo, com
-`#[serde(default)]`); o adapter transforma um `done` com erro em
-`RunOutcome::Failed`. Depois disto, o mesmo teste devolve a razão verdadeira:
-
-```
-"error":"No conversation found with session ID: 00000000-dead-..."
-```
-
-A detecção de resume perdido no `chat.rs` passou a olhar para *este* run — houve
-`started` ou texto? — em vez de para o estado guardado, que numa retoma está
-sempre preenchido, e portanto nunca detectaria nada.
-
-Verificado ao vivo, dois processos separados (que é o que um restart é): a mesma
-sessão retomada lembra-se do que foi dito no processo anterior; um chat novo
-recebe um `session_id` diferente e não sabe nada; uma sessão morta diz porquê.
-
-### 42. Sessões de cartão também sobrevivem ao restart
-Pergunta do operador ao ler #41: "não é para isto que serve o encerramento
-gracioso, o commit wip?". Não — são metades diferentes do mesmo problema:
-
-- o **commit wip** guarda o *trabalho*: os ficheiros ficam em git, nada se perde;
-- o **session_id** guarda a *memória* do agente sobre esse trabalho.
-
-Sem o segundo, depois de reiniciar o Harness o run seguinte no mesmo cartão
-começava do zero: relia tudo, redecidia tudo, pagava tudo outra vez, e podia
-refazer de maneira diferente aquilo que já estava meio feito. E o botão "agent
-terminal" (`claude --resume <sid>`) respondia "no agent session for this card
-yet", porque o mapa `sessions` do engine só existia em memória.
-
-Aplicado o mesmo padrão das conversas, mas no sítio próprio: o **log de eventos**,
-que já é a fonte da verdade do quadro (precedente da #10, onde custo e turnos
-passaram a ser persistidos em vez de descartados).
-
-- `Event::RunStarted` passou a carregar `worktree` e `branch` — não são
-  deriváveis depois: o modo vem do perfil no momento em que o run começa, e o
-  perfil pode ter mudado desde então. Campos `#[serde(default)]`, logo um log
-  antigo continua a reproduzir (há teste que lê linhas antigas reais).
-- `Event::AgentSession { card_id, session_id }` novo, com
-  `Command::RecordSession`. Escrito quando o agente reporta a sessão (no init e
-  outra vez no resultado), e ignorado se já for a mesma.
-- `Card` ganhou `session_id`, `worktree`, `branch`.
-- O engine reconstrói o seu mapa `sessions` do log no arranque
-  (`restore_sessions`). Fica no engine e não no `Card` porque o que falta ao
-  domínio é o *relógio*: `started_ms` vem do `ts_ms` do evento guardado.
-
-### 43. Bug encontrado ao reordenar: um cartão ficava Running sem run
-`start_run` decidia `StartRun` (o que marca o cartão Running e persiste) e **só
-depois** criava a worktree. Se a worktree falhasse, a função devolvia erro com o
-cartão já marcado Running e sem run nenhum a correr — preso até ao próximo
-restart, onde a recuperação de crash o marcava como falhado.
-
-Como o log agora precisa da worktree no `RunStarted`, a ordem inverteu-se por
-necessidade: resolve-se o checkout primeiro, só depois se registra o run. O bug
-desapareceu de graça, e ficou com teste (`a_failed_worktree_leaves_the_card_alone`).
-
-### 44. A worktree partilhada era destruída a cada restart (bug ao lado)
-`CliGit::create_worktree` **remove e recria**: faz `worktree remove --force` e
-`branch -D` antes de criar. Para uma worktree por cartão isso é o que se quer —
-começa limpa. Para a **partilhada** é perda de dados: os commits daquele ramo
-ficam inalcançáveis.
-
-Dentro de uma sessão não acontecia, porque o engine guardava `shared_worktree`
-em memória. Depois de reiniciar, esse campo voltava a `None` e o primeiro run
-partilhado apagava o ramo com o trabalho todo.
-
-Corrigido com um método novo no `GitPort`, `worktree_path(name)` — "onde é que
-isto viveria" — para o engine poder adoptar um checkout existente em vez de o
-reconstruir. Não há adivinhação por nomes de ramo, e há teste: dois engines
-sobre o mesmo log, `create_worktree` chamado exactamente uma vez.
-
-Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
-uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
-que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
-
-### 57. A mensagem de commit é o título do cartão
-Pergunta do operador ao ler o fluxo de commits: "os programadores tratam commits
-como história, a mensagem não ajudava?". Não ajudava — era literalmente
-"harness: work for card c_e2e", um uuid disfarçado em `git log`.
-
-Agora o assunto de um run concluído é `harness: <título do cartão>`, com uma
-segunda linha em prosa (`harness card c_x, run abc12345, by builder`) e os
-trailers intactos — os ids continuam exatamente onde as máquinas os procuram
-(trailers, que é o que o ecrã Code lê para desenhar as pistas). Título vazio
-cai no formato antigo. Os wip mantêm-se genéricos ("wip: interrupted run"):
-são andaimes transitórios numa worktree que o próximo run recria, e alongar o
-`GitPort` por isso não pagava.
-
-Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
-"harness: Fix the retry loop" e continua a carregar `Harness-Card`.
-## Memória — report_work, e quem escreve o quê (2026-08-24)
-
-Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
-Curador e a árvore `areas/` — fica para quando existirem notas reais com que
-trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
-árvore às cegas".
-
-### 58. `report_work`: o agente conta, o engine commita
-Ferramenta nova que só os workers recebem (`report_work { summary,
-memory_notes }`). **Não é o agente a commitar**: a pós-condição continua
-decidida em Rust. O que a chamada faz:
-
-- `summary` espera num slot do run e torna-se o **corpo** do commit que o task
-  já ia fazer; o assunto continua a vir do board.
-- `memory_notes` vai para o log como `Event::WorkReported` — ao evento, nunca
-  ao git. Memória dentro do repositório significaria uma cópia por worktree e
-  conflitos de escrita entre cartões concorrentes, o pior sítio possível para
-  um.
-
-O caminho é o do resto do engine: a ferramenta envia `Msg::WorkReport`, o actor
-valida (`Command::ReportWork`; vazio dos dois lados → `EmptyReport`) persiste, e
-**só então** fecha o ack da chamada — "reported" significa gravado, não
-enfileirado. A primeira versão tinha a corrida clássica: o send resolve ao
-entrar na fila, o agente acabava, o task commitava antes de o actor processar o
-relatório, e o corpo saía genérico. Foi o ack que a fechou.
-
-Decisões dentro da decisão:
-
-- **Duas chamadas: a última ganha**, documentado no comando ("an agent refining
-  itself beats two summaries glued together"). Recusar a segunda puniria o agente
-  por se corrigir; acumular em silêncio era o que o handoff proibiu.
-- **Silêncio é normal e nomeado**: sem chamada, o commit sai com o corpo
-  genérico de sempre e um `Notice` — "the agent did not report its work" — no
-  transcript. Nada de parsing da resposta final; texto livre que *parece* um
-  resumo é o #41 outra vez.
-- A ferramenta viaja no `allowed_tools` do worker: escrita nossa, não do
-  repositório; pedir autorização por cartão seria ruído.
-
-### 59. A memória mora fora do repositório
-`<appdata>/projects/<id>/memory/charter.md` passa a ser o local preferido — ao
-lado de `runs/` e das conversas. A leitura aceita as duas casas: o diretório de
-memória primeiro, o `charter.md` na raiz do repositório (#52) ainda conta, por
-respeito às mãos que lá já escreveram. `add_project` escreve um charter de
-arranque na criação — nunca inventado depois; um ficheiro vazio diz ao operador
-onde escrever.
-
-### 60. O Curador: desenhado, à espera de notas
-Perfil novo em `templates()`, dono de `areas/`, semanal ou no shutdown, lendo
-`WorkReported` só de cartões em `Done` (notas de trabalho rejeitado são factos
-falsos à espera de sítio). Índices gerados por código a partir do frontmatter,
-destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
-árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
-acumular.
-
-### 61. A janela entre as duas fases tinha a sua própria corrida (bug)
-Apontado pelo operador ao reler #46: entre o despacho da worktree e a chegada
-do `WorktreeResolved`, o cartão não estava em lado nenhum — `check_run_start`
-corria nas duas fases, mas só olhava para `runs`, que só recebe no fim. Dois
-arranques para o mesmo cartão passavam os dois crivos; com PerCard, o segundo
-`create_worktree` fazia `remove --force` + `branch -D` por cima do checkout
-que o primeiro acabara de criar, e o agente do primeiro ficava a trabalhar numa
-diretoria recriada debaixo dele.
-
-Correção: `starting: HashMap<card_id → agent_id>`, inserido antes do despacho,
-consultado pelos dois crivos, removido quando o run se registra — e nos
-caminhos de falha também, com um detalhe que custou um teste falhado: o
-**próprio** marcador não pode contar na fase 2, senão o cartão bloqueia-se a si
-próprio ("a start is already under way" contra si mesmo). O set existe para as
-mensagens *entre* fases; dentro de um handler o actor não intercala.
-
-Consequências medidas pelos testes:
-
-- duplo arranque do mesmo cartão → **uma** chamada a create_worktree, o segundo
-  despacho recusado com "a start is already under way for this card";
-- limite do agente durante a janela → o segundo é recusado **antes de
-  construir** (o crivo conta o que está a arrancar, não só o que corre), logo
-  nem sequer há órfão;
-- cartão descartado a meio da construção → o `StartRun` é recusado e a checkout
-  acabada de criar é **removida** (`abandon_start`, destacada como o discard);
-  checkouts adotados nunca são nossos para apagar, e o flag `created` na
-  mensagem distingue.
-
-## Modo Espelho — a app altera-se por compilação (2026-08-24)
-
-O princípio substitui o desenho antigo: **um binário compilado não se altera a
-si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
-novo, e a instância a correr fica intocada por construção. A troca é decisão do
-operador. Consequência valiosa: o build é a validação — um cartão que parta o
-orquestrador nunca chega à app em uso, por enforcement determinístico.
-
-### 62. A zona congelada é uma comparação de caminhos (feito)
-O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
-a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
-módulos e passou a caminho: **um run escreve dentro da sua worktree e em mais
-lado nenhum**, decidido no `canUseTool` antes da fila de aprovações (uma recusa
-aqui não é pergunta para o operador).
-
-Vive em `sidecar/pathguard.mjs`, módulo puro sem SDK — testável offline com
-`pnpm test:sidecar` (8 testes): canonicalização resolve e segue o que existe,
-recusa o que não resolve (#39 de novo; nada de `starts_with` componente a
-componente), fronteira de diretório incluída (`/wt/c1` não contém `/wt/c11`),
-e qualquer string sob uma chave terminada em `path` é candidata — ferramenta
-nova cai no guardo por omissão. Ferramentas de escrita apenas; leituras ficam
-livres. A negação aparece no transcript com o caminho.
-
-Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
-e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
-adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
-
-### 65. O build como check do engine (feito)
-Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
---no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
-destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
-artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
-Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
-build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
-um build verde seria convidativo a instalar algo de que não há volta — e isso
-é armadilha, não feature.
-
-### 64. Instalar com volta — desenhado, é a próxima peça
-Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
-
-- binário anterior guardado antes de trocar;
-- marca de "arranque em curso" escrita antes de lançar a nova, limpa quando o
-  `setup` completa;
-- ao arrancar, marca órfã → repor o binário guardado e dizer porquê.
-
-Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
-implementação: o exe em execução não se substitui — troca por rename (velho
-guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
-**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
-acima o dispensa.
-
-## Dívida técnica conhecida (atualizada)
-
-- Compaction do event log (o botão do design não existe).
-- Sem diff viewer dentro da UI: o Director lê o diff, a pessoa abre a worktree.
-- Grafo de commits desenhado como lista, não como as pistas com curvas do design.
-- Os projetos pausados são respeitados no `start_run`, mas não param runs a meio.
-
-## Um só Director, e git local sem remoto (2026-08-23)
-
 ### 19. O Director é um só, ao nível do workspace
 Estava modelado por projeto — vivia dentro do engine — mas a UI apresenta-o
 acima das secções de projeto, diz "watching · all projects" e conta diffs
@@ -521,8 +246,6 @@ Os outros sítios que lançam processos já o tinham (sidecar, adapter da CLI,
 checks) ou querem uma janela de propósito (abrir um terminal). `explorer` é uma
 app gráfica e não aloca consola.
 
-## O Director como assistente (2026-08-23)
-
 ### 24. "reading the board..." para sempre (bug no adapter)
 O `drive()` do sidecar registava o `done` e **continuava a ler** o stdout. O
 processo node fica vivo à espera de outro comando, portanto o stdout nunca
@@ -605,8 +328,6 @@ durante os segundos em que ele trabalhava.
 Em vez de fingir, o dock passou a mostrar o progresso que **todos** os modelos
 dão: as chamadas de ferramenta ("reading the diff…", "opening the screen…"). O
 texto continua a chegar em deltas para todos os modelos.
-
-## Conversas que sobrevivem ao restart (2026-08-23)
 
 ### 32. O chat do Director era um caminho paralelo ao engine
 `ask_director` no `workspace.rs` era uma cópia à mão do ciclo de reencaminhamento
@@ -827,10 +548,73 @@ Nota de teste: os `FakeGit` passaram a ter uma raiz própria por instância. Com
 uma raiz fixa partilhada, um teste via o checkout deixado por outro — e agora
 que "já existe?" é uma pergunta com consequências, isso deixou de ser inócuo.
 
-## O resto da revisão externa — compaction, tipos gerados e a arquitectura mínima (2026-08-24)
+### 45. Dois `git commit` na mesma worktree ao fechar (bug)
+O `shutdown` cancelava os tokens e **não esperava**: commitava o wip ele próprio
+enquanto a tarefa do run — vendo o cancelamento — commitava também. Dois commits
+concorrentes na mesma worktree: o segundo falha com `index.lock`, ou o primeiro
+captura um estado a meio de uma escrita.
 
-A segunda metade do handoff: a dívida que era código e as quatro peças de
-arquitectura, na versão mínima que já serve.
+Corrigido na propriedade: quem commita é a tarefa do run, sempre foi ela que sabia
+o *outcome*. O `shutdown` agora cancela e **espera** pelos handles (grace de 15s),
+e não commita nada por si. Como a política `commit_wip_on_close = false` tem de
+continuar a significar algo, cada run leva um `commit_on_cancel` partilhado: o
+shutdown limpa-o antes de cancelar quando a política está desligada, e a tarefa
+respeita-o no momento do commit. Um cancelamento *dentro* da app continua a
+commitar — a bandeira só é limpa para o fecho.
+
+Testes: um agente falso que dorme 200ms depois do cancelamento prova a ordem
+(`agent-stopped` antes de `wip`, exatamente uma vez); e com a política desligada
+nenhum commit acontece.
+
+### 46. O actor parado segundos atrás do git (bug)
+`create_worktree` (que faz `worktree remove --force` + `branch -D` +
+`worktree add`), `remove_worktree` e o `diff_summary` da revisão corriam dentro do
+loop do actor via `block_in_place`. Nesses segundos não entrava mensagem nenhuma:
+nem snapshot, nem `cancel_run`, nem `RunDone` — e com a fila limitada, os
+produtores bloqueavam. Não se conseguia cancelar um run enquanto outro criava
+worktree.
+
+Corrigido caso a caso:
+
+- **Criar worktree** passou para `spawn_blocking`, com o resultado a voltar como
+  mensagem nova (`Msg::WorktreeResolved`). O `start_run` ficou em duas fases: a
+  primeira valida e despacha, a segunda (`launch_run`) recebe a worktree pronta e
+  registra o run. A ordem da decisão #43 sobrevive — o checkout resolve-se antes
+  do `StartRun` ser persistido — só que agora através de uma fronteira de
+  mensagem. Como o mundo anda entre as duas fases, `launch_run` repete as
+  verificações (cartão ainda sem run, limite do agente).
+- **Remover worktree no discard** é destacado e esquecido: o cartão já saiu do
+  quadro, ninguém devia esperar pelo `rm -rf`.
+- **Diff da revisão** passou para dentro da tarefa que lança o Director; o actor
+  só emite o aviso "director is reading the diff" e lança.
+- O `persist` ficou como estava: um append a JSONL é rápido, e envolvê-lo em
+  mensagens complicaria todos os caminhos por nada.
+
+### 47. Um override podia pôr um cartão a correr sem run (bug)
+O `OverrideCard` validava razão e estado diferente, e mais nada. Um override para
+`Running` produzia um cartão que o domínio não conseguia representar: `DiscardCard`
+recusa, `FinishRun` recusa (`RunMismatch` com `current_run = None`), `StartRun`
+recusa (`NotReady`) — preso para sempre.
+
+Agora recusado à entrada, com erro próprio (`DecisionError::CannotOverrideToRunning`,
+"only starting a run puts a card in Running"). Só o `StartRun` põe um cartão a
+correr; o override continua a servir todos os outros estados.
+
+### 48. `max_concurrent` passou a limitar
+Era guardado no perfil e mostrado na UI, sem efeito nenhum. Agora viaja no
+`RunProfile` até ao engine, que conta os runs activos com o mesmo `agent_id` e
+recusa acima do limite com erro legível ("builder is already working on 1 card;
+its limit is 1"). Um perfil editado à mão com `0` conta como 1 — "zero em
+paralelo" não é um limite, é um perfil pausado. Há teste: dois cartões, mesmo
+agente, limite 1 — o segundo é recusado e o cartão fica Ready; limite 2, passa.
+
+### 49. O diff do Review, ficheiro a ficheiro
+Nota da revisão: "sem diff viewer dentro da UI". Já existia — `card_diff` traz o
+patch e o Review coloria-o linha a linha — mas era um bloco único, e num diff de
+vinte ficheiros isso é o mesmo que não estar lá. Agora o patch é dividido por
+ficheiro: cabeçalho com caminho e `+n −m` do próprio ficheiro, colapsável, sticky
+ao fazer scroll. Sem syntax highlighting a sério — primeiro existir, depois ser
+bonito.
 
 ### 50. Compaction: um snapshot em vez de milhares de eventos
 `Event::BoardSnapshot { cards }` novo — no replay, substitui o quadro inteiro,
@@ -936,12 +720,6 @@ são andaimes transitórios numa worktree que o próximo run recria, e alongar o
 
 Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
 "harness: Fix the retry loop" e continua a carregar `Harness-Card`.
-## Memória — report_work, e quem escreve o quê (2026-08-24)
-
-Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
-Curador e a árvore `areas/` — fica para quando existirem notas reais com que
-trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
-árvore às cegas".
 
 ### 58. `report_work`: o agente conta, o engine commita
 Ferramenta nova que só os workers recebem (`report_work { summary,
@@ -1018,14 +796,6 @@ Consequências medidas pelos testes:
   checkouts adotados nunca são nossos para apagar, e o flag `created` na
   mensagem distingue.
 
-## Modo Espelho — a app altera-se por compilação (2026-08-24)
-
-O princípio substitui o desenho antigo: **um binário compilado não se altera a
-si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
-novo, e a instância a correr fica intocada por construção. A troca é decisão do
-operador. Consequência valiosa: o build é a validação — um cartão que parta o
-orquestrador nunca chega à app em uso, por enforcement determinístico.
-
 ### 62. A zona congelada é uma comparação de caminhos (feito)
 O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
 a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
@@ -1044,251 +814,6 @@ livres. A negação aparece no transcript com o caminho.
 Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
 e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
 adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
-
-### 65. O build como check do engine (feito)
-Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
---no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
-destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
-artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
-Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
-build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
-um build verde seria convidativo a instalar algo de que não há volta — e isso
-é armadilha, não feature.
-
-### 64. Instalar com volta — desenhado, é a próxima peça
-Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
-
-- binário anterior guardado antes de trocar;
-- marca de "arranque em curso" escrita antes de lançar a nova, limpa quando o
-  `setup` completa;
-- ao arrancar, marca órfã → repor o binário guardado e dizer porquê.
-
-Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
-implementação: o exe em execução não se substitui — troca por rename (velho
-guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
-**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
-acima o dispensa.
-
-## Dívida técnica conhecida (atualizada)
-
-- **Compaction**: implementada (#50). Falta um botão na UI para compactar sob
-  pedido; o automático no arranque cobre o crescimento.
-- **ts-rs**: implementado (#51). Exceções manuais documentadas no cabeçalho de
-  `types.ts` (event streams achatados + wrappers do shell).
-- **Memória**: piso feito (#52); a árvore `memory/areas/` com índices gerados e
-  curadoria pelo Director espera pelo teto.
-- **Triador/Analista**: v1 feitas (#55). Falta ponderação de ficheiros protegidos
-  no risco, e o Analista é sob pedido em vez de semanal.
-- Grafo de commits como pistas com curvas do design (hoje é lista classificada).
-- Hooks de telemetria estruturada e zona congelada: não registados.
-
-Uma revisão ao `master` apontou três bugs e alguma dívida. O que se segue fecha os
-bugs e a parte da dívida que era código; o resto ficou escrito na secção de dívida,
-com plano.
-
-### 45. Dois `git commit` na mesma worktree ao fechar (bug)
-O `shutdown` cancelava os tokens e **não esperava**: commitava o wip ele próprio
-enquanto a tarefa do run — vendo o cancelamento — commitava também. Dois commits
-concorrentes na mesma worktree: o segundo falha com `index.lock`, ou o primeiro
-captura um estado a meio de uma escrita.
-
-Corrigido na propriedade: quem commita é a tarefa do run, sempre foi ela que sabia
-o *outcome*. O `shutdown` agora cancela e **espera** pelos handles (grace de 15s),
-e não commita nada por si. Como a política `commit_wip_on_close = false` tem de
-continuar a significar algo, cada run leva um `commit_on_cancel` partilhado: o
-shutdown limpa-o antes de cancelar quando a política está desligada, e a tarefa
-respeita-o no momento do commit. Um cancelamento *dentro* da app continua a
-commitar — a bandeira só é limpa para o fecho.
-
-Testes: um agente falso que dorme 200ms depois do cancelamento prova a ordem
-(`agent-stopped` antes de `wip`, exatamente uma vez); e com a política desligada
-nenhum commit acontece.
-
-### 46. O actor parado segundos atrás do git (bug)
-`create_worktree` (que faz `worktree remove --force` + `branch -D` +
-`worktree add`), `remove_worktree` e o `diff_summary` da revisão corriam dentro do
-loop do actor via `block_in_place`. Nesses segundos não entrava mensagem nenhuma:
-nem snapshot, nem `cancel_run`, nem `RunDone` — e com a fila limitada, os
-produtores bloqueavam. Não se conseguia cancelar um run enquanto outro criava
-worktree.
-
-Corrigido caso a caso:
-
-- **Criar worktree** passou para `spawn_blocking`, com o resultado a voltar como
-  mensagem nova (`Msg::WorktreeResolved`). O `start_run` ficou em duas fases: a
-  primeira valida e despacha, a segunda (`launch_run`) recebe a worktree pronta e
-  registra o run. A ordem da decisão #43 sobrevive — o checkout resolve-se antes
-  do `StartRun` ser persistido — só que agora através de uma fronteira de
-  mensagem. Como o mundo anda entre as duas fases, `launch_run` repete as
-  verificações (cartão ainda sem run, limite do agente).
-- **Remover worktree no discard** é destacado e esquecido: o cartão já saiu do
-  quadro, ninguém devia esperar pelo `rm -rf`.
-- **Diff da revisão** passou para dentro da tarefa que lança o Director; o actor
-  só emite o aviso "director is reading the diff" e lança.
-- O `persist` ficou como estava: um append a JSONL é rápido, e envolvê-lo em
-  mensagens complicaria todos os caminhos por nada.
-
-### 47. Um override podia pôr um cartão a correr sem run (bug)
-O `OverrideCard` validava razão e estado diferente, e mais nada. Um override para
-`Running` produzia um cartão que o domínio não conseguia representar: `DiscardCard`
-recusa, `FinishRun` recusa (`RunMismatch` com `current_run = None`), `StartRun`
-recusa (`NotReady`) — preso para sempre.
-
-Agora recusado à entrada, com erro próprio (`DecisionError::CannotOverrideToRunning`,
-"only starting a run puts a card in Running"). Só o `StartRun` põe um cartão a
-correr; o override continua a servir todos os outros estados.
-
-### 48. `max_concurrent` passou a limitar
-Era guardado no perfil e mostrado na UI, sem efeito nenhum. Agora viaja no
-`RunProfile` até ao engine, que conta os runs activos com o mesmo `agent_id` e
-recusa acima do limite com erro legível ("builder is already working on 1 card;
-its limit is 1"). Um perfil editado à mão com `0` conta como 1 — "zero em
-paralelo" não é um limite, é um perfil pausado. Há teste: dois cartões, mesmo
-agente, limite 1 — o segundo é recusado e o cartão fica Ready; limite 2, passa.
-
-### 49. O diff do Review, ficheiro a ficheiro
-Nota da revisão: "sem diff viewer dentro da UI". Já existia — `card_diff` traz o
-patch e o Review coloria-o linha a linha — mas era um bloco único, e num diff de
-vinte ficheiros isso é o mesmo que não estar lá. Agora o patch é dividido por
-ficheiro: cabeçalho com caminho e `+n −m` do próprio ficheiro, colapsável, sticky
-ao fazer scroll. Sem syntax highlighting a sério — primeiro existir, depois ser
-bonito.
-
-### 57. A mensagem de commit é o título do cartão
-Pergunta do operador ao ler o fluxo de commits: "os programadores tratam commits
-como história, a mensagem não ajudava?". Não ajudava — era literalmente
-"harness: work for card c_e2e", um uuid disfarçado em `git log`.
-
-Agora o assunto de um run concluído é `harness: <título do cartão>`, com uma
-segunda linha em prosa (`harness card c_x, run abc12345, by builder`) e os
-trailers intactos — os ids continuam exatamente onde as máquinas os procuram
-(trailers, que é o que o ecrã Code lê para desenhar as pistas). Título vazio
-cai no formato antigo. Os wip mantêm-se genéricos ("wip: interrupted run"):
-são andaimes transitórios numa worktree que o próximo run recria, e alongar o
-`GitPort` por isso não pagava.
-
-Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
-"harness: Fix the retry loop" e continua a carregar `Harness-Card`.
-## Memória — report_work, e quem escreve o quê (2026-08-24)
-
-Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
-Curador e a árvore `areas/` — fica para quando existirem notas reais com que
-trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
-árvore às cegas".
-
-### 58. `report_work`: o agente conta, o engine commita
-Ferramenta nova que só os workers recebem (`report_work { summary,
-memory_notes }`). **Não é o agente a commitar**: a pós-condição continua
-decidida em Rust. O que a chamada faz:
-
-- `summary` espera num slot do run e torna-se o **corpo** do commit que o task
-  já ia fazer; o assunto continua a vir do board.
-- `memory_notes` vai para o log como `Event::WorkReported` — ao evento, nunca
-  ao git. Memória dentro do repositório significaria uma cópia por worktree e
-  conflitos de escrita entre cartões concorrentes, o pior sítio possível para
-  um.
-
-O caminho é o do resto do engine: a ferramenta envia `Msg::WorkReport`, o actor
-valida (`Command::ReportWork`; vazio dos dois lados → `EmptyReport`) persiste, e
-**só então** fecha o ack da chamada — "reported" significa gravado, não
-enfileirado. A primeira versão tinha a corrida clássica: o send resolve ao
-entrar na fila, o agente acabava, o task commitava antes de o actor processar o
-relatório, e o corpo saía genérico. Foi o ack que a fechou.
-
-Decisões dentro da decisão:
-
-- **Duas chamadas: a última ganha**, documentado no comando ("an agent refining
-  itself beats two summaries glued together"). Recusar a segunda puniria o agente
-  por se corrigir; acumular em silêncio era o que o handoff proibiu.
-- **Silêncio é normal e nomeado**: sem chamada, o commit sai com o corpo
-  genérico de sempre e um `Notice` — "the agent did not report its work" — no
-  transcript. Nada de parsing da resposta final; texto livre que *parece* um
-  resumo é o #41 outra vez.
-- A ferramenta viaja no `allowed_tools` do worker: escrita nossa, não do
-  repositório; pedir autorização por cartão seria ruído.
-
-### 59. A memória mora fora do repositório
-`<appdata>/projects/<id>/memory/charter.md` passa a ser o local preferido — ao
-lado de `runs/` e das conversas. A leitura aceita as duas casas: o diretório de
-memória primeiro, o `charter.md` na raiz do repositório (#52) ainda conta, por
-respeito às mãos que lá já escreveram. `add_project` escreve um charter de
-arranque na criação — nunca inventado depois; um ficheiro vazio diz ao operador
-onde escrever.
-
-### 60. O Curador: desenhado, à espera de notas
-Perfil novo em `templates()`, dono de `areas/`, semanal ou no shutdown, lendo
-`WorkReported` só de cartões em `Done` (notas de trabalho rejeitado são factos
-falsos à espera de sítio). Índices gerados por código a partir do frontmatter,
-destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
-árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
-acumular.
-
-### 61. A janela entre as duas fases tinha a sua própria corrida (bug)
-Apontado pelo operador ao reler #46: entre o despacho da worktree e a chegada
-do `WorktreeResolved`, o cartão não estava em lado nenhum — `check_run_start`
-corria nas duas fases, mas só olhava para `runs`, que só recebe no fim. Dois
-arranques para o mesmo cartão passavam os dois crivos; com PerCard, o segundo
-`create_worktree` fazia `remove --force` + `branch -D` por cima do checkout
-que o primeiro acabara de criar, e o agente do primeiro ficava a trabalhar numa
-diretoria recriada debaixo dele.
-
-Correção: `starting: HashMap<card_id → agent_id>`, inserido antes do despacho,
-consultado pelos dois crivos, removido quando o run se registra — e nos
-caminhos de falha também, com um detalhe que custou um teste falhado: o
-**próprio** marcador não pode contar na fase 2, senão o cartão bloqueia-se a si
-próprio ("a start is already under way" contra si mesmo). O set existe para as
-mensagens *entre* fases; dentro de um handler o actor não intercala.
-
-Consequências medidas pelos testes:
-
-- duplo arranque do mesmo cartão → **uma** chamada a create_worktree, o segundo
-  despacho recusado com "a start is already under way for this card";
-- limite do agente durante a janela → o segundo é recusado **antes de
-  construir** (o crivo conta o que está a arrancar, não só o que corre), logo
-  nem sequer há órfão;
-- cartão descartado a meio da construção → o `StartRun` é recusado e a checkout
-  acabada de criar é **removida** (`abandon_start`, destacada como o discard);
-  checkouts adotados nunca são nossos para apagar, e o flag `created` na
-  mensagem distingue.
-
-## Modo Espelho — a app altera-se por compilação (2026-08-24)
-
-O princípio substitui o desenho antigo: **um binário compilado não se altera a
-si próprio.** O agente edita a fonte do `_harness`, compila-se um artefacto
-novo, e a instância a correr fica intocada por construção. A troca é decisão do
-operador. Consequência valiosa: o build é a validação — um cartão que parta o
-orquestrador nunca chega à app em uso, por enforcement determinístico.
-
-### 62. A zona congelada é uma comparação de caminhos (feito)
-O build cobre o código; não cobre `agents.json` nem afins — um agente que edite
-a equipa não levanta um único erro do compilador. A regra deixou de ser lista de
-módulos e passou a caminho: **um run escreve dentro da sua worktree e em mais
-lado nenhum**, decidido no `canUseTool` antes da fila de aprovações (uma recusa
-aqui não é pergunta para o operador).
-
-Vive em `sidecar/pathguard.mjs`, módulo puro sem SDK — testável offline com
-`pnpm test:sidecar` (8 testes): canonicalização resolve e segue o que existe,
-recusa o que não resolve (#39 de novo; nada de `starts_with` componente a
-componente), fronteira de diretório incluída (`/wt/c1` não contém `/wt/c11`),
-e qualquer string sob uma chave terminada em `path` é candidata — ferramenta
-nova cai no guardo por omissão. Ferramentas de escrita apenas; leituras ficam
-livres. A negação aparece no transcript com o caminho.
-
-Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
-e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
-adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
-
-### 65. O build como check do engine (feito)
-Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
---no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
-destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
-artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
-Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
-build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
-um build verde seria convidativo a instalar algo de que não há volta — e isso
-é armadilha, não feature.
 
 ### 64. Instalar com volta — feito
 Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
@@ -1313,22 +838,36 @@ o instalador nunca depende de uma sobreviver. Comandos IPC: `updates_list` e
 relançamento). Falta o fio na UI: um banner que leia `updates_list` e um botão
 para `update_install`.
 
-## Dívida técnica conhecida (atualizada)
+### 65. O build como check do engine (feito)
+Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
+--no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
+destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
+artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
+Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
+build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
+relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
+um build verde seria convidativo a instalar algo de que não há volta — e isso
+é armadilha, não feature.
 
-- **Compaction do event log.** O arranque relê tudo (`rebuild(&history)`), um
-  engine por projeto, todos no `setup`. Plano mínimo: `Event::BoardSnapshot`
-  periódico (cartões completos, `apply` substitui o quadro) + truncar o log antes
-  dele; logs antigos continuam a reproduzir porque o snapshot é só mais um evento.
-  Não feito nesta passagem porque mexe no caminho da recuperação de crash e esse
-  merece uma sessão própria.
-- **Verificação end-to-end** com modelo a correr: um Builder a levar um cartão de
-  ready a review dentro da app. Herdado há três sessões. Nada disto o dispensa.
-- **ts-rs.** `src/lib/types.ts` duplica à mão as structs Rust; divergência é
-  silenciosa. Os tipos do domínio já derivam `Serialize`, o custo é uma anotação
-  por struct e um passo de build que regenera `types.ts`.
-- **Pausar um projeto escolheu-se significar "não começa nada de novo"**: os runs
-  a meio continuam até acabarem. Está assim no `start_run_inner` e agora está dito;
-  se algum dia for para interromper, é um `cancel_run` por run activo no toggle.
-- Memória curada (charter.md + global.md no prompt), dependências entre cartões,
-  teto de profundidade de fan-out, Triador e Analista: sem começar, desenhados no
-  documento de arquitectura.
+### 66. O pathguard guarda por omissão
+A inversão que a revisão do guardo impôs: em vez de `WRITE_TOOLS.has(toolName)` —
+quatro nomes conhecidos, tudo o mais passava sem verificação nenhuma, incluindo
+ferramentas MCP de terceiros com um campo de caminho — agora **qualquer** ferramenta
+com input contendo caminhos candidatos é inspectada. A lista explícita passou a ser
+de isenção: leituras (`Read/Glob/Grep/NotebookRead/LS`) e as ferramentas nossas
+(`mcp__harness__*`, que actuam na app com a sua própria história de aprovação,
+#27–#29). Junto: separadores só unificados no Windows (`a\\b` em Linux é um nome
+válido), e um cwd não-resolvível devolve razão distinta em vez de acusar a raiz do
+run como caminho culpado. Teste novo: uma ferramenta MCP desconhecida com
+`{path: "/etc/passwd"}` é recusada com o caminho na mensagem.
+
+## POR DECIDIR
+
+| Questão | Estado |
+|---|---|
+| Sandbox / contentores | Adiado conscientemente: permission modes + worktree isolada + pathguard; confinar shell de verdade é outro trabalho (#2, #62) |
+| Auth headless | Login OAuth funciona; `claude setup-token` fica como opção futura (#4, #7) |
+| Granularidade RunEvent | Mensagens completas do stream; por-token só se houver necessidade real (#5) |
+| Uma ou várias janelas | Uma; o seletor de projetos substituiu a necessidade até agora (#4 v4) |
+| Instalar actualizações sem sair da app | Feito (#64, com rollback); o banner lê `updates_list` e instala via `update_install` |
+
