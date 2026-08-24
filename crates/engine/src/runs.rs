@@ -203,9 +203,59 @@ impl Engine {
         // Only this task decides when cancellation turns into a wip commit:
         // shutdown clears the flag when policy says closing must not commit.
         let commit_on_cancel = Arc::new(AtomicBool::new(true));
+        // The agent's report_work lands here while it runs; the commit reads
+        // the latest one. Shared with the spawned task on purpose.
+        let work_report = Arc::new(std::sync::Mutex::new(crate::WorkReport::default()));
 
-        let spec = RunSpec {
-            prompt,
+        // The worker's single harness tool: its own account of the work.
+        // Routed through the actor like every other write, so the event log
+        // and the slot move together.
+        let report_tx = self.self_tx.clone();
+        let report_card = card_id.clone();
+        let tools: Option<harness_ports::ToolRunner> = Some(Arc::new(move |call| {
+            let tx = report_tx.clone();
+            let card = report_card.clone();
+            Box::pin(async move {
+                if call.name != "report_work" {
+                    return harness_ports::ToolReply::refused(format!(
+                        "no such harness tool: {}",
+                        call.name
+                    ));
+                }
+                let summary = call
+                    .input
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let notes: Vec<String> = call
+                    .input
+                    .get("memory_notes")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|n| n.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let accepted = async {
+                    let (ack, ack_rx) = tokio::sync::oneshot::channel();
+                    tx.send(Msg::WorkReport { card_id: card, summary, notes, ack })
+                        .await
+                        .map_err(|_| "harness is shutting down".to_string())?;
+                    ack_rx.await.map_err(|_| "harness dropped the report".to_string())?
+                }
+                .await;
+                match accepted {
+                    Ok(()) => harness_ports::ToolReply::ok(
+                        "reported; the summary becomes the body of Harness's commit",
+                    ),
+                    Err(reason) => harness_ports::ToolReply::refused(reason),
+                }
+            })
+        }));
+
+        let mut spec = RunSpec {            prompt,
             cwd: worktree.0.clone(),
             model: profile.model.clone(),
             allowed_tools: Some(
@@ -223,13 +273,20 @@ impl Engine {
             ),
             approver: self.approver.clone(),
             resume_session: resume_session.clone(),
-            // Only the Director's conversation gets Harness's own tools; a
-            // worker acts on the repository, not on the app.
-            tools: None,
+            // The worker's one harness tool: its own account of the work. A
+            // write to Harness, not to the repository, so it rides in
+            // allowed_tools instead of the approval queue.
+            tools,
             thinking_tokens: None,
             // A worker may fan out one level; its children never may.
             subagents: true,
+            report_work: true,
         };
+        if let Some(allowed) = spec.allowed_tools.as_mut() {
+            allowed.push("mcp__harness__report_work".to_string());
+            allowed.sort();
+            allowed.dedup();
+        }
 
         self.emit_run(
             &card_id,
@@ -266,6 +323,7 @@ impl Engine {
         let task_worktree = worktree.clone();
         let commit_flag = Arc::clone(&commit_on_cancel);
         let task_title = card_title;
+        let task_report = Arc::clone(&work_report);
 
         let handle = tokio::spawn(async move {
             // Forwarding lives in the spawned task so a slow UI never blocks the
@@ -304,6 +362,12 @@ impl Engine {
             let (result, _) = tokio::join!(fut, forward);
             let outcome = result.unwrap_or_else(harness_ports::RunOutcome::Failed);
 
+            // What the agent said about its own work, as it last stood. An
+            // absent report is normal: the body stays generic and a Notice
+            // says so — silence must never pass for a summary.
+            let reported = task_report.lock().unwrap().clone();
+            let mut unreported = false;
+
             // A commit that fails must never pass for one that worked: the
             // Director would then review an empty diff and approve nothing.
             let mut commit_error = None;
@@ -318,17 +382,22 @@ impl Engine {
                         ]);
                         // The subject is the card's title, so `git log` reads
                         // like history; the ids live in the body and in the
-                        // trailers, where machines look.
+                        // trailers, where machines look. The agent's own
+                        // summary — when it gave one — is the body.
                         let subject = match task_title.trim() {
                             "" => format!("harness: work for card {done_card}"),
                             title => format!("harness: {title}"),
                         };
                         let run_short: String =
                             done_run.0.chars().take(8).collect();
-                        let msg = format!(
-                            "{subject}\n\nharness card {done_card}, run {run_short}, by {}",
+                        let footer = format!(
+                            "harness card {done_card}, run {run_short}, by {}",
                             task_agent_id
                         );
+                        let msg = match reported.summary.trim() {
+                            "" => format!("{subject}\n\n{footer}"),
+                            summary => format!("{subject}\n\n{summary}\n\n{footer}"),
+                        };
                         git.commit(&task_worktree, &msg, &trailers).map(|_| ())
                     }
                     harness_ports::RunOutcome::Cancelled
@@ -343,14 +412,20 @@ impl Engine {
                 if let Err(e) = result {
                     commit_error = Some(e.to_string());
                 }
+                unreported = matches!(outcome, harness_ports::RunOutcome::Completed { .. })
+                    && reported.summary.trim().is_empty()
+                    && commit_error.is_none();
                 let _ = base;
             }
 
-            if let Some(reason) = &commit_error {
-                let ts_ms = clock.now_millis();
-                let event = RunEvent::Notice {
-                    text: format!("could not commit the work: {reason}"),
+            if commit_error.is_some() || unreported {
+                let text = match &commit_error {
+                    Some(reason) => format!("could not commit the work: {reason}"),
+                    None => "the agent did not report its work; the commit body stayed generic"
+                        .to_string(),
                 };
+                let ts_ms = clock.now_millis();
+                let event = RunEvent::Notice { text };
                 if let Some(log) = &run_log {
                     let _ = log.append(
                         run_for_events.0.as_str(),
@@ -386,6 +461,7 @@ impl Engine {
                 run_id: run_id.clone(),
                 token,
                 commit_on_cancel,
+                work_report,
                 handle: Some(handle),
                 worktree: worktree.clone(),
                 agent_id: entry_agent_id,

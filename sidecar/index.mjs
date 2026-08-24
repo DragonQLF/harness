@@ -176,6 +176,39 @@ function harnessTools(runId) {
   });
 }
 
+/** The one tool a worker run carries: its own account of the work it did.
+ *  The engine still owns the commit — this only feeds it, and records the
+ *  durable notes for the memory layer. Absence of a call is normal and safe. */
+function reportWorkTool(runId) {
+  return createSdkMcpServer({
+    name: "harness",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "report_work",
+        "Report what you did, once, when your work for the card is done. " +
+          "The summary becomes the body of Harness's commit; the memory notes " +
+          "are durable facts that outlive the card. Distinction: if it stops " +
+          "being true when the code changes, it belongs in the summary; if it " +
+          "is a decision or convention that lasts, it belongs in memory_notes.",
+        {
+          summary: z
+            .string()
+            .describe(
+              "What changed and why, in two or three sentences. Becomes the commit body."
+            ),
+          memory_notes: z
+            .array(z.string())
+            .describe(
+              "Durable facts, decisions or conventions worth remembering after this card is done. Empty array if none."
+            ),
+        },
+        call("report_work"),
+      ),
+    ],
+  });
+}
+
 async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
@@ -228,7 +261,11 @@ async function handleRun({ id, spec }) {
     // servers we pass (none). Without this the operator's account connectors
     // load and the model starts talking about authorising Linear or Notion.
     settingSources: [],
-    mcpServers: spec.harness_tools ? { harness: harnessTools(id) } : {},
+    mcpServers: spec.harness_tools
+      ? { harness: harnessTools(id) }
+      : spec.report_work
+        ? { harness: reportWorkTool(id) }
+        : {},
     strictMcpConfig: true,
     canUseTool,
     hooks: {

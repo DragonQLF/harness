@@ -382,6 +382,44 @@ impl AgentPort for SlowCancelAgent {
     }
 }
 
+/// An agent that reports its work through the harness tool Harness handed the
+/// run — twice, with different summaries. Proves the tool reaches the engine,
+/// that both land in the event log, and that the *last* wins at commit time.
+struct ReportingAgent;
+
+impl AgentPort for ReportingAgent {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        _cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        Box::pin(async move {
+            if let Some(report) = &spec.tools {
+                let call = |summary: &str, notes: serde_json::Value| harness_ports::ToolCall {
+                    name: "report_work".into(),
+                    input: serde_json::json!({ "summary": summary, "memory_notes": notes }),
+                };
+                let _ = report(call("first draft", serde_json::json!(["note A"]))).await;
+                let _ = report(
+                    call(
+                        "final account of the retry fix",
+                        serde_json::json!(["note A", "note B"]),
+                    ),
+                )
+                .await;
+            }
+            let _ = tx.send(RunEvent::Text { text: "done".into() }).await;
+            drop(tx);
+            Ok(RunOutcome::Completed {
+                session_id: Some("s9".into()),
+                cost_usd: Some(0.01),
+                turns: Some(2),
+            })
+        })
+    }
+}
+
 fn test_config() -> EngineConfig {
     EngineConfig::new("proj-test", std::env::temp_dir())
 }
@@ -1385,6 +1423,201 @@ async fn the_commit_subject_is_the_card_title() {
         "subject reads like history, got {commit}"
     );
     assert!(commit.contains("Harness-Card=c_msg"), "trailers survive: {commit}");
+}
+
+/// The happy path of report_work: both calls reach the log, the commit body
+/// carries the agent's *last* summary (refined beats accumulated), and the
+/// transcript says a report arrived.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_summary_becomes_the_commit_body_and_the_last_one_wins() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, mut runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(ReportingAgent),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_report");
+    card_ready(&handle, &id).await;
+    let run_id = handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("card reaches review", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    // The commit body is the agent's final account, under the title subject.
+    let commit = git
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("commit:"))
+        .expect("a commit was made");
+    assert!(commit.contains("harness: t"), "subject from the board: {commit}");
+    assert!(
+        commit.contains("final account of the retry fix"),
+        "summary became the body: {commit}"
+    );
+    assert!(
+        !commit.contains("first draft"),
+        "the last report wins, nothing accumulates: {commit}"
+    );
+    assert!(commit.contains("Harness-Card=c_report"), "trailers intact");
+
+    // Both reports are durable events; notes ride along, trimmed.
+    let events = store.events();
+    let reported: Vec<&Event> = events
+        .iter()
+        .filter(|e| matches!(e, Event::WorkReported { .. }))
+        .collect();
+    assert_eq!(reported.len(), 2, "both calls are in the log");
+    assert!(matches!(
+        reported[1],
+        Event::WorkReported { summary, notes, .. }
+            if summary == "final account of the retry fix"
+                && notes == &vec!["note A".to_string(), "note B".to_string()]
+    ));
+
+    // And the transcript said so, once per call.
+    let mut reported_notices = 0;
+    while let Ok(update) = runs.try_recv() {
+        if let RunEvent::Notice { text } = update.event {
+            if text.contains("reported its work") {
+                reported_notices += 1;
+            }
+        }
+    }
+    assert_eq!(reported_notices, 2, "each report was named on the stream");
+}
+
+/// Silence is normal and safe: no call, generic body, explicit Notice — never
+/// a parsed-from-prose pseudo-summary (#41's shape).
+#[tokio::test(flavor = "multi_thread")]
+async fn silence_still_commits_with_a_generic_body_and_a_notice() {
+    let r = rig_with(
+        FakeMode::Complete,
+        FakeMode::Complete,
+        None,
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+    );
+    let id = CardId::new("c_silent");
+    card_ready(&r.handle, &id).await;
+    let run_id = r
+        .handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&r.handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    let commit = r
+        .git
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("commit:"))
+        .expect("the commit happened anyway");
+    assert!(commit.contains("harness card c_silent"), "{commit}");
+    assert!(
+        !commit.contains("Harness-Card=c_silent\n"),
+        "no invented body"
+    );
+
+    let logged = r.log.read(&run_id.0).unwrap();
+    assert!(
+        logged
+            .iter()
+            .any(|l| matches!(&l.event, RunEvent::Notice { text }
+                if text.contains("did not report its work"))),
+        "the silence is named: {:?}",
+        logged.iter().map(|l| &l.event).collect::<Vec<_>>()
+    );
+    assert!(
+        !store_has_reports(&r),
+        "nothing was recorded for a run that never reported"
+    );
+}
+
+fn store_has_reports(r: &Rig) -> bool {
+    r.store
+        .events()
+        .iter()
+        .any(|e| matches!(e, Event::WorkReported { .. }))
+}
+
+/// A rejected card keeps its report: the log records what the agent said,
+/// promotion to memory is somebody else's decision — and it will only ever
+/// read cards that reached Done.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rejected_card_keeps_its_work_report_in_the_log() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(ReportingAgent),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_reject");
+    card_ready(&handle, &id).await;
+    handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("card reaches review", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    handle
+        .execute(Command::RejectCard {
+            card_id: id.clone(),
+            reason: "not good enough".into(),
+            by: Actor::Human,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store
+            .events()
+            .iter()
+            .filter(|e| matches!(e, Event::WorkReported { .. }))
+            .count(),
+        2,
+        "the reports survive the rejection"
+    );
 }
 
 /// A worktree that cannot be created must not leave a card marked Running with

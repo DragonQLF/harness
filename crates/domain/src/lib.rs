@@ -216,6 +216,19 @@ pub enum Event {
         #[serde(default)]
         cards: Vec<Card>,
     },
+    /// What the agent said about its own work, reported through the
+    /// `report_work` tool while running. The summary feeds the commit body —
+    /// the engine still owns the commit — and the notes are durable facts the
+    /// Curator may promote later. Lives here, not in git: memory in the
+    /// repository would mean one copy per worktree and write conflicts
+    /// between concurrent cards, which is the worst place for one.
+    WorkReported {
+        card_id: CardId,
+        #[serde(default)]
+        summary: String,
+        #[serde(default)]
+        notes: Vec<String>,
+    },
 }
 
 impl Event {
@@ -231,7 +244,8 @@ impl Event {
             | Event::CardRejected { card_id, .. }
             | Event::AgentSession { card_id, .. }
             | Event::CardDiscarded { card_id, .. }
-            | Event::CardDependencies { card_id, .. } => Some(card_id),
+            | Event::CardDependencies { card_id, .. }
+            | Event::WorkReported { card_id, .. } => Some(card_id),
             // A snapshot is the board itself, not something that happened to
             // one card.
             Event::BoardSnapshot { .. } => None,
@@ -267,6 +281,10 @@ pub enum Command {
     DiscardCard { card_id: CardId, reason: String },
     /// Say which cards must be Done before this one may start.
     SetDependencies { card_id: CardId, depends_on: Vec<CardId> },
+    /// The agent's own account of finished work: summary for the commit body,
+    /// notes for the memory layer. Calling again replaces — the last report
+    /// of a run wins, never accumulates silently.
+    ReportWork { card_id: CardId, summary: String, notes: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +306,8 @@ pub enum DecisionError {
     /// stands.
     DependenciesNotMet(Vec<(CardId, Status)>),
     DependencyCycle(CardId),
+    /// `report_work` arrived with neither a summary nor a note.
+    EmptyReport,
 }
 
 impl fmt::Display for DecisionError {
@@ -326,6 +346,9 @@ impl fmt::Display for DecisionError {
             }
             DecisionError::DependencyCycle(id) => {
                 write!(f, "these dependencies would make a cycle through {id}")
+            }
+            DecisionError::EmptyReport => {
+                write!(f, "report_work needs a summary or at least one memory note")
             }
         }
     }
@@ -466,6 +489,10 @@ impl Board {
                     self.cards.insert(card.id.clone(), card.clone());
                 }
             }
+            // The agent's report changes no board state: the summary is read
+            // at commit time from the run, the notes belong to the memory
+            // layer. The log keeps both so a restart keeps them too.
+            Event::WorkReported { .. } => {}
         }
     }
 
@@ -632,6 +659,23 @@ impl Board {
                     run_id: run_id.clone(),
                     worktree: worktree.clone(),
                     branch: branch.clone(),
+                }])
+            }
+            Command::ReportWork { card_id, summary, notes } => {
+                if !self.cards.contains_key(card_id) {
+                    return Err(DecisionError::CardNotFound(card_id.clone()));
+                }
+                if summary.trim().is_empty() && notes.iter().all(|n| n.trim().is_empty()) {
+                    return Err(DecisionError::EmptyReport);
+                }
+                Ok(vec![Event::WorkReported {
+                    card_id: card_id.clone(),
+                    summary: summary.trim().to_string(),
+                    notes: notes
+                        .iter()
+                        .map(|n| n.trim().to_string())
+                        .filter(|n| !n.is_empty())
+                        .collect(),
                 }])
             }
             Command::RecordSession { card_id, session_id } => {
@@ -1091,6 +1135,66 @@ mod tests {
             replayed.apply(&e);
         }
         assert_eq!(replayed.get(&id).unwrap().status, Running);
+    }
+
+    #[test]
+    fn a_work_report_needs_something_to_say_and_is_trimmed() {
+        let mut board = Board::default();
+        let id = CardId::new("wr");
+        drive(&mut board, &Command::CreateCard { card_id: id.clone(), title: "t".into() });
+
+        // Neither a summary nor a note: nothing to record.
+        assert!(matches!(
+            board.decide(&Command::ReportWork {
+                card_id: id.clone(),
+                summary: "   ".into(),
+                notes: vec![],
+            }),
+            Err(DecisionError::EmptyReport)
+        ));
+        // A note alone is enough; whitespace dies on the way in.
+        let events = board
+            .decide(&Command::ReportWork {
+                card_id: id.clone(),
+                summary: "  fixed the loop  ".into(),
+                notes: vec!["  always retry twice  ".into(), "   ".into()],
+            })
+            .unwrap();
+        assert!(matches!(
+            &events[0],
+            Event::WorkReported { summary, notes, .. }
+                if summary == "fixed the loop"
+                    && notes == &vec!["always retry twice".to_string()]
+        ));
+    }
+
+    /// The handoff's replay check, spelled out: a log that predates
+    /// `report_work` entirely still reproduces — the event is additive with
+    /// defaulted fields — and a snapshot keeps folding whatever came before.
+    #[test]
+    fn an_old_log_without_work_reports_still_replays() {
+        let raw = concat!(
+            r#"{"type":"card_created","card_id":"c1","title":"old"}"#,
+            "\n",
+            r#"{"type":"card_moved","card_id":"c1","from":"backlog","to":"ready"}"#,
+            "\n",
+            r#"{"type":"run_started","card_id":"c1","run_id":"run-1"}"#,
+            "\n",
+            r#"{"type":"work_reported","card_id":"c1","summary":"s"}"#,
+            "\n",
+            r#"{"type":"run_finished","card_id":"c1","run_id":"run-1","outcome":"completed"}"#,
+            "\n",
+            r#"{"type":"card_created","card_id":"c2","title":"later"}"#,
+            "\n",
+            r#"{"type":"board_snapshot","cards":[{"id":"c1","title":"old","status":"done","agent_id":"builder","cost_usd":0,"turns":0,"runs":0}]}"#,
+        );
+        let mut board = Board::default();
+        for line in raw.split('\n') {
+            let event: Event = serde_json::from_str(line).expect(line);
+            board.apply(&event);
+        }
+        assert!(matches!(board.get(&CardId::new("c1")).unwrap().status, Status::Done));
+        assert!(board.get(&CardId::new("c2")).is_none(), "the snapshot folds c2 away");
     }
 
     #[test]

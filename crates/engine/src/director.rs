@@ -75,8 +75,10 @@ impl Engine {
                 resume_session: None,
                 tools: None,
                 thinking_tokens: None,
-                // A review reads one diff; no fan-out.
+                // A review reads one diff; no fan-out, and no report — the
+                // commit it reviews was already written by the worker's run.
                 subagents: false,
+                report_work: false,
             };
 
             let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);

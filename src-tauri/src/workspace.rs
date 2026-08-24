@@ -540,9 +540,14 @@ impl Workspace {
                 active: active == Some(project.id.as_str()),
                 cards: lines,
                 // Only the open project carries its charter: every board
-                // carrying one would bloat every turn for no gain.
+                // carrying one would bloat every turn for no gain. Preferred
+                // home is the project's memory directory; the repository root
+                // still counts for hands that already wrote one there.
                 charter: if active == Some(project.id.as_str()) {
-                    harness_app::memory::charter_for(Path::new(&project.path))
+                    harness_app::memory::charter_between(
+                        &self.paths.project_memory_charter(&project.id),
+                        &Path::new(&project.path).join("charter.md"),
+                    )
                 } else {
                     None
                 },
@@ -696,6 +701,27 @@ impl Workspace {
 
         self.projects.lock().unwrap().push(project.clone());
         self.save_projects_file()?;
+
+        // A charter is written at creation, never invented later: an empty
+        // template tells the operator the file exists and who reads it. Only
+        // when there is nothing to inherit from either home.
+        let charter = self.paths.project_memory_charter(&project.id);
+        if !charter.exists()
+            && harness_app::memory::charter_for(Path::new(&project.path)).is_none()
+        {
+            if let Some(parent) = charter.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let template = format!(
+                "# {}\n\nWhat this project is, in your words. Rules and taste that every\n\
+                 agent working on it should hold. Every run reads this; keep it short.\n",
+                project.name
+            );
+            if let Err(e) = std::fs::write(&charter, template) {
+                eprintln!("could not write the starter charter: {e}");
+            }
+        }
+
         Ok(project)
     }
 

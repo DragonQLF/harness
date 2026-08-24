@@ -139,6 +139,22 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                 // A snapshot is the board itself, not something that happened;
                 // compaction keeps the feed about work, not housekeeping.
                 Event::BoardSnapshot { .. } => return None,
+                // The agent's private account of its work: it feeds the commit
+                // and the memory layer. On the activity feed it is noise.
+                Event::WorkReported { summary, notes, .. } => {
+                    let count = notes.len();
+                    let unit = if count == 1 { "note" } else { "notes" };
+                    (
+                        "run",
+                        "Work reported",
+                        match (summary.is_empty(), count) {
+                            (true, 0) => "no details given".to_string(),
+                            (true, _) => format!("{count} memory {unit}"),
+                            (_, 0) => "summary only".to_string(),
+                            _ => format!("summary + {count} memory {unit}"),
+                        },
+                    )
+                }
             };
             Some(ActivityRow {
                 seq: stored.seq,

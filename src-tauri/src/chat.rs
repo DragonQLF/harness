@@ -180,8 +180,10 @@ pub async fn send(
         tools: Some(tools),
         // The operator watches it think while it works, so give it room to.
         thinking_tokens: Some(4000),
-        // A conversation acts through Harness's own tools; no fan-out.
+        // A conversation acts through Harness's own tools; no fan-out, and
+        // nothing to report — its work is the conversation itself.
         subagents: false,
+        report_work: false,
     };
 
     let agent = ws.agent_port();

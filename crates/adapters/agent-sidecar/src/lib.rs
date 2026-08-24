@@ -94,7 +94,9 @@ async fn drive(
             "max_budget_usd": spec.max_budget_usd,
             "resume_session": spec.resume_session,
             // Whether this run may act on Harness itself.
-            "harness_tools": spec.tools.is_some(),
+            "harness_tools": spec.tools.is_some() && !spec.report_work,
+            // Worker runs carry exactly one harness tool: report_work.
+            "report_work": spec.report_work,
             "thinking_tokens": spec.thinking_tokens,
             // Whether this run may spawn subagents of its own.
             "subagents": spec.subagents,

@@ -74,6 +74,13 @@ impl AppPaths {
         self.projects_dir().join(sanitize(project_id))
     }
 
+    /// Where a project's curated memory lives: beside its runs and
+    /// transcripts, outside any repository. Memory in the repo would mean one
+    /// copy per worktree and write conflicts between concurrent cards.
+    pub fn project_memory_charter(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("memory").join("charter.md")
+    }
+
     pub fn events_file(&self, project_id: &str) -> PathBuf {
         self.project_dir(project_id).join("events.jsonl")
     }

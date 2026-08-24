@@ -263,8 +263,12 @@ pub(crate) async fn start_run_inner(
 
     // Curated memory, minimal form: the project's charter and the operator's
     // global notes ride with every run. Both are capped by the reader; a
-    // missing file contributes nothing.
-    let charter = harness_app::memory::charter_for(Path::new(&runtime.project.path));
+    // missing file contributes nothing. The charter prefers the project's
+    // memory directory; the repository root still counts.
+    let charter = harness_app::memory::charter_between(
+        &ws.paths.project_memory_charter(runtime.project.id.as_str()),
+        &Path::new(&runtime.project.path).join("charter.md"),
+    );
     if let Some(charter) = charter {
         prompt.push_str("\n\nThis project's charter:\n");
         prompt.push_str(&charter);

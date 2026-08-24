@@ -234,6 +234,11 @@ pub struct RunSpec {
     /// spawn: fan-out is capped at one level, enforced in the sidecar's
     /// `canUseTool`.
     pub subagents: bool,
+    /// Does this run carry the `report_work` tool — the agent's account of
+    /// its own work? The summary becomes the commit body; the engine still
+    /// owns the commit. Absent, nothing breaks: the generic body is used and
+    /// a Notice says the agent did not report.
+    pub report_work: bool,
 }
 
 impl RunSpec {
@@ -250,6 +255,7 @@ impl RunSpec {
             tools: None,
             thinking_tokens: None,
             subagents: false,
+            report_work: false,
         }
     }
 }

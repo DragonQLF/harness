@@ -43,7 +43,17 @@ fn read_capped(path: &Path, max_chars: usize) -> Option<String> {
     Some(out)
 }
 
-/// The project's charter: what it is for and how work on it should behave.
+/// The project's charter, from wherever it lives. Preferred home is the
+/// project's own memory directory in appdata — beside the runs and the
+/// transcripts, outside any repository, so two concurrent cards can never
+/// conflict over a memory file. A `charter.md` at the repository root (#52's
+/// original spot) still counts: operator habit outranks file layout.
+pub fn charter_between(appdata_charter: &Path, repo_charter: &Path) -> Option<String> {
+    read_capped(appdata_charter, CHARTER_MAX_CHARS)
+        .or_else(|| read_capped(repo_charter, CHARTER_MAX_CHARS))
+}
+
+/// The project's charter from the repository root — the pre-memory-tree spot.
 pub fn charter_for(repo_root: &Path) -> Option<String> {
     read_capped(&repo_root.join("charter.md"), CHARTER_MAX_CHARS)
 }

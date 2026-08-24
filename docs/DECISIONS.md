@@ -290,6 +290,60 @@ são andaimes transitórios numa worktree que o próximo run recria, e alongar o
 
 Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
 "harness: Fix the retry loop" e continua a carregar `Harness-Card`.
+## Memória — report_work, e quem escreve o quê (2026-08-24)
+
+Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
+Curador e a árvore `areas/` — fica para quando existirem notas reais com que
+trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
+árvore às cegas".
+
+### 58. `report_work`: o agente conta, o engine commita
+Ferramenta nova que só os workers recebem (`report_work { summary,
+memory_notes }`). **Não é o agente a commitar**: a pós-condição continua
+decidida em Rust. O que a chamada faz:
+
+- `summary` espera num slot do run e torna-se o **corpo** do commit que o task
+  já ia fazer; o assunto continua a vir do board.
+- `memory_notes` vai para o log como `Event::WorkReported` — ao evento, nunca
+  ao git. Memória dentro do repositório significaria uma cópia por worktree e
+  conflitos de escrita entre cartões concorrentes, o pior sítio possível para
+  um.
+
+O caminho é o do resto do engine: a ferramenta envia `Msg::WorkReport`, o actor
+valida (`Command::ReportWork`; vazio dos dois lados → `EmptyReport`) persiste, e
+**só então** fecha o ack da chamada — "reported" significa gravado, não
+enfileirado. A primeira versão tinha a corrida clássica: o send resolve ao
+entrar na fila, o agente acabava, o task commitava antes de o actor processar o
+relatório, e o corpo saía genérico. Foi o ack que a fechou.
+
+Decisões dentro da decisão:
+
+- **Duas chamadas: a última ganha**, documentado no comando ("an agent refining
+  itself beats two summaries glued together"). Recusar a segunda puniria o agente
+  por se corrigir; acumular em silêncio era o que o handoff proibiu.
+- **Silêncio é normal e nomeado**: sem chamada, o commit sai com o corpo
+  genérico de sempre e um `Notice` — "the agent did not report its work" — no
+  transcript. Nada de parsing da resposta final; texto livre que *parece* um
+  resumo é o #41 outra vez.
+- A ferramenta viaja no `allowed_tools` do worker: escrita nossa, não do
+  repositório; pedir autorização por cartão seria ruído.
+
+### 59. A memória mora fora do repositório
+`<appdata>/projects/<id>/memory/charter.md` passa a ser o local preferido — ao
+lado de `runs/` e das conversas. A leitura aceita as duas casas: o diretório de
+memória primeiro, o `charter.md` na raiz do repositório (#52) ainda conta, por
+respeito às mãos que lá já escreveram. `add_project` escreve um charter de
+arranque na criação — nunca inventado depois; um ficheiro vazio diz ao operador
+onde escrever.
+
+### 60. O Curador: desenhado, à espera de notas
+Perfil novo em `templates()`, dono de `areas/`, semanal ou no shutdown, lendo
+`WorkReported` só de cartões em `Done` (notas de trabalho rejeitado são factos
+falsos à espera de sítio). Índices gerados por código a partir do frontmatter,
+destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
+árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
+acumular.
+
 ## Dívida técnica conhecida (atualizada)
 
 - Compaction do event log (o botão do design não existe).
@@ -802,6 +856,60 @@ são andaimes transitórios numa worktree que o próximo run recria, e alongar o
 
 Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
 "harness: Fix the retry loop" e continua a carregar `Harness-Card`.
+## Memória — report_work, e quem escreve o quê (2026-08-24)
+
+Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
+Curador e a árvore `areas/` — fica para quando existirem notas reais com que
+trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
+árvore às cegas".
+
+### 58. `report_work`: o agente conta, o engine commita
+Ferramenta nova que só os workers recebem (`report_work { summary,
+memory_notes }`). **Não é o agente a commitar**: a pós-condição continua
+decidida em Rust. O que a chamada faz:
+
+- `summary` espera num slot do run e torna-se o **corpo** do commit que o task
+  já ia fazer; o assunto continua a vir do board.
+- `memory_notes` vai para o log como `Event::WorkReported` — ao evento, nunca
+  ao git. Memória dentro do repositório significaria uma cópia por worktree e
+  conflitos de escrita entre cartões concorrentes, o pior sítio possível para
+  um.
+
+O caminho é o do resto do engine: a ferramenta envia `Msg::WorkReport`, o actor
+valida (`Command::ReportWork`; vazio dos dois lados → `EmptyReport`) persiste, e
+**só então** fecha o ack da chamada — "reported" significa gravado, não
+enfileirado. A primeira versão tinha a corrida clássica: o send resolve ao
+entrar na fila, o agente acabava, o task commitava antes de o actor processar o
+relatório, e o corpo saía genérico. Foi o ack que a fechou.
+
+Decisões dentro da decisão:
+
+- **Duas chamadas: a última ganha**, documentado no comando ("an agent refining
+  itself beats two summaries glued together"). Recusar a segunda puniria o agente
+  por se corrigir; acumular em silêncio era o que o handoff proibiu.
+- **Silêncio é normal e nomeado**: sem chamada, o commit sai com o corpo
+  genérico de sempre e um `Notice` — "the agent did not report its work" — no
+  transcript. Nada de parsing da resposta final; texto livre que *parece* um
+  resumo é o #41 outra vez.
+- A ferramenta viaja no `allowed_tools` do worker: escrita nossa, não do
+  repositório; pedir autorização por cartão seria ruído.
+
+### 59. A memória mora fora do repositório
+`<appdata>/projects/<id>/memory/charter.md` passa a ser o local preferido — ao
+lado de `runs/` e das conversas. A leitura aceita as duas casas: o diretório de
+memória primeiro, o `charter.md` na raiz do repositório (#52) ainda conta, por
+respeito às mãos que lá já escreveram. `add_project` escreve um charter de
+arranque na criação — nunca inventado depois; um ficheiro vazio diz ao operador
+onde escrever.
+
+### 60. O Curador: desenhado, à espera de notas
+Perfil novo em `templates()`, dono de `areas/`, semanal ou no shutdown, lendo
+`WorkReported` só de cartões em `Done` (notas de trabalho rejeitado são factos
+falsos à espera de sítio). Índices gerados por código a partir do frontmatter,
+destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
+árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
+acumular.
+
 ## Dívida técnica conhecida (atualizada)
 
 - **Compaction**: implementada (#50). Falta um botão na UI para compactar sob
@@ -902,6 +1010,60 @@ são andaimes transitórios numa worktree que o próximo run recria, e alongar o
 
 Há teste: o commit de um cartão chamado "Fix the retry loop" chama-se
 "harness: Fix the retry loop" e continua a carregar `Harness-Card`.
+## Memória — report_work, e quem escreve o quê (2026-08-24)
+
+Terceira ronda do handoff de memória. Duas peças entregues; a terceira — o
+Curador e a árvore `areas/` — fica para quando existirem notas reais com que
+trabalhar, que é o que o próprio handoff recomenda: "melhor do que desenhar a
+árvore às cegas".
+
+### 58. `report_work`: o agente conta, o engine commita
+Ferramenta nova que só os workers recebem (`report_work { summary,
+memory_notes }`). **Não é o agente a commitar**: a pós-condição continua
+decidida em Rust. O que a chamada faz:
+
+- `summary` espera num slot do run e torna-se o **corpo** do commit que o task
+  já ia fazer; o assunto continua a vir do board.
+- `memory_notes` vai para o log como `Event::WorkReported` — ao evento, nunca
+  ao git. Memória dentro do repositório significaria uma cópia por worktree e
+  conflitos de escrita entre cartões concorrentes, o pior sítio possível para
+  um.
+
+O caminho é o do resto do engine: a ferramenta envia `Msg::WorkReport`, o actor
+valida (`Command::ReportWork`; vazio dos dois lados → `EmptyReport`) persiste, e
+**só então** fecha o ack da chamada — "reported" significa gravado, não
+enfileirado. A primeira versão tinha a corrida clássica: o send resolve ao
+entrar na fila, o agente acabava, o task commitava antes de o actor processar o
+relatório, e o corpo saía genérico. Foi o ack que a fechou.
+
+Decisões dentro da decisão:
+
+- **Duas chamadas: a última ganha**, documentado no comando ("an agent refining
+  itself beats two summaries glued together"). Recusar a segunda puniria o agente
+  por se corrigir; acumular em silêncio era o que o handoff proibiu.
+- **Silêncio é normal e nomeado**: sem chamada, o commit sai com o corpo
+  genérico de sempre e um `Notice` — "the agent did not report its work" — no
+  transcript. Nada de parsing da resposta final; texto livre que *parece* um
+  resumo é o #41 outra vez.
+- A ferramenta viaja no `allowed_tools` do worker: escrita nossa, não do
+  repositório; pedir autorização por cartão seria ruído.
+
+### 59. A memória mora fora do repositório
+`<appdata>/projects/<id>/memory/charter.md` passa a ser o local preferido — ao
+lado de `runs/` e das conversas. A leitura aceita as duas casas: o diretório de
+memória primeiro, o `charter.md` na raiz do repositório (#52) ainda conta, por
+respeito às mãos que lá já escreveram. `add_project` escreve um charter de
+arranque na criação — nunca inventado depois; um ficheiro vazio diz ao operador
+onde escrever.
+
+### 60. O Curador: desenhado, à espera de notas
+Perfil novo em `templates()`, dono de `areas/`, semanal ou no shutdown, lendo
+`WorkReported` só de cartões em `Done` (notas de trabalho rejeitado são factos
+falsos à espera de sítio). Índices gerados por código a partir do frontmatter,
+destruições pelo painel de aprovações. **Não implementado nesta passagem** — a
+árvore sem notas reais é cerâmica antes do barro; os eventos já estão a
+acumular.
+
 ## Dívida técnica conhecida (atualizada)
 
 - **Compaction do event log.** O arranque relê tudo (`rebuild(&history)`), um

@@ -11,7 +11,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -195,6 +195,18 @@ enum Msg {
         card_id: CardId,
         session_id: String,
     },
+    /// The agent called `report_work`: its own account of finished work. The
+    /// event goes to the log; the summary waits in the run's slot until the
+    /// commit reads it. A second call replaces the first — last wins. The
+    /// ack closes only when the report is durable, so "reported" means
+    /// recorded rather than merely queued.
+    WorkReport {
+        card_id: CardId,
+        summary: String,
+        notes: Vec<String>,
+        #[allow(dead_code)]
+        ack: oneshot::Sender<Result<(), String>>,
+    },
     DirectorDone {
         card_id: CardId,
         outcome: Box<harness_ports::RunOutcome>,
@@ -321,6 +333,14 @@ fn restore_sessions(history: &[StoredEvent]) -> HashMap<CardId, SessionEntry> {
     out
 }
 
+/// What the agent reported about its own work, waiting in the run's slot for
+/// the commit to read. Last report of a run wins; absence is normal.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WorkReport {
+    pub summary: String,
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug)]
 struct RunEntry {
     run_id: RunId,
@@ -330,6 +350,9 @@ struct RunEntry {
     /// the actor, owns the wip commit — two `git commit`s racing on one
     /// worktree is how index.lock fights and half-written states happen.
     commit_on_cancel: Arc<AtomicBool>,
+    /// The agent's `report_work`, as it stands. Shared with the run task so
+    /// the commit — which happens off the actor — can read the latest one.
+    work_report: Arc<Mutex<WorkReport>>,
     /// The task driving this run. Shutdown takes it to wait for that commit.
     handle: Option<JoinHandle<()>>,
     worktree: WorktreePath,
@@ -620,6 +643,15 @@ impl Engine {
                 } => {
                     self.record_session(card_id, session_id).await;
                 }
+                Msg::WorkReport {
+                    card_id,
+                    summary,
+                    notes,
+                    ack,
+                } => {
+                    let outcome = self.work_reported(card_id, summary, notes).await;
+                    let _ = ack.send(outcome);
+                }
                 Msg::DirectorDone {
                     card_id,
                     outcome,
@@ -657,11 +689,65 @@ impl Engine {
         Ok(seq)
     }
 
+    /// The agent called `report_work`: the event is durable (summary, notes),
+    /// and the summary waits in the run's slot until its commit reads it. A
+    /// second call replaces the first — an agent refining itself beats two
+    /// summaries glued together, so last wins rather than accumulate.
+    async fn work_reported(
+        &mut self,
+        card_id: CardId,
+        summary: String,
+        notes: Vec<String>,
+    ) -> Result<(), String> {
+        let outcome = async {
+            match self.board.decide(&Command::ReportWork {
+                card_id: card_id.clone(),
+                summary: summary.clone(),
+                notes: notes.clone(),
+            }) {
+                Ok(events) => {
+                    self.persist(events)
+                        .await
+                        .map_err(|e| format!("could not record the work report: {e}"))?;
+                }
+                // A card discarded mid-run has nothing to report against.
+                Err(e) => return Err(format!("work report rejected: {e}")),
+            }
+            let kept = WorkReport {
+                summary: summary.trim().to_string(),
+                notes: notes.into_iter().filter(|n| !n.trim().is_empty()).collect(),
+            };
+            let note_count = kept.notes.len();
+            match self.runs.get_mut(&card_id) {
+                Some(entry) => {
+                    *entry.work_report.lock().unwrap() = kept;
+                    let unit = if note_count == 1 { "note" } else { "notes" };
+                    let run_id = entry.run_id.clone();
+                    self.emit_run(
+                        &card_id,
+                        &run_id,
+                        RunEvent::Notice {
+                            text: format!(
+                                "the agent reported its work ({note_count} memory {unit})"
+                            ),
+                        },
+                    );
+                    Ok(())
+                }
+                None => Err("late work report: the run is already over".to_string()),
+            }
+        }
+        .await;
+        if let Err(e) = &outcome {
+            eprintln!("work report for {card_id}: {e}");
+        }
+        outcome
+    }
+
     /// Remember the session an agent reported, on the card and in the log, so
     /// the next run can resume it after a restart. Written once: the same id
     /// arrives twice per run (on init and on the result).
-    async fn record_session(&mut self, card_id: CardId, session_id: String) {
-        if let Some(entry) = self.sessions.get_mut(&card_id) {
+    async fn record_session(&mut self, card_id: CardId, session_id: String) {        if let Some(entry) = self.sessions.get_mut(&card_id) {
             entry.session_id = Some(session_id.clone());
         }
         let already = self
