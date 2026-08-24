@@ -3,6 +3,7 @@ import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { inspect } from "./pathguard.mjs";
+import { summarizeUse, summarizeResult, detailOf } from "./toolsum.mjs";
 
 const controllers = new Map();
 const approvals = new Map();
@@ -214,6 +215,10 @@ async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
 
+  // tool_use_id → tool name: the result block only knows the id, and the
+  // summary needs the name to be worth reading.
+  const toolNames = new Map();
+
   // Fan-out cap: a run may spawn subagents only when its spec allows it, and
   // a subagent may never spawn one — depth is capped at one level. The
   // counter rises when a Task is approved and falls on the SDK's PostToolUse
@@ -353,20 +358,51 @@ async function handleRun({ id, spec }) {
           }
           break;
         case "assistant": {
+          const parent = message.parent_tool_use_id ?? null;
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) {
               send({ type: "event", run_id: id, event: { kind: "text", text: block.text } });
             } else if (block.type === "tool_use") {
+              if (block.id) toolNames.set(block.id, block.name);
               send({
                 type: "event",
                 run_id: id,
                 event: {
                   kind: "tool_use",
                   tool: block.name,
-                  summary: summarize(block.input),
+                  summary: summarizeUse(block.name, block.input),
+                  tool_use_id: block.id ?? null,
+                  parent_tool_use_id: parent,
                 },
               });
             }
+          }
+          break;
+        }
+        case "user": {
+          // Tool results arrive as user messages whose content blocks carry
+          // the same ids the calls minted. Without these the transcript shows
+          // what the agent tried, never what happened (#41's shape again).
+          for (const block of message.message?.content ?? []) {
+            if (block.type !== "tool_result") continue;
+            const name = toolNames.get(block.tool_use_id) ?? "";
+            const text = typeof block.content === "string"
+              ? block.content
+              : (block.content ?? [])
+                  .filter((c) => c.type === "text")
+                  .map((c) => c.text)
+                  .join("\n");
+            send({
+              type: "event",
+              run_id: id,
+              event: {
+                kind: "tool_result",
+                tool_use_id: block.tool_use_id,
+                ok: !block.is_error,
+                summary: summarizeResult(name, text, !!block.is_error),
+                detail: detailOf(text),
+              },
+            });
           }
           break;
         }

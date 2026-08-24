@@ -190,7 +190,37 @@ async fn drive(
                                     .and_then(|s| s.as_str())
                                     .unwrap_or_default()
                                     .to_string();
-                                let _ = tx.send(RunEvent::ToolUse { tool, summary }).await;
+                                let tool_use_id = ev
+                                    .get("tool_use_id")
+                                    .and_then(|t| t.as_str())
+                                    .map(str::to_string);
+                                let parent_tool_use_id = ev
+                                    .get("parent_tool_use_id")
+                                    .and_then(|t| t.as_str())
+                                    .map(str::to_string);
+                                let _ =
+                                    tx.send(RunEvent::ToolUse { tool, summary, tool_use_id, parent_tool_use_id })
+                                        .await;
+                            }
+                            "tool_result" => {
+                                let tool_use_id = ev
+                                    .get("tool_use_id")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                let ok = ev.get("ok").and_then(|o| o.as_bool()).unwrap_or(true);
+                                let summary = ev
+                                    .get("summary")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                let detail = ev
+                                    .get("detail")
+                                    .and_then(|d| d.as_str())
+                                    .map(str::to_string);
+                                let _ = tx
+                                    .send(RunEvent::ToolResult { tool_use_id, ok, summary, detail })
+                                    .await;
                             }
                             "done" => {
                                 saw_done = true;
@@ -275,6 +305,8 @@ async fn drive(
                             .send(RunEvent::ToolUse {
                                 tool: format!("harness:{name}"),
                                 summary: reply.text.chars().take(160).collect(),
+                                tool_use_id: None,
+                                parent_tool_use_id: None,
                             })
                             .await;
 

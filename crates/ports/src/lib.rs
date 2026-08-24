@@ -287,6 +287,25 @@ pub enum RunEvent {
     ToolUse {
         tool: String,
         summary: String,
+        /// Links the call to its result: the id the model minted, and the
+        /// parent call when this one runs inside a subagent. Absent in logs
+        /// written before results were tracked.
+        #[serde(default)]
+        tool_use_id: Option<String>,
+        #[serde(default)]
+        parent_tool_use_id: Option<String>,
+    },
+    /// What actually happened, matched to the call by id. Persisted like the
+    /// ToolUse — a failed Bash that reads as a clean one is #41's shape again,
+    /// now in the transcript layer.
+    ToolResult {
+        tool_use_id: String,
+        ok: bool,
+        summary: String,
+        /// Full output, capped: the transcript keeps it, the UI shows it on
+        /// expand instead of dumping it inline (#28's reason).
+        #[serde(default)]
+        detail: Option<String>,
     },
     Done {
         session_id: Option<String>,
