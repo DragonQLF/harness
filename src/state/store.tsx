@@ -48,6 +48,14 @@ export interface LogLine {
   color: string;
   /** CSS colour variable for the gutter word. */
   labelColor: string;
+  /** Tool-call linkage: this call's id and its parent's, so results nest
+   *  under the call that produced them and subagent calls indent further. */
+  toolUseId?: string | null;
+  parentToolUseId?: string | null;
+  /** For a tool_result: did it succeed? */
+  ok?: boolean;
+  /** Full output for expandable results (#28: never dumped inline). */
+  detail?: string | null;
   italic?: boolean;
 }
 
@@ -125,7 +133,29 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
         Write: "var(--accent)",
         Bash: "var(--info)",
       };
-      return line(tool, u.summary ?? "", colours[tool] ?? "var(--text3)", "var(--text2)");
+      const l = line(tool, u.summary ?? "", colours[tool] ?? "var(--text3)", "var(--text2)");
+      return {
+        ...l,
+        toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
+        parentToolUseId:
+          (u as RunUpdate & { parent_tool_use_id?: string }).parent_tool_use_id ?? null,
+      };
+    }
+    case "tool_result": {
+      const ok = (u as RunUpdate & { ok?: boolean }).ok !== false;
+      const detail = (u as RunUpdate & { detail?: string | null }).detail ?? null;
+      return {
+        ...line(
+          ok ? "↳ ok" : "↳ failed",
+          (u as RunUpdate & { summary?: string }).summary ?? "",
+          ok ? "var(--ok)" : "var(--bad)",
+          ok ? "var(--text2)" : "var(--bad2)",
+          !ok,
+        ),
+        toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
+        ok,
+        detail,
+      };
     }
     case "started":
       return line(

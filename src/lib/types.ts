@@ -101,6 +101,7 @@ export type RunEventKind =
   | "delta"
   | "thinking"
   | "tool_use"
+  | "tool_result"
   | "done"
   | "failed"
   | "approval_requested"

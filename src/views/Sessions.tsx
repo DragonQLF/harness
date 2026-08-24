@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, reason } from "../lib/ipc";
 import { duration, money, plural } from "../lib/format";
 import { MODELS, STATUS_NAME, STATUS_TONE, tone } from "../lib/types";
@@ -35,6 +35,14 @@ export function Sessions({
     toast,
   } = useStore();
   const end = useRef<HTMLDivElement | null>(null);
+  const [openDetails, setOpenDetails] = useState<Set<number>>(new Set());
+  const toggleDetail = (i: number) =>
+    setOpenDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
 
   const recorded = useMemo(() => {
     const cards = snapshot?.cards ?? [];
@@ -341,8 +349,36 @@ export function Sessions({
                   no transcript for this card yet
                 </div>
               )}
-              {lines.map((l, i) => (
-                <div key={i} style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+              {(() => {
+                // Nesting: each call's depth is one past its parent's, so a
+                // subagent's calls sit inside the Task that spawned them.
+                const depthsBy = new Map<string, number>();
+                const depthOf = (l: (typeof lines)[number]) => {
+                  if (!l.toolUseId) return 0;
+                  if (!depthsBy.has(l.toolUseId)) {
+                    const parent = l.parentToolUseId;
+                    depthsBy.set(l.toolUseId, parent ? (depthsBy.get(parent) ?? 0) + 1 : 0);
+                  }
+                  return depthsBy.get(l.toolUseId) ?? 0;
+                };
+                return lines.map((l, i) => {
+                  const depth = depthOf(l);
+                  const expandable = l.kind === "tool_result" && !!l.detail;
+                  const open = expandable && openDetails.has(i);
+                  return (
+                    <div key={i}>
+                      <div
+                        onClick={expandable ? () => toggleDetail(i) : undefined}
+                        style={{
+                          display: "flex",
+                          gap: 12,
+                          ...mono,
+                          fontSize: 12,
+                          lineHeight: 1.9,
+                          paddingLeft: depth * 16,
+                          cursor: expandable ? "pointer" : undefined,
+                        }}
+                      >
                   <span
                     style={{
                       flex: "none",
@@ -370,8 +406,32 @@ export function Sessions({
                   >
                     {l.text}
                   </span>
-                </div>
-              ))}
+                      </div>
+                      {open && l.detail && (
+                        <div
+                          style={{
+                            marginLeft: depth * 16 + 86,
+                            marginTop: 4,
+                            marginBottom: 6,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            background: "var(--surface)",
+                            border: "1px solid var(--line2)",
+                            ...mono,
+                            fontSize: 11,
+                            lineHeight: 1.7,
+                            color: "var(--text3)",
+                            whiteSpace: "pre-wrap",
+                            overflowX: "auto",
+                          }}
+                        >
+                          {l.detail}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
 
               {stream?.thinking && !stream.text && (
                 <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
