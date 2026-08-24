@@ -52,28 +52,43 @@ export function candidatePaths(input) {
   return found;
 }
 
-/** Heuristic Bash scan — declared heuristic, not a border (#62). Absolute
- *  paths outside the worktree are refused, both Windows styles (`C:\…`,
- *  `\\?\C:\…`) and POSIX (`/Users/…`). On a Windows host every POSIX-absolute
- *  token counts as outside: git-bash silently rewrites `/Users/nandi/site` to
- *  a real drive path, which is exactly how work escaped. Redirection into
- *  `/dev/null` will be caught too — strictness over cleverness. */
-export function classifyBash(cwd, command) {
-  const winHost = process.platform === "win32";
+/** Heuristic Bash scan — declared heuristic, not a border (#62).
+ *
+ *  Windows-style absolutes (`C:\…`, `\\?\C:\…`): on a Windows host they are
+ *  classified against the worktree; anywhere else they are outside *by
+ *  definition* — `path.resolve` on Linux treats `C:\x` as a relative name
+ *  with backslashes and would wave it through.
+ *
+ *  POSIX-style absolutes (`/Users/…`, `/c/…`): on a Windows host git-bash
+ *  silently rewrites them to drive paths, so `/c/<worktree>/…` is *inside*
+ *  and must be translated before judging, while `/usr`, `/etc` and friends
+ *  live in the msys root — always outside. */
+export function classifyBash(cwd, command, hostPlatform = process.platform) {
+  const winHost = hostPlatform === "win32";
   const cmd = String(command ?? "");
   for (const m of cmd.matchAll(/(?:\\\\\?\\)?[A-Za-z]:[\\/][^\s"'&|;<>()]*/g)) {
+    if (!winHost) return { ok: false, path: m[0] };
     const v = classifyWrite(cwd, { file_path: m[0].replace(/[\\/]$/, "") });
     if (!v.ok) return { ok: false, path: m[0] };
   }
-  if (winHost) {
-    for (const m of cmd.matchAll(/(?:^|[\s=('"`])\/([A-Za-z0-9._-][^\s"'&|;<>()]*)/g)) {
-      return { ok: false, path: `/${m[1]}` };
+  for (const m of cmd.matchAll(/(?:^|[\s=('"`])\/([A-Za-z0-9._-][^\s"'&|;<>()]*)/g)) {
+    const posix = `/${m[1]}`;
+    if (winHost) {
+      // /c/<rest> is drive C:\ under git-bash. Translate, then judge like
+      // any other path — a legitimate full worktree path must not be
+      // refused, or the operator just turns the guard off.
+      const drive = /^([A-Za-z])\/(.*)$/.exec(m[1]);
+      if (drive) {
+        const windowsForm = `${drive[1].toUpperCase()}:\\${drive[2].replace(/\//g, "\\")}`;
+        const v = classifyWrite(cwd, { file_path: windowsForm });
+        if (!v.ok) return { ok: false, path: posix };
+        continue;
+      }
+      // /usr, /etc, /Users: msys root, never inside this worktree.
+      return { ok: false, path: posix };
     }
-  } else {
-    for (const m of cmd.matchAll(/(?:^|[\s=('"`])(\/[^\s"'&|;<>()]+)/g)) {
-      const v = classifyWrite(cwd, { file_path: m[1] });
-      if (!v.ok) return { ok: false, path: m[1] };
-    }
+    const v = classifyWrite(cwd, { file_path: posix });
+    if (!v.ok) return { ok: false, path: posix };
   }
   return { ok: true, path: null };
 }

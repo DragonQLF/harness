@@ -128,3 +128,30 @@ test("bash writing inside the worktree by absolute path still passes", () => {
   const v = classifyBash(cwd, `echo hi > "${inside}"`);
   assert.equal(v.ok, true);
 });
+
+/** The c_19a1 case: git-bash's full path to the worktree itself. `/c/…` is
+ *  drive C:\ translated — refusing it taught the operator to distrust the
+ *  guard. It must translate and pass. */
+test("the worktree's own msys path passes on windows", () => {
+  const cwd = worktree(); // C:\Users\...\AppData\Local\Temp\guard-xxx
+  const msys = "/" + cwd[0].toLowerCase() + "/" + cwd.slice(3).split("\\").join("/");
+  for (const command of [
+    `ls -la ${msys}`,
+    `cat > ${msys}/feed.xml`,
+  ]) {
+    const v = classifyBash(cwd, command);
+    assert.equal(v.ok, true, `${command}: ${JSON.stringify(v)}`);
+  }
+});
+
+/** And if this ever runs under WSL2 or any Linux host, a Windows-style path
+ *  is outside by definition — never resolved as a relative name with
+ *  backslashes and waved through. */
+test("a windows-style path is refused on non-windows hosts too", () => {
+  const cwd = worktree();
+  for (const host of ["linux", "darwin"]) {
+    const v = classifyBash(cwd, "echo hi > C:\\Users\\nandi\\site\\feed.xml", host);
+    assert.equal(v.ok, false, `${host} must refuse: ${JSON.stringify(v)}`);
+    assert.match(v.path, /site\\/i);
+  }
+});
