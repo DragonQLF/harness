@@ -22,6 +22,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-24 | 58–60 | report_work e memória fora do repositório |
 | 2026-08-24 | 62–65 | Modo Espelho: zona congelada, build como check, instalar com volta |
 | 2026-08-24 | 66 | Pathguard guarda por omissão |
+| 2026-08-24 | 67–69 | Modo Destacado e Voz (fase 1 desenhada; fase 2 atrás de uma semana de uso) |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -871,3 +872,57 @@ run como caminho culpado. Teste novo: uma ferramenta MCP desconhecida com
 | Uma ou várias janelas | Uma; o seletor de projetos substituiu a necessidade até agora (#4 v4) |
 | Instalar actualizações sem sair da app | Feito (#64, com rollback); o banner lê `updates_list` e instala via `update_install` |
 
+
+
+
+## Modo Destacado e Voz (2026-08-24)
+
+O princípio: **voz conduz, ecrã mostra.** Fala são ~150 palavras por minuto e é
+linear; um diff não se ouve. Por isso os painéis vêm primeiro e valem sozinhos —
+a voz acaba por ser só outra forma de invocar as mesmas ferramentas. A fase 2
+não dispensa a fase 1: entre elas há "usar durante uma semana".
+
+### 67. `show(what, monitor, placement)` substitui o `open_screen`
+O acoplamento primeiro: os nomes de ecrã estão escritos à mão num `z.enum`
+dentro do sidecar; renomear um ecrã parte a ferramenta em silêncio — o problema
+que o ts-rs resolveu (#51), por resolver na navegação. O `what` passa a ser um
+**painel nomeado pelo backend**, com o enum gerado do Rust como os tipos.
+
+Um painel é uma janela própria sem barra lateral (diff, transcrição, lista,
+quadro), criada em runtime via `available_monitors()` + `WebviewWindowBuilder`;
+"põe o diff no ecrã da direita" é aritmética sobre posições físicas.
+`monitor`: índice | `primary` | `current` (rato). `placement`: `full` | `left` |
+`right` | `corner`. Sem monitor, usa o que não tem a janela principal; só
+havendo um, sobrepõe com margem.
+
+E fica registo: "o Director levou-me ao painel X" é um facto, e hoje o
+`open_screen` emite `ui://navigate` direto do `director_tools.rs`, fora do log
+de eventos. Passa a evento.
+
+### 68. Painéis fecham-se sozinhos
+Cartão apagado, run terminado há N minutos → painel fecha. Sem isto ficam
+ecrãs cheios de janelas mortas e a feature vira estorvo. Cada painel pede o seu
+snapshot ao abrir, como a janela principal (#18) — o broadcast já serve todas
+as janelas, que é porque o estado vive no backend.
+
+### 69. Voz: Moonshine + Kokoro + Silero, inglês para já — desenhada, atrás da fase 1
+STT Moonshine (27MB+, bate Whisper Tiny/Small sendo menor), TTS Kokoro-82M
+(Apache 2.0, ~6x tempo real em CPU), VAD Silero. Inglês primeiro: em português o
+Kokoro só tem pt-BR (3 vozes) e o Moonshine ficava de fora; em inglês o total de
+pesos é ~100MB. `SttPort`/`TtsPort` em ports, `adapters/voice` implementa, o
+engine **não sabe que existe áudio** — este campo muda todos os meses. Pesos
+fora do binário, descarga na primeira utilização com hash; a app funciona sem
+eles. Áudio nunca atravessa a IPC.
+
+O que decide se presta não são os modelos: é a **deteção de turno** (VAD mal
+calibrado corta frases) e depois o **barge-in**. Comandos destrutivos falados
+exigem confirmação falada, nunca por omissão. Enunciados curtos são a fraqueza
+do Kokoro (<10–20 tokens): agrupar — "card 42 is running, assigned to builder"
+soa melhor que "42 running". Antes de código: gravar dez comandos reais e ouvi-
+los transcritos; meia hora que decide o resto.
+
+**Estado: desenhado.** A implementação segue a ordem do handoff — show() com um
+monitor, depois placement multi-monitor, depois ciclo de vida, depois *uma
+semana de uso* antes de qualquer áudio. Não construir 1 e 6 ao mesmo tempo:
+depurar VAD e colocação de janelas em simultâneo torna impossível saber qual
+das duas está a estragar a experiência.
