@@ -16,4 +16,9 @@ tone: string, base_branch: string, added_ms: number,
 /**
  * A paused project starts no new runs.
  */
-paused: boolean, };
+paused: boolean, 
+/**
+ * Mirror mode: the engine builds this project after every commit and
+ * parks the artefact under appdata/updates for review. The orchestrator's own flag.
+ */
+mirror: boolean, };

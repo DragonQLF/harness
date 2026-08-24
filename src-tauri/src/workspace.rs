@@ -697,6 +697,7 @@ impl Workspace {
             path: canonical,
             added_ms: SystemClock.now_millis(),
             paused: false,
+            mirror: false,
         };
 
         self.projects.lock().unwrap().push(project.clone());
@@ -822,6 +823,17 @@ impl Workspace {
         config.director_model = self
             .agent(agents::DIRECTOR_ID)
             .and_then(|d| d.model.clone());
+        // Mirror mode: this project is the orchestrator itself, so a finished
+        // run is followed by an engine-owned build. The artefact waits in
+        // appdata; installing it is nobody's decision but the operator's.
+        if project.mirror {
+            config.post_build = Some(harness_engine::BuildSpec {
+                program: "pnpm".into(),
+                args: vec!["tauri".into(), "build".into(), "--no-bundle".into()],
+                updates_dir: self.paths.updates_dir(),
+                artifact: "target/release/harness.exe".into(),
+            });
+        }
         if let Some(director_profile) = self.agent(agents::DIRECTOR_ID) {
             let tools = director_profile.allowed_tools();
             if !tools.is_empty() {

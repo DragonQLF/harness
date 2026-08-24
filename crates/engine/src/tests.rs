@@ -1780,6 +1780,127 @@ async fn a_card_discarded_mid_start_leaves_no_checkout_behind() {
     );
 }
 
+/// Mirror mode, green path: the engine builds after the commit (not the
+/// agent), the manifest records the exact SHA that produced it, and only
+/// then does anyone review.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_green_build_writes_a_manifest_with_the_commit_sha() {
+    let updates = unique_worktree_root();
+    let mut config = test_config();
+    config.post_build = Some(crate::BuildSpec {
+        program: "node".into(),
+        args: vec![
+            "-e".into(),
+            "require('fs').writeFileSync('built.bin', 'ok')".into(),
+        ],
+        updates_dir: updates.clone(),
+        artifact: "built.bin".into(),
+    });
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::DirectApprove)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        config,
+        EnginePolicy::default(),
+        vec![],
+    );
+
+    let id = CardId::new("c_build_ok");
+    card_ready(&handle, &id).await;
+    handle.start_run(id.clone(), "work".into(), profile()).await.unwrap();
+
+    wait_for("build holds and the card closes", async || {
+        status_of(&handle, &id).await == Some(Status::Done)
+    })
+    .await;
+
+    // FakeGit commits answer "deadbeef": the manifest names that SHA.
+    let manifest = std::fs::read_to_string(updates.join(id.as_str()).join("manifest.json"))
+        .expect("a manifest exists for a green build");
+    assert!(manifest.contains("\"commit_sha\":\"deadbeef\""), "{manifest}");
+    assert!(manifest.contains("c_build_ok"));
+
+    let _ = std::fs::remove_dir_all(&updates);
+}
+
+/// Red path: the compiler's verdict reaches the transcript, the Director is
+/// still asked (it reviews the diff, not the binary), and there is **no**
+/// artefact — not even a stale one from an earlier green build.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_build_leaves_no_artifact_behind() {
+    let updates = unique_worktree_root();
+    // A stale manifest sits there from some earlier green build.
+    std::fs::create_dir_all(updates.join("c_build_bad")).unwrap();
+    std::fs::write(
+        updates.join("c_build_bad").join("manifest.json"),
+        "{\"stale\":true}",
+    )
+    .unwrap();
+
+    let mut config = test_config();
+    config.post_build = Some(crate::BuildSpec {
+        program: "node".into(),
+        args: vec!["-e".into(), "process.exit(3)".into()],
+        updates_dir: updates.clone(),
+        artifact: "built.bin".into(),
+    });
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, mut runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        config,
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_build_bad");
+    card_ready(&handle, &id).await;
+    handle.start_run(id.clone(), "work".into(), profile()).await.unwrap();
+
+    wait_for("card reaches review", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    wait_for("the failure is named on the stream", async || {
+        let mut saw = false;
+        while let Ok(update) = runs.try_recv() {
+            if let RunEvent::Notice { text } = update.event {
+                if text.contains("build failed") || text.contains("process exited") {
+                    saw = true;
+                }
+            }
+        }
+        saw
+    })
+    .await;
+
+    assert!(
+        !updates.join(id.as_str()).join("manifest.json").exists(),
+        "never an artefact of a failed build"
+    );
+    let _ = std::fs::remove_dir_all(&updates);
+}
+
 /// A worktree that cannot be created must not leave a card marked Running with
 /// no run behind it: the checkout is resolved before the run is recorded.
 #[tokio::test(flavor = "multi_thread")]

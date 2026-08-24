@@ -18,6 +18,9 @@ pub struct Project {
     pub added_ms: u64,
     /// A paused project starts no new runs.
     pub paused: bool,
+    /// Mirror mode: the engine builds this project after every commit and
+    /// parks the artefact under appdata/updates for review. The orchestrator's own flag.
+    pub mirror: bool,
 }
 
 impl Default for Project {
@@ -31,6 +34,7 @@ impl Default for Project {
             base_branch: "main".to_string(),
             added_ms: 0,
             paused: false,
+            mirror: false,
         }
     }
 }

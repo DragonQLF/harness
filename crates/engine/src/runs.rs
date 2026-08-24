@@ -439,6 +439,7 @@ impl Engine {
             // says so — silence must never pass for a summary.
             let reported = task_report.lock().unwrap().clone();
             let mut unreported = false;
+            let mut committed_sha = None;
 
             // A commit that fails must never pass for one that worked: the
             // Director would then review an empty diff and approve nothing.
@@ -470,12 +471,21 @@ impl Engine {
                             "" => format!("{subject}\n\n{footer}"),
                             summary => format!("{subject}\n\n{summary}\n\n{footer}"),
                         };
-                        git.commit(&task_worktree, &msg, &trailers).map(|_| ())
+                        match git.commit(&task_worktree, &msg, &trailers) {
+                            Ok(sha) => {
+                                committed_sha = Some(sha);
+                                Ok(())
+                            }
+                            Err(e) => Err(e),
+                        }
                     }
                     harness_ports::RunOutcome::Cancelled
                     | harness_ports::RunOutcome::Failed(_) => {
                         if commit_flag.load(Ordering::SeqCst) {
-                            git.commit_wip(&task_worktree).map(|_| ())
+                            match git.commit_wip(&task_worktree) {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(e),
+                            }
                         } else {
                             Ok(())
                         }
@@ -523,6 +533,7 @@ impl Engine {
                     outcome: Box::new(outcome),
                     profile: Box::new(task_profile),
                     commit_failed: commit_error.is_some(),
+                    commit_sha: committed_sha,
                 })
                 .await;
         });
@@ -575,6 +586,7 @@ impl Engine {
         outcome: harness_ports::RunOutcome,
         profile: RunProfile,
         commit_failed: bool,
+        commit_sha: Option<String>,
     ) {
         self.runs.remove(&card_id);
         let (domain_outcome, cost_usd, turns) = match &outcome {
@@ -639,6 +651,55 @@ impl Engine {
             return;
         }
 
+        // Mirror mode: the engine builds, off the actor (#46), before anyone
+        // reviews. The reviewer dispatch waits for the verdict — a green build
+        // is part of what gets approved.
+        if let Some(build) = self.config.post_build.clone() {
+            if let Some(sha) = &commit_sha {
+                self.emit_run(
+                    &card_id,
+                    &run_id,
+                    RunEvent::Notice {
+                        text: "building the orchestrator; review starts when it holds".into(),
+                    },
+                );
+                let self_tx = self.self_tx.clone();
+                let sha = sha.clone();
+                let worktree = self
+                    .sessions
+                    .get(&card_id)
+                    .map(|s| s.worktree.clone())
+                    .unwrap_or_default();
+                tokio::spawn(async move {
+                    let (ok, tail) =
+                        run_build(&build, std::path::Path::new(&worktree)).await;
+                    let _ = self_tx
+                        .send(Msg::BuildDone {
+                            card_id,
+                            run_id,
+                            profile: Box::new(profile),
+                            commit_sha: sha,
+                            ok,
+                            tail,
+                        })
+                        .await;
+                });
+                return;
+            }
+        }
+
+        self.dispatch_review(card_id, run_id, profile).await;
+    }
+
+    /// The tail every finished run shares: who reads the diff.
+    pub(crate) async fn dispatch_review(
+        &mut self,
+        card_id: CardId,
+        run_id: RunId,
+        profile: RunProfile,
+    ) {
+
+
         match profile.reviewer {
             Reviewer::Director if self.policy.director_reviews_first => {
                 self.run_director_review(card_id, run_id).await;
@@ -673,5 +734,55 @@ impl Engine {
                 }
             }
         }
+    }
+}
+
+/// Run the project's build with the card's worktree as cwd. Minutes-long, so
+/// it lives in its own task; the engine hears the verdict as a message.
+/// Green counts only when the expected artefact exists on disk.
+async fn run_build(build: &crate::BuildSpec, worktree: &std::path::Path) -> (bool, String) {
+    use tokio::io::AsyncReadExt;
+    let mut cmd = tokio::process::Command::new(&build.program);
+    cmd.args(&build.args)
+        .current_dir(worktree)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        // No console flash: same discipline as every other spawned process.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = match cmd.output().await {
+        Ok(o) => o,
+        Err(e) => return (false, format!("could not start {}: {e}", build.program)),
+    };
+    let mut tail = String::new();
+    for stream in [&output.stdout, &output.stderr] {
+        let text = String::from_utf8_lossy(stream);
+        tail.push_str(text.trim_end());
+        tail.push('\n');
+    }
+    // Keep the transcript humane: the compiler's last words, not all of them.
+    let lines: Vec<&str> = tail.lines().collect();
+    let tail = if lines.len() > 30 {
+        lines[lines.len() - 30..].join("\n")
+    } else {
+        tail
+    };
+    if !output.status.success() {
+        return (false, tail);
+    }
+    let artifact = worktree.join(&build.artifact);
+    match std::fs::metadata(&artifact) {
+        Ok(_) => (true, tail),
+        Err(_) => (
+            false,
+            format!(
+                "build reported success but {} is missing",
+                build.artifact
+            ),
+        ),
     }
 }

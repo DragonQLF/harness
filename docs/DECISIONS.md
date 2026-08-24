@@ -399,14 +399,14 @@ Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
 e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
 adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
 
-### 63. O build como check do engine — desenhado, atrás do rollback
+### 65. O build como check do engine (feito)
 Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
 --no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
 destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
 artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
 Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
 build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
 um build verde seria convidativo a instalar algo de que não há volta — e isso
 é armadilha, não feature.
 
@@ -1045,14 +1045,14 @@ Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
 e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
 adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
 
-### 63. O build como check do engine — desenhado, atrás do rollback
+### 65. O build como check do engine (feito)
 Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
 --no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
 destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
 artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
 Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
 build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
 um build verde seria convidativo a instalar algo de que não há volta — e isso
 é armadilha, não feature.
 
@@ -1279,14 +1279,14 @@ Limite honesto, dito em vez de escondido: o Bash continua regido pela allowlist
 e pelas aprovações — confinar um shell de verdade é sandbox (decisão #2,
 adiada). Isto fecha os caminhos estruturados; não finge fechar o shell.
 
-### 63. O build como check do engine — desenhado, atrás do rollback
+### 65. O build como check do engine (feito)
 Depois do commit num run do `_harness`, o engine corre `pnpm tauri build
 --no-bundle` (o `cargo build` sozinho produz uma app que não corre — #21),
 destacado na disciplina de #46, com o cartão "a compilar". Verde → Review com
 artefacto em `<appdata>/updates/<card-id>/` marcado com o SHA; vermelho →
 Review com o erro no transcript e artefacto nenhum — nunca há artefacto de um
 build que falhou. Fora do orçamento do modelo, resultado como facto nosso e não
-relato dele (#41). **Não implementado ainda**: sem o rollback de #64 à frente,
+relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com o cartão "a compiling" no transcript. O que falta é só a instalação:
 um build verde seria convidativo a instalar algo de que não há volta — e isso
 é armadilha, não feature.
 

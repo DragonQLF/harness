@@ -91,6 +91,22 @@ pub struct EngineConfig {
     /// single `BoardSnapshot` so the *next* startup replays one event instead
     /// of thousands. Zero disables compaction.
     pub compact_at: usize,
+    /// Mirror mode: after a successful commit, the engine itself builds the
+    /// project and attaches the artefact. None disables it. Deliberately the
+    /// engine's job and not the agent's: outside the model's budget, and the
+    /// result is our fact rather than its account (#41).
+    pub post_build: Option<BuildSpec>,
+}
+
+/// How to build this project, and where finished artefacts live. The build
+/// runs with the card's worktree as cwd; `artifact` is the path inside that
+/// worktree which must exist for the build to count as green.
+#[derive(Debug, Clone)]
+pub struct BuildSpec {
+    pub program: String,
+    pub args: Vec<String>,
+    pub updates_dir: PathBuf,
+    pub artifact: String,
 }
 
 impl EngineConfig {
@@ -111,6 +127,7 @@ impl EngineConfig {
             director_allowed_tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             director_model: None,
             compact_at: 1000,
+            post_build: None,
         }
     }
 }
@@ -180,6 +197,8 @@ enum Msg {
         profile: Box<RunProfile>,
         /// The work could not be committed, so there is no diff to review.
         commit_failed: bool,
+        /// The SHA the run task just committed, when it did.
+        commit_sha: Option<String>,
     },
     /// A worktree the start of a run asked for is ready — or failed. The
     /// creation runs off the actor, because `git worktree add` takes seconds
@@ -209,6 +228,17 @@ enum Msg {
         notes: Vec<String>,
         #[allow(dead_code)]
         ack: oneshot::Sender<Result<(), String>>,
+    },
+    /// A mirror-mode build finished off the actor. Green writes the artefact
+    /// manifest; red leaves none, whatever was there before (#63). Either way
+    /// the card then proceeds to its reviewer.
+    BuildDone {
+        card_id: CardId,
+        run_id: RunId,
+        profile: Box<RunProfile>,
+        commit_sha: String,
+        ok: bool,
+        tail: String,
     },
     DirectorDone {
         card_id: CardId,
@@ -635,9 +665,17 @@ impl Engine {
                     outcome,
                     profile,
                     commit_failed,
+                    commit_sha,
                 } => {
-                    self.finish_run(card_id, run_id, *outcome, *profile, commit_failed)
-                        .await;
+                    self.finish_run(
+                        card_id,
+                        run_id,
+                        *outcome,
+                        *profile,
+                        commit_failed,
+                        commit_sha,
+                    )
+                    .await;
                 }
                 Msg::WorktreeResolved {
                     card_id,
@@ -664,6 +702,17 @@ impl Engine {
                 } => {
                     let outcome = self.work_reported(card_id, summary, notes).await;
                     let _ = ack.send(outcome);
+                }
+                Msg::BuildDone {
+                    card_id,
+                    run_id,
+                    profile,
+                    commit_sha,
+                    ok,
+                    tail,
+                } => {
+                    self.build_done(card_id, run_id, *profile, commit_sha, ok, tail)
+                        .await;
                 }
                 Msg::DirectorDone {
                     card_id,
@@ -796,6 +845,66 @@ impl Engine {
                 started_ms: entry.started_ms,
             })
             .collect()
+    }
+
+    /// The mirror build came back. Green writes the artefact manifest — the
+    /// record that says a reviewed commit produced a working binary; red
+    /// removes any manifest, because there is never an artefact of a failed
+    /// build. Either way the transcript carries the compiler's last words,
+    /// and only then does anyone review.
+    async fn build_done(
+        &mut self,
+        card_id: CardId,
+        run_id: RunId,
+        profile: RunProfile,
+        commit_sha: String,
+        ok: bool,
+        tail: String,
+    ) {
+        let manifest_dir = self
+            .config
+            .post_build
+            .as_ref()
+            .map(|b| b.updates_dir.join(card_id.as_str()));
+        if let Some(dir) = &manifest_dir {
+            let _ = std::fs::create_dir_all(dir);
+            let manifest = dir.join("manifest.json");
+            if ok {
+                let body = serde_json::json!({
+                    "card_id": card_id.to_string(),
+                    "run_id": run_id.to_string(),
+                    "commit_sha": commit_sha,
+                    "built_at_ms": self.now(),
+                });
+                if let Err(e) = std::fs::write(&manifest, body.to_string()) {
+                    eprintln!("could not write the artefact manifest: {e}");
+                }
+            } else {
+                // Never an artefact of a failed build — not even a stale one.
+                let _ = std::fs::remove_file(&manifest);
+            }
+        }
+
+        let unit = if ok { "holds" } else { "failed" };
+        self.emit_run(
+            &card_id,
+            &run_id,
+            RunEvent::Notice {
+                text: format!("the orchestrator build {unit}"),
+            },
+        );
+        if !ok && !tail.trim().is_empty() {
+            for line in tail.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev() {
+                self.emit_run(
+                    &card_id,
+                    &run_id,
+                    RunEvent::Notice {
+                        text: format!("build: {line}"),
+                    },
+                );
+            }
+        }
+        self.dispatch_review(card_id, run_id, profile).await;
     }
 
     /// Cancel every run and wait for the run tasks to wind down. Each task

@@ -81,6 +81,12 @@ impl AppPaths {
         self.project_dir(project_id).join("memory").join("charter.md")
     }
 
+    /// Mirror-mode artefacts, parked per card until (one day) an operator
+    /// chooses to install one. Outside the repository by design.
+    pub fn updates_dir(&self) -> PathBuf {
+        self.root().join("updates")
+    }
+
     pub fn events_file(&self, project_id: &str) -> PathBuf {
         self.project_dir(project_id).join("events.jsonl")
     }
