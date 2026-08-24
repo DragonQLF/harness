@@ -5,6 +5,7 @@ mod chat;
 mod commands;
 mod director_tools;
 mod sidecar;
+mod update;
 mod workspace;
 
 use std::sync::Arc;
@@ -20,6 +21,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let paths = AppPaths::new(app.path().app_data_dir()?)?;
+            // Rollback first, before anything else: if the last update never
+            // got healthy, this process is running on the restored binary and
+            // the operator must be told why.
+            let rollback = update::recover_if_needed(
+                &update::default_marker(paths.root()),
+                &std::env::current_exe().map_err(|e| e.to_string())?,
+                &update::previous_binary_path(),
+            );
+            if let Some(reason) = &rollback {
+                eprintln!("{reason}");
+            }
             let workspace = Workspace::load(app.handle().clone(), paths);
             // Engines spawn tokio tasks, so bring them up inside the runtime.
             // Starting them all now lets the overview count work across
@@ -27,6 +39,11 @@ pub fn run() {
             let warming = workspace.clone();
             tauri::async_runtime::block_on(async move { warming.warm_all() });
             app.manage(workspace);
+            // Setup made it to the end: this launch is healthy. The marker —
+            // if this very boot was an update — can go.
+            if let Ok(paths) = AppPaths::new(app.path().app_data_dir()?) {
+                update::mark_healthy(&update::default_marker(paths.root()));
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -128,6 +145,8 @@ pub fn run() {
             commands::system::open_claude_terminal,
             commands::system::open_agent_terminal,
             commands::system::prepare_shutdown,
+            commands::system::updates_list,
+            commands::system::update_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

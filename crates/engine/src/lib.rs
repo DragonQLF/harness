@@ -239,6 +239,8 @@ enum Msg {
         commit_sha: String,
         ok: bool,
         tail: String,
+        /// Where the build ran: the artefact lives inside it until copied.
+        worktree: std::path::PathBuf,
     },
     DirectorDone {
         card_id: CardId,
@@ -710,8 +712,9 @@ impl Engine {
                     commit_sha,
                     ok,
                     tail,
+                    worktree,
                 } => {
-                    self.build_done(card_id, run_id, *profile, commit_sha, ok, tail)
+                    self.build_done(card_id, run_id, *profile, commit_sha, ok, tail, worktree)
                         .await;
                 }
                 Msg::DirectorDone {
@@ -860,28 +863,41 @@ impl Engine {
         commit_sha: String,
         ok: bool,
         tail: String,
+        worktree: std::path::PathBuf,
     ) {
         let manifest_dir = self
             .config
             .post_build
             .as_ref()
             .map(|b| b.updates_dir.join(card_id.as_str()));
-        if let Some(dir) = &manifest_dir {
-            let _ = std::fs::create_dir_all(dir);
-            let manifest = dir.join("manifest.json");
-            if ok {
-                let body = serde_json::json!({
-                    "card_id": card_id.to_string(),
-                    "run_id": run_id.to_string(),
-                    "commit_sha": commit_sha,
-                    "built_at_ms": self.now(),
-                });
-                if let Err(e) = std::fs::write(&manifest, body.to_string()) {
-                    eprintln!("could not write the artefact manifest: {e}");
+        if let Some(spec) = self.config.post_build.as_ref() {
+            if let Some(dir) = &manifest_dir {
+                let _ = std::fs::create_dir_all(dir);
+                let manifest = dir.join("manifest.json");
+                if ok {
+                    // The binary moves in with the manifest: worktrees are
+                    // destroyed and rebuilt by the next run on the card, so the
+                    // installer must never depend on one surviving.
+                    let built = worktree.join(&spec.artifact);
+                    if let Some(name) = built.file_name() {
+                        if let Err(e) = std::fs::copy(&built, dir.join(name)) {
+                            eprintln!("could not park the built artefact: {e}");
+                        }
+                    }
+                    let body = serde_json::json!({
+                        "card_id": card_id.to_string(),
+                        "run_id": run_id.to_string(),
+                        "commit_sha": commit_sha,
+                        "built_at_ms": self.now(),
+                        "binary": built.file_name().map(|n| n.to_string_lossy().to_string()),
+                    });
+                    if let Err(e) = std::fs::write(&manifest, body.to_string()) {
+                        eprintln!("could not write the artefact manifest: {e}");
+                    }
+                } else {
+                    // Never an artefact of a failed build — not even a stale one.
+                    let _ = std::fs::remove_file(&manifest);
                 }
-            } else {
-                // Never an artefact of a failed build — not even a stale one.
-                let _ = std::fs::remove_file(&manifest);
             }
         }
 

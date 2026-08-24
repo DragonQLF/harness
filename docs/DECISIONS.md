@@ -1290,7 +1290,7 @@ relato dele (#41). **Implementado (#65)**: o build é do engine, destacado, com 
 um build verde seria convidativo a instalar algo de que não há volta — e isso
 é armadilha, não feature.
 
-### 64. Instalar com volta — desenhado, é a próxima peça
+### 64. Instalar com volta — feito
 Detecção do artefacto pendente + botão explícito são a parte fácil. O que manda:
 
 - binário anterior guardado antes de trocar;
@@ -1300,9 +1300,18 @@ Detecção do artefacto pendente + botão explícito são a parte fácil. O que 
 
 Dois arranques falhados revertem sozinhos. No Windows há um detalhe que decide a
 implementação: o exe em execução não se substitui — troca por rename (velho
-guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguirá.
-**Não implementado**; é o próximo passo deste modo, e nenhuma das duas peças
-acima o dispensa.
+guardado primeiro, novo no lugar) é o caminho conhecido e o que se seguiu.
+
+**Implementado** em `src-tauri/src/update.rs`, com quatro testes próprios: a
+dança completa swap-rollback (o binário velho volta, a razão nomeia o cartão),
+instalação falhada que repõe o original em vez de deixar a app morta, lista de
+pendentes que não mostra promessa sem binário, e marker-sem-backup que explica
+em vez de brickar. O build verde agora **copia o binário para
+`updates/<cartão>/`** — worktrees são destruídas pelo próximo run do cartão, e
+o instalador nunca depende de uma sobreviver. Comandos IPC: `updates_list` e
+`update_install` (recusado com agentes activos; shutdown gracioso antes do
+relançamento). Falta o fio na UI: um banner que leia `updates_list` e um botão
+para `update_install`.
 
 ## Dívida técnica conhecida (atualizada)
 

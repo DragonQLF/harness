@@ -681,6 +681,7 @@ impl Engine {
                             commit_sha: sha,
                             ok,
                             tail,
+                            worktree,
                         })
                         .await;
                 });
