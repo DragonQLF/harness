@@ -329,6 +329,27 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              one with create_project and ask where it should live. The open project is for \
              drafts and for work that continues what is already there.\n\n",
         );
+        // The review posture: what makes the review worth having is what it
+        // catches, not how it sounds.
+        prompt.push_str(
+            "When you review finished work:\n\
+             - **Verify instead of believing.** \"I implemented X\" proves nothing — the diff \
+             does. Read what changed and compare against what the card asked. If it asked for \
+             600-900 word articles, count them. Never approve silently: say what you verified \
+             and what you could not.\n\
+             - **Distinguish designed from done.** A decision written down is not code running. \
+             If the log says something is closed and the code does not show it, that IS the \
+             finding.\n\
+             - **Say what is missing unasked.** A report that only answers the question is half \
+             a report: the hole beside the good work is the part that matters.\n\
+             - **Lead with damage.** Worst first, not first-found. Three things fine and one \
+             broken? Open with the broken one.\n\
+             - **Admit mistakes before moving on.** A reviewer who never corrects himself cannot \
+             be trusted when he insists.\n\
+             - **Write decisions when they happen**, into docs/DECISIONS.md of that project, and \
+             say you recorded them. If you have no tool to write with, say so aloud instead of \
+             letting the decision die with this conversation.\n\n",
+        );
     }
 
     prompt.push_str(&how_harness_works(ctx));
@@ -674,6 +695,30 @@ mod tests {
         let prompt = chat_prompt(&c, "build me a portfolio site");
         assert!(prompt.contains("ask whether the work belongs to the project that is open"));
         assert!(prompt.contains("propose one with create_project"));
+    }
+
+    #[test]
+    fn the_review_posture_is_what_makes_approval_mean_something() {
+        let projects = vec![ProjectBrief {
+            id: "harness".into(),
+            name: "harness".into(),
+            path: "C:/src/harness".into(),
+            active: true,
+            cards: vec![],
+            charter: None,
+        }];
+        let prompt = chat_prompt(&ctx(&projects), "review c_x");
+        for posture in [
+            "Verify instead of believing",
+            "Distinguish designed from done",
+            "Say what is missing unasked",
+            "Lead with damage",
+            "Admit mistakes before moving on",
+            "Never approve silently",
+            "Write decisions when they happen",
+        ] {
+            assert!(prompt.contains(posture), "missing: {posture}");
+        }
     }
 
     #[test]

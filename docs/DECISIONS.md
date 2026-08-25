@@ -1028,3 +1028,19 @@ O `launch_run` limpa a bandeira quando o tecto novo do perfil cobre o já gasto
 — sem tecto nenhum não conta como subido. O wip-commit de #73 manteve o
 trabalho; a retoma adopta o checkout (#73/1); a sessão continua (#42).
 Fechado: o único pendente do lote que ainda perdia quota.
+
+
+
+### 75. A postura do Director no prompt
+O trabalho de revisão que se fazia fora da app — ler o diff, comparar com o que
+o cartão pedia, apanhar o desenhado-vs-feito — passou para dentro do prompt,
+gated por delegação. Sete linhas de postura: verificar em vez de acreditar;
+distinguir desenhado de feito; dizer o que falta sem lhe perguntarem; liderar
+com dano; admitir erros antes de seguir; escrever decisões no momento (e anunciar
+que as registou); nunca aprovar em silêncio — dizer o que verificou e o que não
+conseguiu. Mais curto: cinco linhas que dizem o que fazer valem mais do que
+trinta que descrevem o que aconteceu.
+
+A escrita em `decisions/` continua limitada: o Director hoje não tem ferramenta
+de escrita de ficheiros, e o prompt diz-lho honestamente ("say so aloud instead
+of letting the decision die"). Ferramenta nova fica para o lote do Curador.
