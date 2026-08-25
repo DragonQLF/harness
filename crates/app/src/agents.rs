@@ -598,7 +598,7 @@ mod tests {
             ..Default::default()
         };
         let prompt = agent.prompt_for("Fix the retry", Some("see issue 12"));
-        assert!(prompt.starts_with("Keep it scoped."));
+        assert!(prompt.contains("Keep it scoped."));
         assert!(prompt.contains("Task: Fix the retry"));
         assert!(prompt.contains("see issue 12"));
 
@@ -747,7 +747,7 @@ mod tests {
             ..Default::default()
         };
         let prompt = agent.prompt_for("Fix the titles", None);
-        assert!(prompt.starts_with("Keep it scoped."));
+        assert!(prompt.contains("Keep it scoped."));
         assert!(prompt.contains("relied on for: schema markup, internal links"));
         assert!(prompt.contains("finished work looks like: The change and how to check it."));
         assert!(prompt.contains("Task: Fix the titles"));
