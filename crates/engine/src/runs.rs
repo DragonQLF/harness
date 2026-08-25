@@ -630,11 +630,22 @@ impl Engine {
                 cost_usd,
                 turns,
             } => {
+                // A budget cut is not just any failure: the process is dead,
+                // the work is wip-committed below, and the next Start resumes
+                // the session. Say so in the words the operator acts on.
+                let is_budget = message.to_lowercase().contains("budget");
                 self.emit_run(
                     &card_id,
                     &run_id,
                     RunEvent::Notice {
-                        text: format!("run failed: {message}"),
+                        text: if is_budget {
+                            format!(
+                                "paused by budget — raise the limit and press Start to \
+                                 continue from the saved session ({message})"
+                            )
+                        } else {
+                            format!("run failed: {message}")
+                        },
                     },
                 );
                 // A failed run spent what it spent: the card sums it either
