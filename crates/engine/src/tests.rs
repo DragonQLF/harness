@@ -1989,14 +1989,21 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
         "run 1's work survived the budget cut"
     );
 
-    // Run 2: the checkout is adopted, not destroyed — create was never called
-    // again.
+    // Run 2: still under the old ceiling → refused as paused. The operator
+    // raises the budget; the next Start clears the flag and proceeds.
     let mut human = profile();
     human.reviewer = Reviewer::Human;
-    handle
-        .start_run(id.clone(), "two".into(), human)
+    let refused = handle
+        .start_run(id.clone(), "two".into(), human.clone())
         .await
-        .unwrap();
+        .unwrap_err();
+    assert!(
+        refused.contains("budget ceiling"),
+        "the refusal explains the pause: {refused}"
+    );
+
+    human.max_budget_usd = Some(1.0); // clears what run 1 spent
+    handle.start_run(id.clone(), "two".into(), human).await.unwrap();
     wait_for("second run registers", async || {
         !handle.active_runs().await.unwrap().is_empty()
     })

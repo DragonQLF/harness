@@ -139,6 +139,17 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                 // A snapshot is the board itself, not something that happened;
                 // compaction keeps the feed about work, not housekeeping.
                 Event::BoardSnapshot { .. } => return None,
+                // The pause flag is board state, and the operator must see
+                // why a Start refused.
+                Event::BudgetPauseSet { paused, .. } => (
+                    "card",
+                    if *paused {
+                        "Paused by budget"
+                    } else {
+                        "Budget pause lifted"
+                    },
+                    String::new(),
+                ),
                 // The agent's private account of its work: it feeds the commit
                 // and the memory layer. On the activity feed it is noise.
                 Event::WorkReported { summary, notes, .. } => {
@@ -565,6 +576,7 @@ mod triage_tests {
             worktree: None,
             branch: None,
             depends_on: Vec::new(),
+            budget_paused: false,
         }
     }
 

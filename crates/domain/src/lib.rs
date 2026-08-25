@@ -148,6 +148,11 @@ pub struct Card {
     /// discarded no longer blocks anybody.
     #[serde(default)]
     pub depends_on: Vec<CardId>,
+    /// Cut by its own budget ceiling: the work is wip-committed, the session
+    /// is saved, and continuing means raising the ceiling and pressing Start
+    /// again. Distinct from Failed on purpose — money was spent, nothing broke.
+    #[serde(default)]
+    pub budget_paused: bool,
 }
 
 fn default_agent() -> String {
@@ -209,6 +214,13 @@ pub enum Event {
         #[serde(default)]
         depends_on: Vec<CardId>,
     },
+    /// The budget-pause flag went up or down. Board-visible so the operator
+    /// sees why Start refuses.
+    BudgetPauseSet {
+        card_id: CardId,
+        #[serde(default)]
+        paused: bool,
+    },
     /// The whole board as it stands, written so the log can be compacted: a
     /// restart replays this one event instead of thousands. Written by the
     /// engine alone; no command produces it.
@@ -245,6 +257,7 @@ impl Event {
             | Event::AgentSession { card_id, .. }
             | Event::CardDiscarded { card_id, .. }
             | Event::CardDependencies { card_id, .. }
+            | Event::BudgetPauseSet { card_id, .. }
             | Event::WorkReported { card_id, .. } => Some(card_id),
             // A snapshot is the board itself, not something that happened to
             // one card.
@@ -285,6 +298,9 @@ pub enum Command {
     /// notes for the memory layer. Calling again replaces — the last report
     /// of a run wins, never accumulates silently.
     ReportWork { card_id: CardId, summary: String, notes: Vec<String> },
+    /// Mark (or clear) the budget-pause flag. Set when a run dies on its own
+    /// ceiling; cleared by starting again with a raised one.
+    SetBudgetPause { card_id: CardId, paused: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,6 +324,8 @@ pub enum DecisionError {
     DependencyCycle(CardId),
     /// `report_work` arrived with neither a summary nor a note.
     EmptyReport,
+    /// The card is paused by its own budget ceiling; raise it to continue.
+    BudgetPaused(CardId),
 }
 
 impl fmt::Display for DecisionError {
@@ -349,6 +367,12 @@ impl fmt::Display for DecisionError {
             }
             DecisionError::EmptyReport => {
                 write!(f, "report_work needs a summary or at least one memory note")
+            }
+            DecisionError::BudgetPaused(id) => {
+                write!(
+                    f,
+                    "{id} is paused by its budget ceiling — raise the agent's budget, then press Start to continue from the saved session"
+                )
             }
         }
     }
@@ -395,6 +419,7 @@ impl Board {
                         worktree: None,
                         branch: None,
                         depends_on: Vec::new(),
+                        budget_paused: false,
                     },
                 );
             }
@@ -493,6 +518,11 @@ impl Board {
             // at commit time from the run, the notes belong to the memory
             // layer. The log keeps both so a restart keeps them too.
             Event::WorkReported { .. } => {}
+            Event::BudgetPauseSet { card_id, paused } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.budget_paused = *paused;
+                }
+            }
         }
     }
 
@@ -642,6 +672,13 @@ impl Board {
                 if card.status != Status::Ready {
                     return Err(DecisionError::NotReady(card.status));
                 }
+                // A card paused by its own budget ceiling stays put until the
+                // operator raises it: starting blind is how c_19a1 burned the
+                // same quota twice. The engine clears the flag when the new
+                // run's ceiling clears what was already spent.
+                if card.budget_paused {
+                    return Err(DecisionError::BudgetPaused(card_id.clone()));
+                }
                 // Order the Director asked for: everything this card waits on
                 // must be finished. A dependency that was discarded no longer
                 // exists, so it cannot block anybody.
@@ -661,8 +698,16 @@ impl Board {
                     branch: branch.clone(),
                 }])
             }
-            Command::ReportWork { card_id, summary, notes } => {
+            Command::SetBudgetPause { card_id, paused } => {
                 if !self.cards.contains_key(card_id) {
+                    return Err(DecisionError::CardNotFound(card_id.clone()));
+                }
+                Ok(vec![Event::BudgetPauseSet {
+                    card_id: card_id.clone(),
+                    paused: *paused,
+                }])
+            }
+            Command::ReportWork { card_id, summary, notes } => {                if !self.cards.contains_key(card_id) {
                     return Err(DecisionError::CardNotFound(card_id.clone()));
                 }
                 if summary.trim().is_empty() && notes.iter().all(|n| n.trim().is_empty()) {

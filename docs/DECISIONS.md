@@ -1017,3 +1017,14 @@ Done — com três runs desperdiçados no caminho.
   visível em Sessions com veredicto no cartão (#3); RightNow a derivar do mesmo
   estado + sequência por evento contra buracos (#4); custo/turnos intercalares
   durante o run (#5); relógio de sessão a bater 1s enquanto corre (#6).
+
+
+
+### 74. Pausa por orçamento — feito
+`Card.budget_paused` + `SetBudgetPause`. Quando um run morre com "budget" no
+erro, o engine marca o cartão (evento no log → actividade) e o `StartRun`
+recusa com instruções: subir o orçamento do agente, voltar a carregar Start.
+O `launch_run` limpa a bandeira quando o tecto novo do perfil cobre o já gasto
+— sem tecto nenhum não conta como subido. O wip-commit de #73 manteve o
+trabalho; a retoma adopta o checkout (#73/1); a sessão continua (#42).
+Fechado: o único pendente do lote que ainda perdia quota.

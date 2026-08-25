@@ -696,6 +696,7 @@ mod tests {
             worktree: None,
             branch: None,
             depends_on: Vec::new(),
+            budget_paused: false,
         };
         let line = CardLine::from_card(&card);
         assert_eq!(line.id, "c_7");

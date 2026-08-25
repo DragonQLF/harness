@@ -237,6 +237,27 @@ impl Engine {
         }
         let run_id = RunId(uuid::Uuid::new_v4().to_string());
 
+        // A budget-paused card clears its own flag when the operator comes
+        // back with a ceiling that clears what was already spent — starting
+        // blind is what burned the quota twice on c_19a1.
+        if let Some(card) = self.board.get(&card_id) {
+            if card.budget_paused {
+                let spent = card.cost_usd;
+                let clears = match profile.max_budget_usd {
+                    Some(ceiling) => spent < ceiling,
+                    None => false, // no ceiling at all is not "raised"
+                };
+                if clears {
+                    if let Ok(clear) = self.board.decide(&Command::SetBudgetPause {
+                        card_id: card_id.clone(),
+                        paused: false,
+                    }) {
+                        let _ = self.persist(clear).await;
+                    }
+                }
+            }
+        }
+
         let branch = match profile.worktree {
             WorktreeMode::None => None,
             _ => worktree
@@ -648,6 +669,14 @@ impl Engine {
                         },
                     },
                 );
+                if is_budget {
+                    if let Ok(pause) = self.board.decide(&Command::SetBudgetPause {
+                        card_id: card_id.clone(),
+                        paused: true,
+                    }) {
+                        let _ = self.persist(pause).await;
+                    }
+                }
                 // A failed run spent what it spent: the card sums it either
                 // way, so budgets and analyst numbers stay honest.
                 (RunOutcome::Failed, *cost_usd, *turns)

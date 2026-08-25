@@ -38,4 +38,10 @@ worktree: string | null, branch: string | null,
  * conflict — the path guard knows nothing of it. A dependency that was
  * discarded no longer blocks anybody.
  */
-depends_on: Array<CardId>, };
+depends_on: Array<CardId>, 
+/**
+ * Cut by its own budget ceiling: the work is wip-committed, the session
+ * is saved, and continuing means raising the ceiling and pressing Start
+ * again. Distinct from Failed on purpose — money was spent, nothing broke.
+ */
+budget_paused: boolean, };

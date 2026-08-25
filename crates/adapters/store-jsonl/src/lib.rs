@@ -420,6 +420,7 @@ mod tests {
                 worktree: None,
                 branch: None,
                 depends_on: Vec::new(),
+                budget_paused: false,
             }],
         };
         let stored = store.append_event(&snapshot, 2).unwrap();
