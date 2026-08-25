@@ -27,17 +27,6 @@ impl Engine {
             .map(|c| c.title.clone())
             .unwrap_or_else(|| card_id.to_string());
 
-        // The announcement lives in the spawned task: announcing before the
-        // run starts would leave a stuck "reading the diff" if the spawn
-        // itself failed, with nothing to say why.
-        self.emit_run(
-            &card_id,
-            &run_id,
-            RunEvent::Notice {
-                text: "director is reading the diff".into(),
-            },
-        );
-
         let git = Arc::clone(&self.git);
         let wt = WorktreePath(worktree.clone());
         let base = self.config.base_branch.clone();
@@ -53,6 +42,20 @@ impl Engine {
         let review_run = run_id;
 
         tokio::spawn(async move {
+            // Announced only once the review is genuinely under way: an
+            // announcement before the spawn would leave the card waiting on
+            // a notice for a review that never started.
+            let ts_ms = clock.now_millis();
+            let notice = RunEvent::Notice {
+                text: "director is reading the diff".into(),
+            };
+            let _ = runs_tx.send(crate::RunUpdate {
+                project_id: project_id.clone(),
+                card_id: review_card.clone(),
+                run_id: review_run.clone(),
+                ts_ms,
+                event: notice,
+            });
             let diff = tokio::task::spawn_blocking(move || git.diff_summary(&wt, &base))
                 .await
                 .unwrap_or_else(|_| Err(harness_ports::GitError::Git("task lost".into())))

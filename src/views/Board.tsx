@@ -287,6 +287,12 @@ export function Board({
                   } else if (card.last_review && status !== "done") {
                     note = `${card.last_review.by === "director" ? "Director" : "You"}: ${card.last_review.reason}`;
                     noteColor = card.last_review.approved ? "var(--ok)" : "var(--warn)";
+                  } else if (status === "done" && card.last_review) {
+                    // The verdict stays legible after Done: who approved and
+                    // why — a silent approval is indistinguishable from one
+                    // that never ran.
+                    note = `${card.last_review.by === "director" ? "Director" : "You"} approved: ${card.last_review.reason}`;
+                    noteColor = "var(--ok)";
                   } else if (status === "done" && card.branch) {
                     note = `${card.branch} still unmerged`;
                   }

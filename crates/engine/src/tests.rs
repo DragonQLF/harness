@@ -1983,6 +1983,17 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
         .unwrap();
     assert_eq!(card.cost_usd, 0.766, "a failed run still spent it");
     assert_eq!(card.turns, 17);
+    assert!(card.budget_paused, "the pause flag is up");
+
+    // Pins the exact wording Claude Code uses today: if they rephrase the
+    // error, this fails loudly instead of the pause regressing silently.
+    assert!(
+        store
+            .events()
+            .iter()
+            .any(|e| matches!(e, Event::BudgetPauseSet { paused: true, .. })),
+        "the cut was recognised and paused"
+    );
     let worktree = card.worktree.clone().expect("a worktree was recorded");
     assert!(
         std::path::Path::new(&worktree).join("site/feed.xml").is_file(),

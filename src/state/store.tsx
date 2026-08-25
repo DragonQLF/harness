@@ -442,6 +442,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ]);
       if (projectRef.current !== id) return;
       setSnapshot(snap);
+      lastSeqRef.current = snap.last_seq;
       setStats(st);
       setActivity(acts);
     } catch (e) {
@@ -528,6 +529,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ---- live wiring ----
 
   const pending = useRef<number | null>(null);
+  const lastSeqRef = useRef<number | null>(null);
   const scheduleRefresh = useCallback(() => {
     if (pending.current != null) return;
     pending.current = window.setTimeout(() => {
@@ -552,6 +554,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           refreshProjects();
           return;
         }
+        // Gap detection: the log is a strict sequence. A hole means this
+        // panel missed events, so any view derived from them could be stale
+        // (RightNow was). Refresh immediately instead of trusting the debounced one.
+        const last = lastSeqRef.current;
+        if (last != null && env.seq > last + 1) {
+          pending.current = null;
+          refresh();
+          refreshProjects();
+        }
+        if (last == null || env.seq > last) lastSeqRef.current = env.seq;
         scheduleRefresh();
       }),
     );
