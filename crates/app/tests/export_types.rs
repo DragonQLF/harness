@@ -17,6 +17,12 @@ fn export_types() {
     harness_app::projects::FolderInfo::export().unwrap();
     harness_app::conversations::Conversation::export().unwrap();
     harness_app::approvals::PendingApproval::export().unwrap();
+    harness_app::inbox::Proposal::export().unwrap();
+    harness_app::inbox::ProposalStatus::export().unwrap();
+    harness_app::selfreport::SelfReport::export().unwrap();
+    harness_app::selfreport::RefusalCount::export().unwrap();
+    harness_app::selfreport::RunFailures::export().unwrap();
+    harness_app::selfreport::ExpiredApproval::export().unwrap();
     harness_app::insights::ActivityRow::export().unwrap();
     harness_app::insights::ProjectStats::export().unwrap();
     harness_app::insights::AgentStats::export().unwrap();

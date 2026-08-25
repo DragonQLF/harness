@@ -37,7 +37,7 @@ function Section({
 /** The 44px strip the rail collapses to: the count, who is working, and a way
  *  back. */
 export function RightNowStrip({ open }: { open: () => void }) {
-  const { approvals, snapshot, agents } = useStore();
+  const { approvals, snapshot, agents, proposals } = useStore();
   // Elapsed timers must breathe: a frozen number reads as "frozen app".
   const anyLive = (snapshot?.cards ?? []).some((c) => c.status === "running");
   const [, tick] = useState(0);
@@ -47,7 +47,9 @@ export function RightNowStrip({ open }: { open: () => void }) {
     return () => window.clearInterval(t);
   }, [anyLive]);
   const cards = snapshot?.cards ?? [];
-  const waiting = approvals.length + cards.filter((c) => c.status === "review").length;
+  const openProposals = proposals.filter((p) => p.status === "open");
+  const waiting =
+    approvals.length + openProposals.length + cards.filter((c) => c.status === "review").length;
   const workers = [...new Set(cards.filter((c) => c.status === "running").map((c) => c.agent_id))];
 
   return (
@@ -129,11 +131,15 @@ export function RightNow({
     diffs,
     loadCardDiff,
     cancelRun,
+    proposals,
+    acceptProposal,
+    dismissProposal,
   } = useStore();
 
   const cards = snapshot?.cards ?? [];
   const reviewing = cards.filter((c) => c.status === "review");
   const runningCards = cards.filter((c) => c.status === "running");
+  const openProposals = proposals.filter((p) => p.status === "open");
   const [trees, setTrees] = useState<WorktreeRow[]>([]);
 
   // The numbers beside a review row are the real ones, read from the worktree.
@@ -165,7 +171,7 @@ export function RightNow({
   );
 
   const liveSpend = runningCards.reduce((sum, c) => sum + c.cost_usd, 0);
-  const waiting = approvals.length + reviewing.length;
+  const waiting = approvals.length + openProposals.length + reviewing.length;
 
   return (
     <div
@@ -359,6 +365,79 @@ export function RightNow({
             </div>
           );
         })}
+
+        <Section
+          title="Proposals"
+          count={String(openProposals.length)}
+          top={14}
+          right={
+            openProposals.length > 0 ? (
+              <span
+                title="The Director noticed a pattern; you decide whether it becomes work"
+                style={{ ...mono, fontSize: 10, color: "var(--text4)" }}
+              >
+                his call, your decision
+              </span>
+            ) : undefined
+          }
+        />
+        {openProposals.length === 0 && (
+          <div style={{ padding: "0 3px 4px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
+            No proposals waiting.
+          </div>
+        )}
+        {openProposals.map((proposal) => (
+          <div
+            key={proposal.id}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              padding: "10px 11px",
+              borderRadius: 12,
+              background: "var(--surface)",
+              border: "1px solid var(--line2)",
+              marginBottom: 7,
+            }}
+          >
+            <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncate }}>
+              {proposal.title}
+            </span>
+            <span style={{ font: "400 11px var(--sans)", lineHeight: 1.55, color: "var(--text3)" }}>
+              {proposal.observation}
+            </span>
+            <span style={{ font: "400 11px var(--sans)", lineHeight: 1.55, color: "var(--text2)" }}>
+              {proposal.proposal}
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span
+                className="primary"
+                onClick={() => acceptProposal(proposal.id)}
+                title="Creates the card in the harness's own project — never the one you have open"
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  background: "var(--accent)",
+                  color: "var(--onAccent)",
+                  font: "600 10.5px var(--sans)",
+                  cursor: "pointer",
+                }}
+              >
+                Make card in _harness
+              </span>
+              <span
+                onClick={() => dismissProposal(proposal.id)}
+                style={{ font: "500 10.5px var(--sans)", color: "var(--text2)", cursor: "pointer" }}
+              >
+                Dismiss
+              </span>
+              <span style={{ flex: 1 }} />
+              <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+                {clock(proposal.created_ms)}
+              </span>
+            </span>
+          </div>
+        ))}
 
         <Section
           title="Running"

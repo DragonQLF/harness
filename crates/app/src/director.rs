@@ -350,6 +350,19 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              tool, into the project's memory, and announce what you recorded. If the tool \
              fails, say so aloud instead of letting the decision die with this conversation.\n\n",
         );
+        // He can only hold the posture above if he can see his own history.
+        // But timing is ours, never his: the end-of-day look is scheduled by
+        // the app at shutdown, so nothing here tells him a time of day — a
+        // ritual he cannot schedule is noise in every other turn. What stays
+        // is the ability and the direction of action: see, then propose.
+        prompt.push_str(
+            "You can see your own week: self_report counts what went wrong (refusals, expired \
+             approvals, failed runs, sent-back cards), and read_docs opens DEBT.md and \
+             DECISIONS.md, so you can tell apart what the app does not do yet from what sits \
+             in DEBT.md waiting to be done. When something repeats and has an obvious \
+             correction, file it with propose_improvement — a proposal the operator decides \
+             on, never a card created on your own.\n\n",
+        );
     }
 
     prompt.push_str(&how_harness_works(ctx));
@@ -431,6 +444,23 @@ pub fn analyst_prompt(tables: &str) -> String {
          - You have no tools and write nothing. The answer is the work.\n\n\
          TABLES:\n{tables}"
     )
+}
+
+/// The end-of-day look: a short, self-directed turn run once a day when the
+/// operator closes Harness. It is not a conversation — nobody is talking to
+/// him. He looks, and either files proposals or says the day was clean.
+pub fn daily_look_prompt() -> String {
+    "This is your end-of-day look. Nobody is talking to you; you are looking at what happened \
+     to you and to the agents this week.\n\n\
+     Call self_report for the last 7 days. Read what it shows — it is counts, already \
+     computed; do not try to recount anything. If a pattern there has an obvious correction, \
+     check read_docs (doc \"debt\") first so you do not propose what DEBT.md already tracks; \
+     then file one proposal with propose_improvement per distinct problem: title, the counts \
+     that show the pattern, and the correction. Propose only when something actually repeats \
+     or plainly hurts — one rough day is weather, not a pattern. If nothing warrants a \
+     proposal, say so in a sentence and stop. Do not create cards, do not move anything on \
+     any board."
+        .to_string()
 }
 
 #[cfg(test)]
@@ -719,6 +749,53 @@ mod tests {
         ] {
             assert!(prompt.contains(posture), "missing: {posture}");
         }
+    }
+
+    /// He can only hold the posture if he can see his own history — and the
+    /// standing prompt must not schedule anything: he has no clock. The
+    /// end-of-day ritual belongs to the app (daily_look_prompt, fired at
+    /// shutdown); here only the ability and the guardrail.
+    #[test]
+    fn the_mirror_is_offered_without_claiming_a_time_of_day() {
+        let projects = vec![ProjectBrief {
+            id: "harness".into(),
+            name: "harness".into(),
+            path: "C:/src/harness".into(),
+            active: true,
+            cards: vec![],
+            charter: None,
+        }];
+        let prompt = chat_prompt(&ctx(&projects), "anything to note?");
+        assert!(prompt.contains("self_report counts what went wrong"));
+        assert!(prompt.contains("read_docs opens DEBT.md and DECISIONS.md"));
+        assert!(prompt.contains("propose_improvement"));
+        assert!(prompt.contains("never a card created on your own"));
+        // No clock in the standing prompt: a chat turn can happen at any hour,
+        // and "end of day" would either confuse him or invite him to invent
+        // the ritual himself mid-conversation.
+        for clock in ["day's close", "end of day", "at day", "closing time"] {
+            assert!(!prompt.to_lowercase().contains(clock), "time claim: {clock}");
+        }
+
+        // A specialist without delegation does not get the mirror either.
+        let mut bare = ctx(&[]);
+        bare.speaker = Speaker {
+            is_director: false,
+            can_delegate: false,
+            ..director()
+        };
+        assert!(!chat_prompt(&bare, "hi").contains("self_report"));
+    }
+
+    #[test]
+    fn the_daily_look_is_looking_not_talking() {
+        let prompt = daily_look_prompt();
+        assert!(prompt.contains("end-of-day look"));
+        assert!(prompt.contains("self_report for the last 7 days"));
+        assert!(prompt.contains("read_docs (doc \"debt\")"), "check DEBT before proposing");
+        assert!(prompt.contains("propose_improvement"));
+        assert!(prompt.contains("Do not create cards"));
+        assert!(prompt.contains("one rough day is weather, not a pattern"));
     }
 
     #[test]

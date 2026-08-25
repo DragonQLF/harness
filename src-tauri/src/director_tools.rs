@@ -50,11 +50,19 @@ fn text(input: &serde_json::Value, key: &str) -> Option<String> {
 }
 
 /// Tools that only tell the agent something. Everything else needs the profile
-/// to be allowed to delegate.
+/// to be allowed to delegate. The mirror tools read our own logs or write into
+/// our own inbox — nothing on any board, so they ride free like `record_decision`
+/// (#76's justification: our layer, reversible).
 fn is_read_only(name: &str) -> bool {
     matches!(
         name,
-        "open_screen" | "read_diff" | "list_projects" | "record_decision"
+        "open_screen"
+            | "read_diff"
+            | "list_projects"
+            | "record_decision"
+            | "self_report"
+            | "read_docs"
+            | "propose_improvement"
     )
 }
 
@@ -73,6 +81,26 @@ fn utc_date_string(now_ms: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The ToolRunner handed to a conversational run: every harness tool call is
+/// carried out here, against the same engine commands the UI uses. Shared by
+/// operator chats and the end-of-day look so there is one wiring, not two.
+pub fn runner(
+    ws: &Arc<Workspace>,
+    pinned_project: Option<String>,
+    delegating: bool,
+) -> harness_ports::ToolRunner {
+    let tool_ws = Arc::clone(ws);
+    let tool_app = ws.app_handle();
+    Arc::new(move |call| {
+        let ws = Arc::clone(&tool_ws);
+        let app = tool_app.clone();
+        let project = pinned_project.clone();
+        Box::pin(async move {
+            crate::director_tools::run(&ws, &app, project, delegating, call).await
+        })
+    })
 }
 
 /// Run one tool call. Every failure comes back as prose the model can act on,
@@ -130,6 +158,64 @@ pub async fn run(
             ));
         }
         return ToolReply::ok(out);
+    }
+
+    // The mirror: what happened to the agents, counted by code. Counts and
+    // one example per pattern, never the raw log.
+    if call.name == "self_report" {
+        let days = call
+            .input
+            .get("days")
+            .and_then(|v| v.as_u64())
+            .map(|d| d.clamp(1, 30) as u32)
+            .unwrap_or(7);
+        let report = ws.collect_self_report(days);
+        return ToolReply::ok(harness_app::selfreport::render(&report));
+    }
+
+    // Designed versus done: the two records that say so live in the harness
+    // repository's docs/ folder. Reading is capped and searchable; the whole
+    // decision log does not fit in a reply and should not try.
+    if call.name == "read_docs" {
+        let Some(docs) = ws.harness_docs_dir() else {
+            return ToolReply::refused(
+                "the harness repository is not registered as a project here, so DEBT.md and \
+                 DECISIONS.md are out of reach — ask the operator to add it",
+            );
+        };
+        let doc = match text(&call.input, "doc").as_deref().and_then(harness_app::devdocs::Doc::parse) {
+            Some(d) => d,
+            None => {
+                return ToolReply::refused("read_docs needs doc as \"debt\" or \"decisions\"");
+            }
+        };
+        return match harness_app::devdocs::render(&docs, doc, text(&call.input, "find").as_deref())
+        {
+            Ok(rendered) => ToolReply::ok(rendered),
+            Err(e) => ToolReply::refused(e),
+        };
+    }
+
+    // A proposal, not a card: it lands in the operator's inbox and dies there
+    // unless they accept it — and an accepted card is born in the harness
+    // repository's own project (#72), which this tool never touches.
+    if call.name == "propose_improvement" {
+        let title = text(&call.input, "title").unwrap_or_default();
+        let observation = text(&call.input, "observation").unwrap_or_default();
+        let suggestion = text(&call.input, "proposal").unwrap_or_default();
+        if title.is_empty() || observation.is_empty() || suggestion.is_empty() {
+            return ToolReply::refused(
+                "propose_improvement needs title, observation (the counts that show the \
+                 pattern) and proposal (the correction)",
+            );
+        }
+        return match ws.propose_improvement(&title, &observation, &suggestion) {
+            Ok(_) => ToolReply::ok(
+                "filed in the operator's inbox — they decide whether it becomes work; announce \
+                 that you proposed it",
+            ),
+            Err(e) => ToolReply::refused(e),
+        };
     }
 
     if call.name == "create_project" {
@@ -421,7 +507,15 @@ mod tests {
 
     #[test]
     fn only_reading_and_navigating_are_open_to_every_profile() {
-        for open in ["open_screen", "read_diff", "list_projects"] {
+        for open in [
+            "open_screen",
+            "read_diff",
+            "list_projects",
+            "record_decision",
+            "self_report",
+            "read_docs",
+            "propose_improvement",
+        ] {
             assert!(is_read_only(open), "{open} should need no delegation");
         }
         for guarded in [

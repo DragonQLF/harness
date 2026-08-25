@@ -4,6 +4,7 @@
 mod chat;
 mod commands;
 mod director_tools;
+mod reflection;
 mod sidecar;
 mod update;
 mod workspace;
@@ -52,14 +53,21 @@ pub fn run() {
                     return;
                 };
                 let workspace = Arc::clone(&workspace);
-                if !workspace.settings().commit_wip_on_close {
+                // The end-of-day look holds the window too: it runs against
+                // closing on purpose (that is when the day is over), bounded
+                // in time and budget. Without work and without a look due, the
+                // window closes as fast as it ever did.
+                let look_due = workspace.daily_look_due();
+                if !workspace.settings().commit_wip_on_close && !look_due {
                     return;
                 }
                 // Hold the window open just long enough for running agents to
-                // leave a wip commit behind.
+                // leave a wip commit behind — and, once a day, for the Director
+                // to file what he noticed.
                 api.prevent_close();
                 let window = window.clone();
                 tauri::async_runtime::spawn(async move {
+                    reflection::maybe_run_daily_look(&workspace).await;
                     workspace.shutdown().await;
                     let _ = window.destroy();
                 });
@@ -150,6 +158,10 @@ pub fn run() {
             commands::system::curator_run,
             commands::system::updates_list,
             commands::system::update_install,
+            // inbox
+            commands::system::inbox_list,
+            commands::system::inbox_accept,
+            commands::system::inbox_dismiss,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

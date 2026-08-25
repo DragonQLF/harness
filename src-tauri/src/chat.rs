@@ -39,14 +39,20 @@ use crate::workspace::{SwitchingAgent, SystemClock};
 use crate::workspace::Workspace;
 use harness_ports::ClockPort;
 
-/// Harness tools that only read or navigate. Granted outright, because none of
-/// them changes anything — see decision #29. Everything that *changes* a board
-/// is absent on purpose, so it reaches the approver.
-const READ_ONLY_TOOLS: [&str; 4] = [
+/// Harness tools that only read, navigate, or write into our own layer.
+/// Granted outright, because none of them changes a board — see decisions #29
+/// and #76. Everything that *changes* a board is absent on purpose, so it
+/// reaches the approver. The mirror tools (`self_report`, `read_docs`,
+/// `propose_improvement`) count our own history and file proposals; a proposal
+/// is not an action on the world until the operator accepts it.
+pub(crate) const READ_ONLY_TOOLS: [&str; 7] = [
     "mcp__harness__open_screen",
     "mcp__harness__read_diff",
     "mcp__harness__list_projects",
     "mcp__harness__record_decision",
+    "mcp__harness__self_report",
+    "mcp__harness__read_docs",
+    "mcp__harness__propose_improvement",
 ];
 
 /// Send one message. Returns as soon as the run is under way: the answer
@@ -146,18 +152,9 @@ pub async fn send(
     // Harness's own tools. The mutating ones are not in `allowed_tools`, so the
     // SDK sends each call through the approver first: the operator sees "the
     // Director wants to move c_7b30" before anything moves.
-    let tool_ws = Arc::clone(ws);
-    let tool_app = ws.app_handle();
-    let tool_project = conversation.project_id.clone();
     let delegating = profile.can_delegate;
-    let tools: ToolRunner = Arc::new(move |call| {
-        let ws = Arc::clone(&tool_ws);
-        let app = tool_app.clone();
-        let project = tool_project.clone();
-        Box::pin(async move {
-            crate::director_tools::run(&ws, &app, project, delegating, call).await
-        })
-    });
+    let tools: ToolRunner =
+        crate::director_tools::runner(ws, conversation.project_id.clone(), delegating);
 
     let mut allowed_tools = profile.allowed_tools();
     allowed_tools.extend(READ_ONLY_TOOLS.iter().map(|t| t.to_string()));

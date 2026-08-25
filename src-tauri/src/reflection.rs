@@ -1,0 +1,173 @@
+//! The end-of-day look: one self-directed Director turn, once a day, when the
+//! operator closes Harness.
+//!
+//! Never each turn — patterns are visible over weeks, not messages, and a
+//! model asked to reflect constantly reflects about nothing. The app owns the
+//! timing (`inbox::look_due`); the model never has to know what time it is.
+//! What comes out lands as proposals in the inbox, never as cards: accepting
+//! one is the operator's decision, and an accepted card is born in the
+//! harness's own project (#72).
+//!
+//! Bounded three ways, because it runs against someone trying to leave:
+//! a hard budget, a wall-clock timeout, and the once-a-day gate. Whatever was
+//! proposed before the cut is already saved — proposals are written at
+//! tool-call time, not at the end.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use harness_app::agents;
+use harness_ports::{RunEvent, RunLogLine, RunSpec};
+use tauri::Emitter;
+use tokio_util::sync::CancellationToken;
+
+use crate::workspace::{SystemClock, Workspace};
+use harness_ports::ClockPort;
+
+/// Hard ceiling for the whole look. A pattern worth proposing shows up in one
+/// tool call and two paragraphs; anything longer is wandering.
+const WALL_CLOCK: Duration = Duration::from_secs(120);
+
+/// Cheaper than any conversation: he reads one table, maybe one doc section,
+/// files at most a handful of proposals.
+const BUDGET_USD: f64 = 0.30;
+
+/// Run the daily look if it is due. Returns what it said (for tests and logs);
+/// `None` when it was not due or could not start. Safe to call from several
+/// shutdown paths: exactly one wins the claim.
+pub async fn maybe_run_daily_look(ws: &Arc<Workspace>) -> Option<String> {
+    if !ws.claim_daily_look() {
+        return None;
+    }
+    // Release on every exit path from here.
+    let result = run_bounded(ws).await;
+    ws.release_daily_look();
+    result
+}
+
+async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
+    if !ws.daily_look_due() {
+        return None;
+    }
+    let Some(profile) = ws.agent_exact(agents::DIRECTOR_ID) else {
+        return None;
+    };
+    if !profile.can_chat() {
+        return None;
+    }
+
+    // A real conversation row: the operator can open it tomorrow and read why
+    // a proposal exists, which is the whole auditability of the Mirror chain.
+    let conversation = match ws.new_conversation(Some(agents::DIRECTOR_ID.to_string()), None) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("could not open the end-of-day review conversation: {e}");
+            return None;
+        }
+    };
+    let _ = ws.rename_conversation(&conversation.id, "End-of-day review");
+
+    let spec = RunSpec {
+        prompt: harness_app::director::daily_look_prompt(),
+        cwd: ws.paths.root().to_path_buf(),
+        model: profile.model.clone(),
+        // Everything he needs sits in the read set; board tools stay out of his
+        // hands tonight on purpose — proposing is the whole job.
+        allowed_tools: Some(crate::chat::READ_ONLY_TOOLS.iter().map(|t| t.to_string()).collect()),
+        max_budget_usd: Some(BUDGET_USD),
+        permission_mode: Some("manual".to_string()),
+        approver: Some(ws.router.approver_for("workspace")),
+        resume_session: None,
+        tools: Some(crate::director_tools::runner(
+            ws,
+            conversation.project_id.clone(),
+            true,
+        )),
+        thinking_tokens: Some(2000),
+        subagents: false,
+        report_work: false,
+    };
+
+    let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);
+    let token = CancellationToken::new();
+    ws.register_chat_turn(&conversation.id, token.clone());
+    let run = ws.agent_port().run(spec, ev_tx, token.clone());
+    tokio::pin!(run);
+
+    let app = ws.app_handle();
+    let conversation_id = conversation.id.clone();
+    let ws_forward = Arc::clone(ws);
+
+    // Forward into the transcript and the live channel, exactly like a chat
+    // turn: the same typed listener serves both.
+    let forward = async move {
+        let mut last_text = String::new();
+        while let Some(ev) = ev_rx.recv().await {
+            match &ev {
+                RunEvent::Started { session_id } => {
+                    ws_forward.record_chat_session(&conversation_id, session_id);
+                }
+                RunEvent::Text { text } => last_text = text.clone(),
+                RunEvent::Done {
+                    session_id, cost_usd, ..
+                } => {
+                    if let Some(sid) = session_id {
+                        ws_forward.record_chat_session(&conversation_id, sid);
+                    }
+                    ws_forward.record_chat_cost(&conversation_id, *cost_usd);
+                }
+                _ => {}
+            }
+            if !ev.is_ephemeral() {
+                ws_forward.append_chat_line(
+                    &conversation_id,
+                    RunLogLine {
+                        ts_ms: SystemClock.now_millis(),
+                        event: ev.clone(),
+                    },
+                );
+            }
+            let _ = app.emit(
+                "engine://run",
+                harness_engine::RunUpdate {
+                    project_id: String::new(),
+                    card_id: harness_domain::CardId::new(conversation_id.clone()),
+                    run_id: harness_domain::RunId(conversation_id.clone()),
+                    ts_ms: SystemClock.now_millis(),
+                    event: ev,
+                },
+            );
+        }
+        last_text
+    };
+
+    // Whoever finishes first ends the wait: the answer, or the clock. Either
+    // way the transcript is drained to the last event — on a timeout the turn
+    // is cancelled like any other, and what it already said stays readable.
+    // Proposals are never at risk from the cut: they were written when the
+    // tool ran, not at the end.
+    let closing = tokio::select! {
+        outcome = &mut run => {
+            let _ = outcome;
+            None
+        }
+        _ = tokio::time::sleep(WALL_CLOCK) => {
+            token.cancel();
+            let _ = (&mut run).await;
+            Some("stopped at the wall clock; what was filed is filed")
+                .map(str::to_string)
+        }
+    };
+    let text = forward.await;
+
+    ws.finish_chat_turn(&conversation.id);
+    // Marked either way: a look that found nothing is still a look, and a cut
+    // one retries tomorrow rather than tonight.
+    ws.mark_daily_look();
+
+    Some(match (closing, text.is_empty()) {
+        (Some(reason), _) => format!("({reason})"),
+        (None, true) => String::from("(the end-of-day look ended without a closing word)"),
+        (None, false) => text,
+    })
+}

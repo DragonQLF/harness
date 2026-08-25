@@ -18,6 +18,7 @@ import type {
   PendingApproval,
   PendingUpdate,
   Project,
+  Proposal,
   FolderInfo,
   ProjectDetail,
   ProjectStats,
@@ -154,6 +155,15 @@ export const api = {
   respondApproval: (requestId: string, allow: boolean, always: boolean) =>
     invoke<string | null>("respond_approval", { requestId, allow, always }),
 
+  // ---- inbox ----
+  /** The Director's improvement proposals, newest first. */
+  inbox: () => invoke<Proposal[]>("inbox_list"),
+  /** Accept one: its card is born in the harness's own project. */
+  inboxAccept: (proposalId: string) =>
+    invoke<Proposal>("inbox_accept", { proposalId }),
+  inboxDismiss: (proposalId: string) =>
+    invoke<Proposal>("inbox_dismiss", { proposalId }),
+
   sidecarInstall: () => invoke<string>("sidecar_install"),
   openClaudeTerminal: (projectId?: string) =>
     invoke<void>("open_claude_terminal", { projectId: projectId ?? null }),
@@ -177,6 +187,9 @@ export const events = {
   /** The conversation list changed on the backend. */
   onConversations: (fn: (list: Conversation[]) => void) =>
     listen<Conversation[]>("chat://conversations", (evt) => fn(evt.payload)),
+  /** A proposal was filed, accepted or dismissed on the backend. */
+  onInbox: (fn: (list: Proposal[]) => void) =>
+    listen<Proposal[]>("inbox://proposals", (evt) => fn(evt.payload)),
   onSidecarLog: (fn: (line: string) => void) =>
     listen<string>("sidecar://log", (evt) => fn(evt.payload)),
 };

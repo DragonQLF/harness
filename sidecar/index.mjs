@@ -166,6 +166,55 @@ function harnessTools(runId) {
         call("record_decision"),
       ),
       tool(
+        "self_report",
+        "What happened to you and to every agent lately, counted: tool refusals by reason, " +
+          "approvals that expired unanswered, failed runs (budget cuts named apart), commit " +
+          "errors, unreported work, cards sent back from review. Call it when asked what has " +
+          "been going wrong or repeating — never guess these numbers. Counts and one example " +
+          "per pattern; there is no raw log behind it.",
+        {
+          days: z
+            .number()
+            .int()
+            .min(1)
+            .max(30)
+            .optional()
+            .describe("How far back to count, in days. Default 7."),
+        },
+        call("self_report"),
+      ),
+      tool(
+        "read_docs",
+        "Read Harness's own records: doc \"debt\" is DEBT.md — what is known-broken or " +
+          "deliberately deferred — and doc \"decisions\" is DECISIONS.md, the numbered history " +
+          "of how the app was built and why. Use \"find\" to pull specific sections (a number " +
+          "like 75, or a few words) instead of reading the whole log. Check debt before " +
+          "proposing anything, so you do not propose what is already tracked.",
+        {
+          doc: z.enum(["debt", "decisions"]),
+          find: z
+            .string()
+            .optional()
+            .describe("A section to find: a decision number or words from its title"),
+        },
+        call("read_docs"),
+      ),
+      tool(
+        "propose_improvement",
+        "File an improvement proposal in the operator's inbox when you can see a pattern that " +
+          "repeats and has an obvious correction. A proposal is not a card: they decide whether " +
+          "it becomes work, so NEVER create the card yourself and never act on your own " +
+          "suggestion. Cite counts from self_report as the observation.",
+        {
+          title: z.string().describe("One line naming the problem"),
+          observation: z
+            .string()
+            .describe("The evidence: which counts repeat, from self_report"),
+          proposal: z.string().describe("The correction you suggest"),
+        },
+        call("propose_improvement"),
+      ),
+      tool(
         "open_screen",
         "Take the operator to a place in the app — this navigates their window immediately. " +
           "Whenever they ask to see, show, find or open anything, call this FIRST and then say " +

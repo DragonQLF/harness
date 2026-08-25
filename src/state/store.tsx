@@ -23,6 +23,7 @@ import type {
   Conversation,
   Envelope,
   PendingApproval,
+  Proposal,
   ProjectStats,
   Navigation,
   ProjectView,
@@ -276,6 +277,8 @@ interface Store {
   /** Token-level stream per card, cleared when the final text arrives. */
   streams: Record<string, LiveStream>;
   approvals: PendingApproval[];
+  /** The Director's improvement proposals waiting on you, newest first. */
+  proposals: Proposal[];
   /** What each card changed, once something has asked for it. */
   diffs: Record<string, CardDiff>;
   /** Read a card's diff from its worktree. Cheap to call again: the answer
@@ -330,6 +333,9 @@ interface Store {
   duplicateAgent: (agentId: string) => Promise<void>;
   removeAgent: (agentId: string) => Promise<void>;
   answerApproval: (requestId: string, allow: boolean, always: boolean) => Promise<void>;
+  /** Accept a proposal: its card is born in the harness's own project. */
+  acceptProposal: (proposalId: string) => Promise<void>;
+  dismissProposal: (proposalId: string) => Promise<void>;
   saveSettings: (patch: Partial<Settings>) => Promise<void>;
   saveAgents: (agents: AgentProfile[]) => Promise<void>;
   /** Pick a folder and adopt it, asking first when it is not a repository. */
@@ -376,6 +382,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [outputs, setOutputs] = useState<Record<string, LogLine[]>>({});
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [diffs, setDiffs] = useState<Record<string, CardDiff>>({});
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -472,6 +479,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setAgents(boot.agents);
         setStatus(boot.status);
         setApprovals(boot.approvals);
+        setProposals(boot.inbox);
         setDataDir(boot.data_dir);
         setConversations(boot.conversations);
         // The backend decides which conversation reopens; the frontend just
@@ -731,6 +739,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     keep(events.onApprovalQueue((list) => !closed && setApprovals(list)));
     keep(events.onConversations((list) => !closed && setConversations(list)));
+    keep(events.onInbox((list) => !closed && setProposals(list)));
     keep(
       events.onNavigate((n) => {
         if (closed) return;
@@ -1175,6 +1184,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [fail, toast],
   );
 
+  const acceptProposal = useCallback(
+    async (proposalId: string) => {
+      try {
+        const accepted = await api.inboxAccept(proposalId);
+        toast(
+          "var(--ok)",
+          "Card created",
+          `${accepted.title} — born in the harness's own project as ${accepted.card_id}`,
+        );
+      } catch (e) {
+        fail(e, "Could not create the card");
+      }
+    },
+    [fail, toast],
+  );
+
+  const dismissProposal = useCallback(
+    async (proposalId: string) => {
+      try {
+        await api.inboxDismiss(proposalId);
+      } catch (e) {
+        fail(e, "Could not dismiss the proposal");
+      }
+    },
+    [fail],
+  );
+
   const saveSettings = useCallback(
     async (patch: Partial<Settings>) => {
       if (!settings) return;
@@ -1373,6 +1409,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     duplicateAgent,
     removeAgent,
     answerApproval,
+    proposals,
+    acceptProposal,
+    dismissProposal,
     saveSettings,
     saveAgents,
     addProject,

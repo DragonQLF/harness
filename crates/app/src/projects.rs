@@ -41,6 +41,12 @@ impl Default for Project {
 
 pub const TONES: [&str; 4] = ["accent", "info", "ok", "warn"];
 
+/// The harness's own project — the one mirror mode builds. Work on Harness
+/// itself is born here, never in whatever the operator has open (#72).
+pub fn mirror_project(projects: &[Project]) -> Option<&Project> {
+    projects.iter().find(|p| p.mirror)
+}
+
 /// Initials for the project avatar.
 pub fn glyph_for(name: &str) -> String {
     let letters: String = name
@@ -162,5 +168,17 @@ mod tests {
         assert_eq!(project.base_branch, "main");
         assert_eq!(project.tone, "accent");
         assert!(!project.paused);
+    }
+
+    #[test]
+    fn the_mirror_project_is_the_harnesss_own_home() {
+        let plain = Project { id: "site".into(), ..Default::default() };
+        let mirror = Project { id: "_harness".into(), mirror: true, ..Default::default() };
+        let projects = vec![plain, mirror];
+        assert_eq!(
+            mirror_project(&projects).map(|p| p.id.as_str()),
+            Some("_harness")
+        );
+        assert!(mirror_project(&[]).is_none());
     }
 }

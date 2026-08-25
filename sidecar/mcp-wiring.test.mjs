@@ -40,7 +40,7 @@ function loadBuilders() {
        boolean: () => chain(),
        number: () => chain(),
      };
-     function chain() { const api = { describe: () => api, optional: () => api, default: () => api }; return api; }
+     function chain() { const api = { describe: () => api, optional: () => api, default: () => api, int: () => api, min: () => api, max: () => api }; return api; }
      ${code}
      return { callFor, harnessTools, reportWorkTool };`,
   );

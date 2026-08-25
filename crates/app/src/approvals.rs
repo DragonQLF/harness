@@ -46,10 +46,16 @@ struct Waiting {
     tx: oneshot::Sender<bool>,
 }
 
+/// Told when a request expired unanswered. A timeout is not an operator's no:
+/// it is the operator never seeing the question, and that difference is the
+/// signal the Director's self_report exists to surface.
+pub type ExpirySink = Arc<dyn Fn(u64, &PendingApproval) + Send + Sync>;
+
 pub struct ApprovalRouter {
     settings: Arc<Mutex<Settings>>,
     pending: Mutex<HashMap<String, Waiting>>,
     notifier: OnceLock<Box<dyn Notifier>>,
+    expiry_sink: OnceLock<ExpirySink>,
 }
 
 impl ApprovalRouter {
@@ -58,12 +64,19 @@ impl ApprovalRouter {
             settings,
             pending: Mutex::new(HashMap::new()),
             notifier: OnceLock::new(),
+            expiry_sink: OnceLock::new(),
         }
     }
 
     /// Attach the operator-facing notifier. Called once, at startup.
     pub fn attach(&self, notifier: Box<dyn Notifier>) {
         let _ = self.notifier.set(notifier);
+    }
+
+    /// Attach where expiries are recorded. Called once, at startup; without it
+    /// expiries still deny correctly but are counted nowhere.
+    pub fn attach_expiry_sink(&self, sink: ExpirySink) {
+        let _ = self.expiry_sink.set(sink);
     }
 
     fn now_ms() -> u64 {
@@ -170,8 +183,18 @@ impl ApprovalRouter {
                 let decision = tokio::time::timeout(WAIT, rx).await;
                 me.pending.lock().unwrap().remove(&request.request_id);
                 me.broadcast();
-                // Timed out, dropped or denied all mean the same thing: no.
-                matches!(decision, Ok(Ok(true)))
+                // Timed out, dropped or denied all mean the same thing to the
+                // caller — no — but only a timeout is an unanswered question.
+                match decision {
+                    Ok(Ok(true)) => true,
+                    Err(_) => {
+                        if let Some(sink) = me.expiry_sink.get() {
+                            sink(Self::now_ms(), &view);
+                        }
+                        false
+                    }
+                    Ok(_) => false,
+                }
             })
         })
     }
@@ -327,5 +350,52 @@ mod tests {
         }
         router.deny_all();
         assert!(!waiting.await.unwrap());
+    }
+
+    /// A timeout and a click on "Deny" both refuse the agent, but they are not
+    /// the same fact: one means the operator never saw the question. Only the
+    /// first reaches the sink.
+    #[tokio::test(start_paused = true)]
+    async fn expiries_are_recorded_and_deliberate_denials_are_not() {
+        let (router, _s, _recorder) = router();
+        let expired: Arc<Mutex<Vec<(String, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&expired);
+        router.attach_expiry_sink(Arc::new(move |ts_ms, pending| {
+            seen.lock().unwrap().push((pending.tool.clone(), ts_ms));
+        }));
+
+        let approve = router.approver_for("proj");
+        let waiting = tokio::spawn({
+            let approve = Arc::clone(&approve);
+            async move { approve(request("req-clock")).await }
+        });
+        for _ in 0..200 {
+            if !router.pending_list().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(router.pending_list().len(), 1);
+
+        tokio::time::advance(WAIT).await;
+        assert!(!waiting.await.unwrap(), "an expiry denies like any other no");
+        assert_eq!(
+            expired.lock().unwrap().len(),
+            1,
+            "the unanswered question was recorded"
+        );
+
+        // A deliberate denial records nothing.
+        let before = expired.lock().unwrap().len();
+        let second = tokio::spawn(async move { approve(request("req-click")).await });
+        for _ in 0..200 {
+            if !router.pending_list().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        router.resolve("req-click", false).unwrap();
+        assert!(!second.await.unwrap());
+        assert_eq!(expired.lock().unwrap().len(), before);
     }
 }

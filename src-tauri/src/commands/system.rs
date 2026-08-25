@@ -71,6 +71,8 @@ pub struct Bootstrap {
     /// Unscoped shell allowances left by an older build. They authorise nothing
     /// now; the UI says so once.
     pub revoked_allowances: Vec<String>,
+    /// Improvement proposals waiting on the operator, newest first.
+    pub inbox: Vec<harness_app::inbox::Proposal>,
 }
 
 #[tauri::command]
@@ -90,6 +92,7 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
             .into_iter()
             .map(|r| r.label())
             .collect(),
+        inbox: ws.inbox().proposals,
     })
 }
 
@@ -349,10 +352,40 @@ pub async fn open_agent_terminal(
 }
 
 /// Cancel everything and let the worktrees commit before the window closes.
+/// The end-of-day look runs first when it is due: shutdown is the one moment
+/// a day is actually over, and it is bounded (budget + wall clock).
 #[tauri::command]
 pub async fn prepare_shutdown(ws: Shared<'_>) -> Result<(), String> {
+    let ws = Arc::clone(&ws);
+    crate::reflection::maybe_run_daily_look(&ws).await;
     ws.shutdown().await;
     Ok(())
+}
+
+// ---- inbox ----
+
+#[tauri::command]
+pub async fn inbox_list(ws: Shared<'_>) -> Result<Vec<harness_app::inbox::Proposal>, String> {
+    Ok(ws.inbox().proposals)
+}
+
+/// Accept a proposal: the card is born in the harness's own project, never in
+/// whatever is open (#72). Creating the card is ours; deciding was theirs.
+#[tauri::command]
+pub async fn inbox_accept(
+    proposal_id: String,
+    ws: State<'_, Arc<Workspace>>,
+) -> Result<harness_app::inbox::Proposal, String> {
+    let ws = Arc::clone(&ws);
+    ws.accept_proposal(&proposal_id).await
+}
+
+#[tauri::command]
+pub async fn inbox_dismiss(
+    proposal_id: String,
+    ws: Shared<'_>,
+) -> Result<harness_app::inbox::Proposal, String> {
+    ws.dismiss_proposal(&proposal_id)
 }
 
 

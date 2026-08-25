@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use harness_app::agents::{self, AgentProfile};
 use harness_app::approvals::{ApprovalRouter, Notifier, PendingApproval};
 use harness_app::conversations::{Conversation, ConversationIndex};
+use harness_app::inbox::{InboxState, Proposal};
 use harness_app::paths::{self, AppPaths};
 use harness_app::director::{CardLine, DiffFacts, ProjectBrief};
 use harness_app::projects::{self, FolderInfo, Project};
@@ -103,6 +104,11 @@ pub struct Workspace {
     /// Without this a chat turn that never emits `done` leaves the operator
     /// without a stop.
     chat_turns: Mutex<HashMap<String, CancellationToken>>,
+    /// Improvement proposals waiting on the operator, plus the mark of the
+    /// last end-of-day look.
+    inbox: Mutex<InboxState>,
+    /// Guards against two shutdown paths starting the daily look twice.
+    reflection_running: std::sync::atomic::AtomicBool,
 }
 
 impl Workspace {
@@ -117,6 +123,7 @@ impl Workspace {
         let projects: Vec<Project> = paths::read_json_or_default(&paths.projects_file());
         let conversations: ConversationIndex =
             paths::read_json_or_default(&paths.conversations_file());
+        let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
         let sidecar_dir = sidecar::prepare(&app, &paths);
         // A missing transcript directory must not stop the app opening: an
         // in-memory conversation is still better than no window.
@@ -127,6 +134,31 @@ impl Workspace {
                     .expect("a writable transcript directory")
             }),
         );
+
+        let expired_file = paths.approvals_expired_file();
+        router.attach_expiry_sink(Arc::new(move |ts_ms, pending| {
+            // One JSON line per expiry, shaped like `ExpiredApproval` so
+            // self_report reads it back without a second format.
+            let line = serde_json::json!({
+                "ts_ms": ts_ms,
+                "project_id": pending.project_id,
+                "tool": pending.tool,
+                "summary": pending.summary,
+            });
+            if let Err(e) = (|| -> std::io::Result<()> {
+                if let Some(parent) = expired_file.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&expired_file)?;
+                writeln!(file, "{line}")
+            })() {
+                eprintln!("could not record the expired approval: {e}");
+            }
+        }));
 
         let workspace = Arc::new(Self {
             app,
@@ -140,6 +172,8 @@ impl Workspace {
             conversations: Mutex::new(conversations),
             chat_log,
             chat_turns: Mutex::new(HashMap::new()),
+            inbox: Mutex::new(inbox),
+            reflection_running: std::sync::atomic::AtomicBool::new(false),
         });
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
@@ -910,6 +944,205 @@ impl Workspace {
             store,
             run_log,
         })
+    }
+
+    // ---- inbox ----
+
+    pub fn inbox(&self) -> InboxState {
+        self.inbox.lock().unwrap().clone()
+    }
+
+    fn save_inbox(&self, state: &InboxState) {
+        if let Err(e) = paths::write_json(&self.paths.inbox_file(), state) {
+            eprintln!("could not save the inbox: {e}");
+        }
+    }
+
+    fn publish_inbox(&self) {
+        let _ = self
+            .app
+            .emit("inbox://proposals", self.inbox.lock().unwrap().proposals.clone());
+    }
+
+    /// A proposal from the Director: filed, never acted on. The operator
+    /// decides whether it becomes work.
+    pub fn propose_improvement(
+        &self,
+        title: &str,
+        observation: &str,
+        suggestion: &str,
+    ) -> Result<Proposal, String> {
+        let id = format!("prp_{}", uuid::Uuid::new_v4().simple());
+        use harness_ports::ClockPort;
+        let now_ms = SystemClock.now_millis();
+        let proposal = {
+            let mut guard = self.inbox.lock().unwrap();
+            guard.propose(id, now_ms, title, observation, suggestion)
+        };
+        self.save_inbox(&self.inbox());
+        self.publish_inbox();
+        Ok(proposal)
+    }
+
+    /// Accept a proposal: the card is born in the harness's own project — the
+    /// one mirror mode builds — never in whatever is open (#72).
+    pub async fn accept_proposal(self: &Arc<Self>, proposal_id: &str) -> Result<Proposal, String> {
+        let open = self.inbox().proposals.into_iter().find(|p| {
+            p.id == proposal_id && p.status == harness_app::inbox::ProposalStatus::Open
+        });
+        let Some(proposal) = open else {
+            return Err(format!("no open proposal {proposal_id}"));
+        };
+        let Some(mirror) = projects::mirror_project(&self.projects()).cloned() else {
+            return Err(
+                "the harness repository is not registered as a project (mirror mode), so there \
+                 is nowhere to put this card — add it as a project first"
+                    .to_string(),
+            );
+        };
+        let created =
+            crate::commands::board::create_card_inner(self, &mirror.id, &proposal.title, agents::DEFAULT_WORKER, false, true)
+                .await?;
+        let accepted = {
+            let mut guard = self.inbox.lock().unwrap();
+            match guard.accept(
+                proposal_id,
+                &mirror.id,
+                created.card_id.as_str(),
+            ) {
+                Some(p) => p,
+                None => return Err(format!("no open proposal {proposal_id}")),
+            }
+        };
+        self.save_inbox(&self.inbox());
+        self.publish_inbox();
+        Ok(accepted)
+    }
+
+    pub fn dismiss_proposal(&self, proposal_id: &str) -> Result<Proposal, String> {
+        let dismissed = {
+            let mut guard = self.inbox.lock().unwrap();
+            guard
+                .dismiss(proposal_id)
+                .ok_or_else(|| format!("no open proposal {proposal_id}"))?
+        };
+        self.save_inbox(&self.inbox());
+        self.publish_inbox();
+        Ok(dismissed)
+    }
+
+    /// The docs of the harness's own repository, when it is registered here.
+    pub fn harness_docs_dir(&self) -> Option<PathBuf> {
+        projects::mirror_project(&self.projects())
+            .map(|p| PathBuf::from(&p.path).join("docs"))
+            .filter(|dir| dir.is_dir())
+    }
+
+    /// Everything that happened to every agent, merged and counted. Reads our
+    /// own logs only — event logs, run transcripts, chat transcripts, expired
+    /// approvals — so the model receives a finished table instead of raw files.
+    pub fn collect_self_report(&self, window_days: u32) -> harness_app::selfreport::SelfReport {
+        use harness_app::selfreport::ExpiredApproval;
+        use harness_ports::{ClockPort, StorePort};
+
+        let now = SystemClock.now_millis();
+
+        // Board events across every live project.
+        let mut events: Vec<harness_ports::StoredEvent> = Vec::new();
+        for runtime in self.runtimes() {
+            if let Ok(history) = StorePort::read_all(runtime.store.as_ref()) {
+                events.extend(history);
+            }
+        }
+
+        // Transcript lines: run logs per project, plus every conversation.
+        let mut lines: Vec<harness_ports::RunLogLine> = Vec::new();
+        let read_transcripts = |dir: &Path, into: &mut Vec<harness_ports::RunLogLine>| {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for row in text.lines().filter(|l| !l.trim().is_empty()) {
+                    if let Ok(parsed) = serde_json::from_str::<harness_ports::RunLogLine>(row) {
+                        into.push(parsed);
+                    }
+                }
+            }
+        };
+        for runtime in self.runtimes() {
+            read_transcripts(&self.paths.runs_dir(&runtime.project.id), &mut lines);
+        }
+        read_transcripts(&self.paths.conversations_dir(), &mut lines);
+
+        // Expired approvals, one JSON line each.
+        let mut expired: Vec<ExpiredApproval> = Vec::new();
+        if let Ok(text) = std::fs::read_to_string(self.paths.approvals_expired_file()) {
+            for row in text.lines().filter(|l| !l.trim().is_empty()) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(row) {
+                    expired.push(ExpiredApproval {
+                        ts_ms: value.get("ts_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+                        project_id: value
+                            .get("project_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        tool: value
+                            .get("tool")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        summary: value
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    });
+                }
+            }
+        }
+
+        harness_app::selfreport::aggregate(&events, &lines, &expired, now, window_days)
+    }
+
+    /// Mark that the end-of-day look ran (or was skipped) at this moment.
+    pub fn mark_daily_look(&self) {
+        use harness_ports::ClockPort;
+        {
+            let mut guard = self.inbox.lock().unwrap();
+            guard.last_look_ms = SystemClock.now_millis();
+        }
+        self.save_inbox(&self.inbox());
+    }
+
+    pub fn daily_look_due(&self) -> bool {
+        harness_app::inbox::look_due(self.inbox().last_look_ms, {
+            use harness_ports::ClockPort;
+            SystemClock.now_millis()
+        })
+    }
+
+    /// One at a time: two shutdown paths can race to start the daily look.
+    pub fn claim_daily_look(&self) -> bool {
+        self.reflection_running
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
+    pub fn release_daily_look(&self) {
+        self.reflection_running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Cancel every run everywhere and let the worktrees commit.

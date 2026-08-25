@@ -23,6 +23,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-24 | 62–65 | Modo Espelho: zona congelada, build como check, instalar com volta |
 | 2026-08-24 | 66 | Pathguard guarda por omissão |
 | 2026-08-24 | 67–69 | Modo Destacado e Voz (fase 1 desenhada; fase 2 atrás de uma semana de uso) |
+| 2026-08-26 | 78–79 | O Director vê o próprio histórico: self_report, read_docs, caixa de entrada e fecho do dia |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -1071,3 +1072,70 @@ existem** - codigo, nunca modelo - e grava a marca de agua
 O que falta e o julgamento: contradições, obsolescência, reorganização entre
 áreas. Isso corre sobre estes ficheiros num passe com modelo depois; nada do
 que hoje foi escrito muda de formato quando ele chegar.
+
+
+
+### 78. `self_report` e `read_docs` — o Director vê o próprio histórico
+O #75 deu-lhe a postura ("distinguir desenhado de feito", "dizer o que falta")
+sem lhe dar material nenhum para a cumprir: o `DEBT.md` e o `DECISIONS.md`
+vivem no repositório do harness e ele não tinha como os ler. E quando uma
+ferramenta lhe é recusada, esse facto morria na conversa — ninguém agregava
+"bateu na mesma recusa doze vezes esta semana", que é exactamente o sinal que
+geraria uma proposta de melhoria.
+
+- **`self_report(days?)`** devolve, por janela (7 dias por omissão), contagens:
+  recusas de ferramenta por ferramenta **e razão**, aprovações que expiraram sem
+  resposta, runs falhados separando corte de orçamento de falha real,
+  `commit_error`, `unreported`, e cartões que voltaram de Review para Ready.
+  Contagens e um exemplo curto por padrão — quarenta recusas iguais são uma
+  linha, não quarenta transcrições. A agregação é código sobre os logs que já
+  existem (`events.jsonl`, transcrições de run e de conversa); **o modelo não
+  calcula**, recebe a tabela pronta — mesmo princípio do Analista (#55).
+- **Expirações passaram a ser um facto.** O router gravava timeout e recusa
+  operador da mesma maneira (ambos respondem "não"). Agora, no momento em que
+  os 30 minutos acabam (`approvals.rs`), uma linha vai para
+  `<appdata>/approvals-expired.jsonl` — uma pergunta que ninguém viu é diferente
+  de um não deliberado, e só assim sobrevive a um restart. Teste com relógio
+  tokio parado prova os dois caminhos: expiração grava, clique em Deny não.
+- **`read_docs(doc: debt|decisions, find?)`** lê `<repo do harness>/docs/`. O
+  repositório do harness é o projecto com `mirror: true` (#65) — sem ele, a
+  recusa diz honestamente que não há onde procurar. O DECISIONS já passa de 90KB,
+  logo: cabeça limitada (14k caracteres) com aviso, e secções puxadas por
+  `find` — número ("75") com fronteiras exactas ("#7" não arrasta "#75") ou
+  palavras. Código divide as secções; o modelo nunca adivinha offsets.
+- **Auto-aprovadas**, mesma justificação de `record_decision` (#76): leitura dos
+  nossos dados, escrita na nossa caixa de entrada — nada de quadros, nada do
+  repositório do operador. Nem exigem delegação: um perfil sem delegação pode
+  olhar, só não pode actuar.
+
+### 79. A caixa de entrada e o fecho do dia — propôr, nunca criar
+Último elo do Modo Espelho: nota o padrão → propõe → o operador decide →
+cartão no `_harness` → agente corrige → compila → o operador instala.
+
+- **`propose_improvement(title, observation, proposal)`** escreve na caixa de
+  entrada (`inbox.json`) e anuncia. É tudo: não cria cartão, não move nada.
+  Repetir um título ainda aberto **reforça** a proposta existente em vez de
+  empilhar cópias — doze recusas fortalecem uma proposta, não criam doze.
+- **Aceitar é do operador**, no rail RightNow: `inbox_accept` cria o cartão no
+  projecto com `mirror: true` — **nunca no projecto aberto** (#72). Recusado
+  com instrução quando o harness não está registado como projecto.
+- **O fecho do dia corre no shutdown, uma vez por dia** (`look_due`: 20h), com
+  tecto próprio ($0.30) e relógio de parede (120s). Nunca a cada turno —
+  padrões operacionais veem-se ao longo de semanas, e um modelo pedido para
+  reflectir constantemente reflicte sobre nada. O prompt do dia
+  (`daily_look_prompt`) diz-lhe para chamar `self_report`, conferir o
+  `DEBT.md` antes de propor, e parar se não houver padrão ("um dia mau é
+  tempo, não padrão").
+- **O relógio é nosso, não dele.** Primeira versão da linha no prompt fixo
+  dizia "no fecho do dia, olha…". Errado: ele não sabe que horas são — um
+  ritual que não pode agendar é ruído em todos os outros turnos. O prompt fixo
+  ficou só com a capacidade e o travão (vê a própria semana; propõe em vez de
+  agir); o "fecho do dia" vive só no prompt agendado, que corre quando *nós*
+  decidimos que o dia acabou. Há teste que proíbe horas no prompt fixo.
+- **A revisão deixa rasto**: cria uma conversa real ("End-of-day review") com a
+  transcrição normal — amanhã abre-se e lê-se *porquê* existe cada proposta,
+  que é a auditabilidade do Modo Espelho inteiro.
+- **Delimitado contra alguém à porta**: quem fecha a janela espera no máximo o
+  relógio; propostas já escritas estão salvas porque se escrevem no momento da
+  chamada, não no fim. Sem wip a commitar e sem fecho devido, a janela fecha
+  como sempre fechou.

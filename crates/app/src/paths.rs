@@ -52,6 +52,20 @@ impl AppPaths {
         self.root.join("conversations.json")
     }
 
+    /// The Director's improvement proposals, and the mark of his last
+    /// end-of-day look. Workspace level: proposals are about the app, not any
+    /// one project.
+    pub fn inbox_file(&self) -> PathBuf {
+        self.root.join("inbox.json")
+    }
+
+    /// Approvals that expired unanswered, one JSON line each. Written by the
+    /// router's expiry sink so a timeout survives a restart as its own fact,
+    /// distinct from a deliberate no.
+    pub fn approvals_expired_file(&self) -> PathBuf {
+        self.root.join("approvals-expired.jsonl")
+    }
+
     /// Chat transcripts. Workspace level, not per project: one Director watches
     /// every board, and a conversation may be pinned to no project at all.
     pub fn conversations_dir(&self) -> PathBuf {

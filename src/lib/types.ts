@@ -29,6 +29,7 @@ import type { Conversation } from "./generated/Conversation";
 import type { FolderInfo } from "./generated/FolderInfo";
 import type { LanguageRow } from "./generated/LanguageRow";
 import type { PendingApproval } from "./generated/PendingApproval";
+import type { Proposal } from "./generated/Proposal";
 import type { Project } from "./generated/Project";
 import type { ProjectStats } from "./generated/ProjectStats";
 import type { Review } from "./generated/Review";
@@ -59,6 +60,7 @@ export type {
   FolderInfo,
   LanguageRow,
   PendingApproval,
+  Proposal,
   Project,
   ProjectStats,
   Review,
@@ -186,6 +188,7 @@ export interface Bootstrap {
   projects: Project[];
   status: SystemStatus;
   approvals: PendingApproval[];
+  inbox: Proposal[];
   data_dir: string;
   conversations: Conversation[];
   /** The chat to reopen, so the window comes back where it was left. */
