@@ -42,10 +42,11 @@ use harness_ports::ClockPort;
 /// Harness tools that only read or navigate. Granted outright, because none of
 /// them changes anything — see decision #29. Everything that *changes* a board
 /// is absent on purpose, so it reaches the approver.
-const READ_ONLY_TOOLS: [&str; 3] = [
+const READ_ONLY_TOOLS: [&str; 4] = [
     "mcp__harness__open_screen",
     "mcp__harness__read_diff",
     "mcp__harness__list_projects",
+    "mcp__harness__record_decision",
 ];
 
 /// Send one message. Returns as soon as the run is under way: the answer

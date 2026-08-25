@@ -1044,3 +1044,17 @@ trinta que descrevem o que aconteceu.
 A escrita em `decisions/` continua limitada: o Director hoje não tem ferramenta
 de escrita de ficheiros, e o prompt diz-lho honestamente ("say so aloud instead
 of letting the decision die"). Ferramenta nova fica para o lote do Curador.
+
+
+
+### 76. `record_decision` — o Director escreve as decisões
+A limitação honesta do #75 está fechada: ferramenta nova no chat do Director
+que grava a decisão **no momento**, em
+`<appdata>/projects/<id>/memory/decisions/<data>-<slug>-NN.md` - datada,
+append-only, fora de qualquer repositório (#59). Auto-aprovada como
+`report_work`: escrita nossa na memória nossa, não no repo do operador. O
+prompt já a anuncia e manda dizer que gravou.
+
+Porque não "dar todas as ferramentas" ao Director: o trabalho fora de cartões
+anula worktree, review, história e custo (#70) - mas uma nota de memória é da
+camada nossa, reversível, e sem conflitos entre worktrees.

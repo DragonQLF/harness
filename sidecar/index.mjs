@@ -153,6 +153,19 @@ function harnessTools(runId) {
         call("create_project"),
       ),
       tool(
+        "record_decision",
+        "Record a decision the moment it is made, into this project's memory. " +
+          "Use it the instant you and the operator agree on something durable — " +
+          "then say you recorded it.",
+        {
+          title: z.string().describe("One line naming the decision"),
+          content: z
+            .string()
+            .describe("The decision, its context, and what it rules out"),
+        },
+        call("record_decision"),
+      ),
+      tool(
         "open_screen",
         "Take the operator to a place in the app — this navigates their window immediately. " +
           "Whenever they ask to see, show, find or open anything, call this FIRST and then say " +

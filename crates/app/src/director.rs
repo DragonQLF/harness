@@ -346,9 +346,9 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              broken? Open with the broken one.\n\
              - **Admit mistakes before moving on.** A reviewer who never corrects himself cannot \
              be trusted when he insists.\n\
-             - **Write decisions when they happen**, into docs/DECISIONS.md of that project, and \
-             say you recorded them. If you have no tool to write with, say so aloud instead of \
-             letting the decision die with this conversation.\n\n",
+             - **Write decisions when they happen** with your record_decision \
+             tool, into the project's memory, and announce what you recorded. If the tool \
+             fails, say so aloud instead of letting the decision die with this conversation.\n\n",
         );
     }
 

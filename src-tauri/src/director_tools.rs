@@ -20,7 +20,7 @@ use harness_ports::{GitPort, ToolCall, ToolReply, WorktreePath};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::workspace::Workspace;
+use crate::workspace::{SystemClock, Workspace};
 
 /// Where the agent asked the window to go.
 #[derive(Debug, Clone, Serialize)]
@@ -52,7 +52,27 @@ fn text(input: &serde_json::Value, key: &str) -> Option<String> {
 /// Tools that only tell the agent something. Everything else needs the profile
 /// to be allowed to delegate.
 fn is_read_only(name: &str) -> bool {
-    matches!(name, "open_screen" | "read_diff" | "list_projects")
+    matches!(
+        name,
+        "open_screen" | "read_diff" | "list_projects" | "record_decision"
+    )
+}
+
+/// UTC date as YYYY-MM-DD from a millisecond stamp (Howard Hinnant's
+/// civil_from_days). No chrono dependency for one filename.
+fn utc_date_string(now_ms: u64) -> String {
+    let days = (now_ms / 1000 / 86_400) as i64;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// Run one tool call. Every failure comes back as prose the model can act on,
@@ -150,6 +170,56 @@ pub async fn run(
         return ToolReply::refused(format!(
             "there is no project called {project_id}. Call list_projects to see the real ids."
         ));
+    }
+
+    // A decision made in conversation dies with the conversation unless it
+    // lands on disk the moment it happens. Dated, append-only, in the
+    // project's own memory — outside any repository (#59).
+    if call.name == "record_decision" {
+        use harness_ports::ClockPort;
+        let title = text(&call.input, "title").unwrap_or_default();
+        let content = text(&call.input, "content").unwrap_or_default();
+        if title.trim().is_empty() || content.trim().is_empty() {
+            return ToolReply::refused("record_decision needs a title and content");
+        }
+        let dir = ws
+            .paths
+            .project_dir(&project_id)
+            .join("memory")
+            .join("decisions");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return ToolReply::refused(format!("could not create the memory folder: {e}"));
+        }
+        let now_ms = SystemClock.now_millis();
+        let date = utc_date_string(now_ms);
+        let slug: String = {
+            let cleaned: String = title
+                .trim()
+                .to_lowercase()
+                .chars()
+                .take(40)
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            cleaned.trim_matches('-').to_string()
+        };
+        let mut n = 1;
+        loop {
+            let candidate = dir.join(format!("{date}-{slug}-{n:02}.md"));
+            if !candidate.exists() {
+                if let Err(e) =
+                    std::fs::write(&candidate, format!("# {title}\n\n{content}\n"))
+                {
+                    return ToolReply::refused(format!(
+                        "could not write the decision: {e}"
+                    ));
+                }
+                return ToolReply::ok(format!(
+                    "recorded as {} - announce that you wrote it",
+                    candidate.display()
+                ));
+            }
+            n += 1;
+        }
     }
     let runtime = match ws.runtime(&project_id) {
         Ok(r) => r,
