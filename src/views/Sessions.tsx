@@ -54,6 +54,14 @@ export function Sessions({
   const lines = card ? (outputs[card.id] ?? []) : [];
   const stream = card ? streams[card.id] : undefined;
   const live = card?.status === "running";
+  // Elapsed timers breathe once a second while something runs; a frozen
+  // number is ambiguous between "thinking" and "frozen".
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!live) return;
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [live]);
 
   useEffect(() => {
     if (!card || !session?.run_id) return;

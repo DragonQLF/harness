@@ -38,6 +38,14 @@ function Section({
  *  back. */
 export function RightNowStrip({ open }: { open: () => void }) {
   const { approvals, snapshot, agents } = useStore();
+  // Elapsed timers must breathe: a frozen number reads as "frozen app".
+  const anyLive = (snapshot?.cards ?? []).some((c) => c.status === "running");
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [anyLive]);
   const cards = snapshot?.cards ?? [];
   const waiting = approvals.length + cards.filter((c) => c.status === "review").length;
   const workers = [...new Set(cards.filter((c) => c.status === "running").map((c) => c.agent_id))];
