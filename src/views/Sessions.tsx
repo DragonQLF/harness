@@ -441,6 +441,17 @@ export function Sessions({
                 });
               })()}
 
+              {live && !!stream?.turns && (
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                  <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
+                    turns
+                  </span>
+                  <span style={{ flex: 1, paddingLeft: 12, borderLeft: "1px solid var(--line)", color: "var(--text3)" }}>
+                    {stream.turns} so far
+                  </span>
+                </div>
+              )}
+
               {stream?.thinking && !stream.text && (
                 <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
                   <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>

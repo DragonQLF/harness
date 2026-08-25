@@ -102,6 +102,7 @@ export type RunEventKind =
   | "thinking"
   | "tool_use"
   | "tool_result"
+  | "turns"
   | "done"
   | "failed"
   | "approval_requested"

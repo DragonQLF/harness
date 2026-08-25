@@ -284,6 +284,13 @@ pub enum RunEvent {
     Thinking {
         text: String,
     },
+    /// Interim progress while the run is alive: how many model turns have
+    /// happened so far. Ephemeral like deltas — the total lands on `Done`.
+    #[serde(default)]
+    Turns {
+        count: u32,
+    },
+    /// A tool call the agent does not hold by default.
     ToolUse {
         tool: String,
         summary: String,
@@ -341,7 +348,10 @@ impl RunEvent {
     /// Deltas exist to make the UI feel live; keeping thousands of them in the
     /// transcript would bury the record they add up to.
     pub fn is_ephemeral(&self) -> bool {
-        matches!(self, RunEvent::Delta { .. } | RunEvent::Thinking { .. })
+        matches!(
+            self,
+            RunEvent::Delta { .. } | RunEvent::Thinking { .. } | RunEvent::Turns { .. }
+        )
     }
 }
 

@@ -179,6 +179,10 @@ async fn drive(
                                     let _ = tx.send(RunEvent::Text { text }).await;
                                 }
                             }
+                            "turns" => {
+                                let count = ev.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
+                                let _ = tx.send(RunEvent::Turns { count }).await;
+                            }
                             "tool_use" => {
                                 let tool = ev
                                     .get("tool")

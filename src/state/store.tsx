@@ -149,6 +149,8 @@ function foldToolResults(msgs: ChatMsg[]): ChatMsg[] {
 export interface LiveStream {
   text: string;
   thinking: string;
+  /** Model turns so far, while the run is alive. The total lands on Done. */
+  turns?: number;
 }
 
 export interface Toast {
@@ -685,6 +687,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               [u.card_id]: { ...cur, [key]: (cur[key] + u.text).slice(-2000) },
             };
           });
+          return;
+        }
+        if (u.kind === "turns") {
+          // Live progress toward the ceiling: turns counted per assistant
+          // message. Cleared when the run ends (text/done/failed below).
+          const count = (u as RunUpdate & { count?: number }).count ?? 0;
+          setStreams((prev) => ({
+            ...prev,
+            [u.card_id]: { ...(prev[u.card_id] ?? { text: "", thinking: "" }), turns: count },
+          }));
           return;
         }
         if (u.kind === "text" || u.kind === "done" || u.kind === "failed") {

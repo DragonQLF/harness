@@ -27,6 +27,9 @@ impl Engine {
             .map(|c| c.title.clone())
             .unwrap_or_else(|| card_id.to_string());
 
+        // The announcement lives in the spawned task: announcing before the
+        // run starts would leave a stuck "reading the diff" if the spawn
+        // itself failed, with nothing to say why.
         self.emit_run(
             &card_id,
             &run_id,

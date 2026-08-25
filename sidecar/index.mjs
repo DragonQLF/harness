@@ -226,6 +226,7 @@ async function handleRun({ id, spec }) {
   // tool_use_id → tool name: the result block only knows the id, and the
   // summary needs the name to be worth reading.
   const toolNames = new Map();
+  let turnCount = 0;
 
   // Fan-out cap: a run may spawn subagents only when its spec allows it, and
   // a subagent may never spawn one — depth is capped at one level. The
@@ -386,6 +387,10 @@ async function handleRun({ id, spec }) {
           }
           break;
         case "assistant": {
+          // One assistant message is one model turn. Emitted live so the
+          // card shows progress toward the ceiling before the result lands.
+          turnCount++;
+          send({ type: "event", run_id: id, event: { kind: "turns", count: turnCount } });
           const parent = message.parent_tool_use_id ?? null;
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) {
