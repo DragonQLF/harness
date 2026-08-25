@@ -285,8 +285,7 @@ pub enum RunEvent {
         text: String,
     },
     /// Interim progress while the run is alive: how many model turns have
-    /// happened so far. Ephemeral like deltas — the total lands on `Done`.
-    #[serde(default)]
+    /// happened so far. Ephemeral like deltas - the total lands on `Done`.
     Turns {
         count: u32,
     },
