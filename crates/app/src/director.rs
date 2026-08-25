@@ -318,6 +318,18 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
          they ask for something to be carried out, or when it is plainly too much for one reply, \
          and say what you are about to do before you do it.\n\n",
     );
+    // Where the work lands matters as much as whether it starts: a month of
+    // "faz-me um site" into the open repo leaves three sites and two
+    // experiments tangled in one history, and moving later costs — worktrees,
+    // cards and memory all stay behind.
+    if ctx.speaker.can_delegate {
+        prompt.push_str(
+            "Before creating cards, ask whether the work belongs to the project that is open. \
+             Something new being built — a site, an app, a tool — gets its own project: propose \
+             one with create_project and ask where it should live. The open project is for \
+             drafts and for work that continues what is already there.\n\n",
+        );
+    }
 
     prompt.push_str(&how_harness_works(ctx));
 
@@ -643,6 +655,25 @@ mod tests {
         assert!(boards_at < charter_at, "charter belongs to its board");
         assert!(prompt.contains("Never touch billing without a human."));
         assert!(!prompt.contains("(no cards yet)\nTheir"), "ordering holds");
+    }
+
+    #[test]
+    fn new_builds_get_proposed_their_own_project() {
+        // The c_19a1 lesson: a site born inside the workspace repo because the
+        // open project was assumed. The prompt must propose, not assume.
+        let projects = vec![ProjectBrief {
+            id: "harness".into(),
+            name: "harness".into(),
+            path: "C:/src/harness".into(),
+            active: true,
+            cards: vec![],
+            charter: None,
+        }];
+        let mut c = ctx(&projects);
+        c.repo = Some("harness");
+        let prompt = chat_prompt(&c, "build me a portfolio site");
+        assert!(prompt.contains("ask whether the work belongs to the project that is open"));
+        assert!(prompt.contains("propose one with create_project"));
     }
 
     #[test]

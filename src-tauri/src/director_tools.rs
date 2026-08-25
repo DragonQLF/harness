@@ -136,9 +136,13 @@ pub async fn run(
     let project_id = match named.or(pinned_project) {
         Some(id) => id,
         None => {
+            // Three ways out, said in order: name one, have it opened, or —
+            // for something new being built from scratch — create the project
+            // this work should have belonged to all along.
             return ToolReply::refused(
-                "there is no project to act on. Pass project_id, or ask the operator to open one \
-                 — list_projects shows what exists.",
+                "there is no project to act on. Pass project_id, ask the operator to open one, \
+                 or — if this is something new to build — propose create_project and ask where \
+                 it should live. list_projects shows what exists.",
             )
         }
     };

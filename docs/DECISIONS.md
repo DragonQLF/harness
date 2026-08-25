@@ -980,3 +980,19 @@ independentes; duas fechadas, uma decidida.
 - **Por fazer:** ao retomar, verificar que a worktree tem o trabalho que a
   memória alega (uma linha no transcript poupava os 17 turnos); pausa-e-pergunta
   no corte de orçamento em vez de falhar.
+
+
+
+### 72. Trabalho novo não nasce no projeto aberto
+O `c_19a1` foi um site editorial a nascer em `harness/c_19a1` — o pinned_project
+assume que tudo sem `project_id` pertence ao projeto aberto, e um mês de
+"faz-me um site" deixa três sites e duas experiências num só histórico. Mover
+depois custa: worktrees, cartões e a memória por vir ficam presos ao
+repositório errado.
+
+Duas linhas: no prompt do Director (com delegação), "antes de criares cartões,
+pergunta se o trabalho pertence ao projeto aberto; coisa nova a construir ganha
+projeto próprio — propõe com create_project e pergunta onde deve viver"; e na
+recusa por falta de projeto, a terceira via dita em vez de escondida (nomear,
+mandar abrir, **ou propor create_project** — que já exige `parent_path` e já
+passa pelas aprovações). Propor, nunca criar.
