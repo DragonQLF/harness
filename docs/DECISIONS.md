@@ -1058,3 +1058,16 @@ prompt já a anuncia e manda dizer que gravou.
 Porque não "dar todas as ferramentas" ao Director: o trabalho fora de cartões
 anula worktree, review, história e custo (#70) - mas uma nota de memória é da
 camada nossa, reversível, e sem conflitos entre worktrees.
+
+
+
+### 77. Curador v1 - o mecanico completo
+Comando `curator_run(project_id)`: promove os `report_work` de cartoes em Done
+para `<appdata>/projects/<id>/memory/areas/` (um ficheiro por promocao, com
+card e seq no frontmatter), regenera `index.md` **a partir dos ficheiros que
+existem** - codigo, nunca modelo - e grava a marca de agua
+(`curator-state.json`) para nao promover duas vezes. Idempotente.
+
+O que falta e o julgamento: contradições, obsolescência, reorganização entre
+áreas. Isso corre sobre estes ficheiros num passe com modelo depois; nada do
+que hoje foi escrito muda de formato quando ele chegar.

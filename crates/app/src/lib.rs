@@ -9,6 +9,7 @@ pub mod allow;
 pub mod approvals;
 pub mod conversations;
 pub mod checks;
+pub mod curator;
 pub mod director;
 pub mod insights;
 pub mod memory;

@@ -147,6 +147,7 @@ pub fn run() {
             commands::system::open_claude_terminal,
             commands::system::open_agent_terminal,
             commands::system::prepare_shutdown,
+            commands::system::curator_run,
             commands::system::updates_list,
             commands::system::update_install,
         ])

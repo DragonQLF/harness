@@ -411,3 +411,79 @@ pub async fn update_install(card_id: String, ws: Shared<'_>) -> Result<(), Strin
     crate::update::relaunch(&exe)?;
     std::process::exit(0);
 }
+
+
+
+/// The Curator pass, on demand: promote report_work notes from Done cards
+/// into the project's memory areas and regenerate the index from those files.
+/// Idempotent — the watermark in curator-state.json means nothing is promoted
+/// twice.
+#[tauri::command]
+pub async fn curator_run(
+    project_id: String,
+    ws: Shared<'_>,
+) -> Result<String, String> {
+    let runtime = ws.runtime(&project_id)?;
+    let dir = ws.paths.project_dir(&project_id).join("memory");
+    std::fs::create_dir_all(dir.join("areas")).map_err(|e| e.to_string())?;
+
+    let store = std::sync::Arc::clone(&runtime.store);
+    let history = tauri::async_runtime::spawn_blocking(move || {
+        harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let watermark_path = dir.join("curator-state.json");
+    let since: u64 = std::fs::read_to_string(&watermark_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("last_seq").and_then(|s| s.as_u64()))
+        .unwrap_or(0);
+
+    let cards = runtime.engine.snapshot().await?.cards;
+    let promotions = harness_app::curator::plan_promotions(&history, since, &cards);
+    if promotions.is_empty() {
+        return Ok("nothing new to curate".to_string());
+    }
+
+    for p in &promotions {
+        let path = dir.join("areas").join(&p.file_name);
+        if let Err(e) = std::fs::write(&path, &p.markdown) {
+            return Err(format!("could not write {}: {e}", path.display()));
+        }
+    }
+
+    // Index regenerated from what actually exists in areas/.
+    let mut listing: Vec<(String, Vec<String>)> = Vec::new();
+    for entry in std::fs::read_dir(dir.join("areas")).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?").to_string();
+        let headers: Vec<String> = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("## "))
+            .map(|l| l[3..].trim().to_string())
+            .collect();
+        listing.push((name, headers));
+    }
+    let index = harness_app::curator::render_index(&listing);
+    std::fs::write(dir.join("index.md"), index).map_err(|e| e.to_string())?;
+
+    let last_seq = history.last().map(|h| h.seq).unwrap_or(since);
+    std::fs::write(
+        &watermark_path,
+        serde_json::json!({ "last_seq": last_seq }).to_string(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "promoted {} note file(s) from {} to {}",
+        promotions.len(),
+        since,
+        last_seq
+    ))
+}
