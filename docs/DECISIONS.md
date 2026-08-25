@@ -996,3 +996,24 @@ projeto próprio — propõe com create_project e pergunta onde deve viver"; e n
 recusa por falta de projeto, a terceira via dita em vez de escondida (nomear,
 mandar abrir, **ou propor create_project** — que já exige `parent_path` e já
 passa pelas aprovações). Propor, nunca criar.
+
+
+
+### 73. Primeira sessão completa — sete achados
+`c_19a1` fechou o ciclo: 5 runs, 50 turnos, $1.82, 13 ficheiros, aprovado e em
+Done — com três runs desperdiçados no caminho.
+
+- **Feito: adoptar em vez de destruir (#1).** Um checkout per-card existente é
+  **adoptado**, nunca recriado — o `create_worktree` fazia `remove --force` +
+  `branch -D` e levava o trabalho wip-committed do run anterior junto. Destruir
+  só quando não há nada em disco. Teste: agente escreve `site/feed.xml`, falha
+  por orçamento ($0.766/17 turnos somados ao cartão), run seguinte encontra o
+  ficheiro e `create` foi chamado uma única vez.
+- **Feito (#7):** o prompt do worker abre com "Harness commits for you — what
+  it expects from you at the end is one call to report_work".
+- **Desenhado, por fazer:** pausa-por-orçamento como estado próprio (#2 — o
+  corte mata o processo, logo "pausar" é commitar + marcar + continuar com
+  tecto novo; o botão pede o tecto antes de arrancar); revisão do Director
+  visível em Sessions com veredicto no cartão (#3); RightNow a derivar do mesmo
+  estado + sequência por evento contra buracos (#4); custo/turnos intercalares
+  durante o run (#5); relógio de sessão a bater 1s enquanto corre (#6).

@@ -1901,6 +1901,122 @@ async fn a_failed_build_leaves_no_artifact_behind() {
     let _ = std::fs::remove_dir_all(&updates);
 }
 
+/// The c_19a1 incident: run fails on budget with the site written in the
+/// worktree; the next run must find that work, not a fresh empty checkout.
+/// Adoption replaces destroy-and-recreate when there is anything to lose.
+struct WritesThenFailsAgent;
+
+impl AgentPort for WritesThenFailsAgent {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        _cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        Box::pin(async move {
+            std::fs::create_dir_all(spec.cwd.join("site")).map_err(|e| e.to_string())?;
+            std::fs::write(spec.cwd.join("site/feed.xml"), "rss").map_err(|e| e.to_string())?;
+            let _ = tx.send(RunEvent::Text { text: "wrote the feed".into() }).await;
+            drop(tx);
+            Ok(RunOutcome::Failed {
+                message: "Reached maximum budget ($0.75)".into(),
+                cost_usd: Some(0.766),
+                turns: Some(17),
+            })
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
+    let updates_placeholder = ();
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let mut config = test_config();
+    let _ = &mut config;
+    let _ = updates_placeholder;
+    let (handle, _e, mut runs, id, git2) = {
+        let git2 = git.clone();
+        let (handle, e, r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(WritesThenFailsAgent),
+                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            EnginePolicy {
+                director_reviews_first: false,
+                commit_wip_on_close: true,
+            },
+            vec![],
+        );
+        (handle, e, r, CardId::new("c_keep"), git2)
+    };
+    drop(runs);
+
+    card_ready(&handle, &id).await;
+
+    // Run 1: writes the work, then dies on budget.
+    let mut failing = profile();
+    failing.reviewer = Reviewer::Human;
+    handle
+        .start_run(id.clone(), "one".into(), failing)
+        .await
+        .unwrap();
+    wait_for("failed run returns the card to ready", async || {
+        status_of(&handle, &id).await == Some(Status::Ready)
+    })
+    .await;
+
+    // The wip commit kept the files on disk; the card kept the spend.
+    let card = handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    assert_eq!(card.cost_usd, 0.766, "a failed run still spent it");
+    assert_eq!(card.turns, 17);
+    let worktree = card.worktree.clone().expect("a worktree was recorded");
+    assert!(
+        std::path::Path::new(&worktree).join("site/feed.xml").is_file(),
+        "run 1's work survived the budget cut"
+    );
+
+    // Run 2: the checkout is adopted, not destroyed — create was never called
+    // again.
+    let mut human = profile();
+    human.reviewer = Reviewer::Human;
+    handle
+        .start_run(id.clone(), "two".into(), human)
+        .await
+        .unwrap();
+    wait_for("second run registers", async || {
+        !handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    assert_eq!(
+        git2
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with(&format!("create:{id}")))
+            .count(),
+        1,
+        "the checkout was adopted, never rebuilt"
+    );
+    assert!(
+        std::path::Path::new(&worktree).join("site/feed.xml").is_file(),
+        "and it is still there once run 2 is under way"
+    );
+}
+
 /// A worktree that cannot be created must not leave a card marked Running with
 /// no run behind it: the checkout is resolved before the run is recorded.
 #[tokio::test(flavor = "multi_thread")]

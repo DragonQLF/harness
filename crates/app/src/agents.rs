@@ -152,9 +152,14 @@ impl AgentProfile {
         self.tasks_enabled && !self.paused
     }
 
-    /// Prompt handed to the agent for a card.
-    pub fn prompt_for(&self, card_title: &str, extra: Option<&str>) -> String {
-        let mut prompt = String::new();
+  /// Prompt handed to the agent for a card.
+  pub fn prompt_for(&self, card_title: &str, extra: Option<&str>) -> String {
+    let mut prompt = String::new();
+    prompt.push_str(
+      "Harness commits for you — never commit yourself. What it expects from you at the \
+       end is one call to the report_work tool: a summary of what changed, and durable \
+       notes worth keeping after this card.\n\n",
+    );
         if !self.brief.trim().is_empty() {
             prompt.push_str(self.brief.trim());
             prompt.push_str("\n\n");
@@ -598,7 +603,8 @@ mod tests {
         assert!(prompt.contains("see issue 12"));
 
         let bare = AgentProfile::default().prompt_for("Do a thing", None);
-        assert_eq!(bare, "Task: Do a thing");
+        assert!(bare.starts_with("Harness commits for you"));
+      assert!(bare.ends_with("Task: Do a thing"));
     }
 
     #[test]

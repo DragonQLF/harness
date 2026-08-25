@@ -126,6 +126,23 @@ impl Engine {
                     ));
                     return;
                 }
+                // An existing checkout is adopted, never destroyed: the last
+                // run may have left committed or wip work on that branch, and
+                // `create_worktree` removes before it adds (#71's lost site).
+                let existing = self.git.worktree_path(&card_id.to_string());
+                if existing.is_dir() {
+                    let worktree = WorktreePath(existing);
+                    self.launch_run(
+                        card_id,
+                        prompt,
+                        profile,
+                        reply,
+                        Ok(worktree),
+                        false,
+                    )
+                    .await;
+                    return;
+                }
                 self.starting.insert(card_id.clone(), profile.agent_id.clone());
                 let name = card_id.to_string();
                 self.resolve_worktree_off_actor(name, card_id, prompt, profile, reply);
