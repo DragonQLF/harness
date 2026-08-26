@@ -357,8 +357,18 @@ pub async fn open_agent_terminal(
 #[tauri::command]
 pub async fn prepare_shutdown(ws: Shared<'_>) -> Result<(), String> {
     let ws = Arc::clone(&ws);
-    crate::reflection::maybe_run_daily_look(&ws).await;
+    let skip = ws.closing_token();
+    crate::reflection::maybe_run_daily_look(&ws, skip).await;
     ws.shutdown().await;
+    Ok(())
+}
+
+/// Stop waiting for the close sequence. The window goes as soon as the
+/// in-flight step notices; nothing filed is lost, and a look that did not
+/// finish is due again rather than marked done.
+#[tauri::command]
+pub async fn close_now(ws: Shared<'_>) -> Result<(), String> {
+    ws.stop_waiting();
     Ok(())
 }
 

@@ -10,6 +10,8 @@ import type {
   AgentStats,
   Bootstrap,
   CardDiff,
+  ClosingBegan,
+  ClosingPhase,
   CheckRow,
   Conversation,
   CreatedCard,
@@ -100,6 +102,8 @@ export const api = {
     invoke<CardDiff>("card_diff", { projectId, cardId }),
   reviewQueue: (projectId: string) => invoke<QueueRow[]>("review_queue", { projectId }),
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
+  /** Stop waiting for the close sequence; the window goes as soon as it can. */
+  closeNow: () => invoke<void>("close_now"),
   updatesList: () => invoke<PendingUpdate[]>("updates_list"),
   updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),
   chatStop: (conversationId: string) => invoke<void>("chat_stop", { conversationId }),
@@ -198,6 +202,12 @@ export const events = {
     listen<Proposal[]>("inbox://proposals", (evt) => fn(evt.payload)),
   onSidecarLog: (fn: (line: string) => void) =>
     listen<string>("sidecar://log", (evt) => fn(evt.payload)),
+  /** The window is being held: what for, and for how long at most. */
+  onClosingBegan: (fn: (c: ClosingBegan) => void) =>
+    listen<ClosingBegan>("closing://began", (evt) => fn(evt.payload)),
+  /** Where the close sequence got to. */
+  onClosingPhase: (fn: (p: ClosingPhase) => void) =>
+    listen<ClosingPhase>("closing://phase", (evt) => fn(evt.payload)),
 };
 
 export type { UnlistenFn };

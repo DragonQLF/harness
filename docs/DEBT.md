@@ -13,7 +13,7 @@ registarem como feitos).
 | Curador + árvore `areas/` | Promocão mecânica feita (`curator_run`); falta o passe de julgamento com modelo | #58–#60, #77 |
 | Triador: ficheiros protegidos no risco | Por fazer (operador ainda não os nomeia) | #55 |
 | Analista semanal | Hoje é sob pedido; agendador é infraestrutura nova | #55 |
-| Toggle `mirror` na UI | Hoje via `"mirror": true` no projects.json | #65 |
+| Toggle `mirror` na UI | Feito — interruptor na página do projecto, badge na lista; a exclusividade vive no `update_project`, não no botão | #65 |
 | Hooks de telemetria estruturada | Parciais: expirações de aprovação registadas (#78); o resto não | #24–#31, #78 |
 | Grafo de commits com curvas | Hoje é lista classificada, não as pistas do design | #18b |
 | Sandbox / confinamento de shell | Adiado conscientemente; pathguard cobre caminhos estruturados, Bash fica na allowlist | #2, #62 |
@@ -24,6 +24,7 @@ registarem como feitos).
 | #73/4 Custo e turnos ao vivo | Por fazer: stream só traz totais no `done`; emitir intercalar por turno para ver aproximação de tectos antes de bater neles | #73 |
 | Timers vivos (restantes) | "há 2 min" em rótulos (Overlays 146, Chat 106/577, Misc 311, NavRail 345, Projects 306) ainda só actualiza ao re-render — usar o mesmo padrão de tick quando tocares | checklist do operador |
 | Drag & drop, timer de inatividade, inspector do event log | Nunca começados | — |
-| Fecho do dia bloqueia o fecho da janela | Custo conhecido e deliberado: até ~120s no shutdown quando due ($0.30 de tecto). Se incomodar, desagendar ou encolher o relógio em `reflection.rs` | #79 |
+| Fecho do dia bloqueia o fecho da janela | Narrado e escapável: overlay diz o que se espera, conta o tempo, e "Close now" corta (`closing.rs`). Tecto duro de 180s solta a janela aconteça o que acontecer | #79 |
 | `self_report` relê transcrições inteiras por chamada | OK com semanas de dados; se crescer, filtrar por `ts_ms` ao ler em vez de depois | #78 |
 | Caixa de entrada sem notificação fora do rail | Propostas só aparecem no RightNow; nenhum badge na nav nem toast quando chegam | #79 |
+| Banner de update só lê ao montar | `App.tsx` chama `updates_list` uma vez, sem evento nem poll: um build que acaba com a app aberta só aparece depois de reiniciar. O erro do install também só vai ao console | #79 |

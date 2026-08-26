@@ -249,6 +249,22 @@ export interface PendingUpdate {
   binary: string;
 }
 
+/** Why the window is being held on close, sent before the waiting starts. */
+export interface ClosingBegan {
+  /** The Director's end-of-day look is due. */
+  look: boolean;
+  /** Running agents are being asked to commit their work in progress. */
+  wip: boolean;
+  /** Seconds after which the window closes regardless. */
+  limit_secs: number;
+}
+
+/** Where the close sequence got to. */
+export interface ClosingPhase {
+  phase: "look" | "wip" | "skipped" | "timeout" | "done";
+  detail: string;
+}
+
 // ---- constants and helpers -------------------------------------------------
 
 /** Column order and the words the UI uses for each status. */

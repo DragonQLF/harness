@@ -35,17 +35,20 @@ const BUDGET_USD: f64 = 0.30;
 /// Run the daily look if it is due. Returns what it said (for tests and logs);
 /// `None` when it was not due or could not start. Safe to call from several
 /// shutdown paths: exactly one wins the claim.
-pub async fn maybe_run_daily_look(ws: &Arc<Workspace>) -> Option<String> {
+pub async fn maybe_run_daily_look(
+    ws: &Arc<Workspace>,
+    skip: CancellationToken,
+) -> Option<String> {
     if !ws.claim_daily_look() {
         return None;
     }
     // Release on every exit path from here.
-    let result = run_bounded(ws).await;
+    let result = run_bounded(ws, skip).await;
     ws.release_daily_look();
     result
 }
 
-async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
+async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<String> {
     if !ws.daily_look_due() {
         return None;
     }
@@ -170,6 +173,14 @@ async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
             token.cancel();
             let _ = (&mut run).await;
             Some("stopped at the wall clock; what was filed is filed")
+                .map(str::to_string)
+        }
+        // The operator refused to keep waiting. Their time is theirs; the look
+        // is due again on the next close rather than lost.
+        _ = skip.cancelled() => {
+            token.cancel();
+            let _ = (&mut run).await;
+            Some("you closed Harness before the look finished; what was filed is filed")
                 .map(str::to_string)
         }
     };

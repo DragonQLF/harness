@@ -8,11 +8,11 @@ import {
   Toasts,
   type PaletteAction,
 } from "./components/Overlays";
-import { Icon, Loading, mono, truncate } from "./components/ui";
-import { api } from "./lib/ipc";
+import { Icon, Loading, Spinner, mono, truncate } from "./components/ui";
+import { api, events } from "./lib/ipc";
 import { money, plural } from "./lib/format";
 import { STATUS_TONE, tone } from "./lib/types";
-import type { PendingUpdate } from "./lib/types";
+import type { ClosingBegan, ClosingPhase, PendingUpdate } from "./lib/types";
 import { StoreProvider, useStore } from "./state/store";
 import { Chat } from "./views/Chat";
 import { Review } from "./views/Review";
@@ -24,6 +24,125 @@ import { ProjectPage, Projects } from "./views/Projects";
 import { Activity, Settings, Worktrees } from "./views/Misc";
 import { VIEW_TITLES, type View } from "./views/views";
 import "./styles/theme.css";
+
+/** The window is held on close for two deliberate reasons — agents leaving a
+ *  wip commit, and once a day the Director's end-of-day look. Held silently,
+ *  that is indistinguishable from a hung app: the close button stops working
+ *  and nothing says why.
+ *
+ *  So the wait gets a face. It names what is being waited on, counts the time
+ *  out loud against the ceiling the backend promised, and always offers a way
+ *  out — nothing in the wait is lost by leaving, because proposals are written
+ *  when the tool runs and an unfinished look is due again rather than done. */
+function ClosingOverlay() {
+  const [began, setBegan] = useState<ClosingBegan | null>(null);
+  const [phase, setPhase] = useState<ClosingPhase | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const subs = [events.onClosingBegan(setBegan), events.onClosingPhase(setPhase)];
+    return () => {
+      subs.forEach((s) => s.then((un) => un()).catch(() => {}));
+    };
+  }, []);
+
+  // The count starts when the hold does, not when a phase lands: the first
+  // seconds of a slow shutdown are exactly the ones that feel like a freeze.
+  useEffect(() => {
+    if (!began) return;
+    setElapsed(0);
+    const id = setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [began]);
+
+  if (!began) return null;
+
+  const leaving = phase?.phase === "skipped" || phase?.phase === "timeout" || phase?.phase === "done";
+  const waitingFor = began.look
+    ? "The Director is taking his end-of-day look"
+    : began.wip
+      ? "Letting the agents commit what they have"
+      : "Closing down";
+  const left = Math.max(0, began.limit_secs - elapsed);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 900,
+        display: "grid",
+        placeItems: "center",
+        background: "rgba(8,8,14,.62)",
+        backdropFilter: "blur(3px)",
+        animation: "fadeIn .18s ease both",
+      }}
+    >
+      <div
+        style={{
+          width: 420,
+          maxWidth: "88vw",
+          padding: "22px 24px 18px",
+          borderRadius: 20,
+          background: "var(--elev)",
+          border: "1px solid var(--line3)",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Spinner />
+          <span style={{ font: "700 14px var(--sans)", letterSpacing: "-.01em" }}>
+            {leaving ? "Closing Harness" : waitingFor}
+          </span>
+        </div>
+
+        <p
+          style={{
+            margin: "12px 0 0",
+            font: "400 12.5px/1.6 var(--sans)",
+            color: "var(--text2)",
+          }}
+        >
+          {phase?.detail ??
+            "Harness is finishing what it started before it lets go of the window."}
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginTop: 16,
+            paddingTop: 13,
+            borderTop: "1px solid var(--line2)",
+          }}
+        >
+          <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+            {elapsed}s · closes on its own in {left}s
+          </span>
+          <div style={{ flex: 1 }} />
+          {!leaving && (
+            <span
+              className="primary"
+              onClick={() => api.closeNow().catch(() => {})}
+              style={{
+                padding: "5px 13px",
+                borderRadius: 8,
+                background: "var(--surface2)",
+                border: "1px solid var(--line3)",
+                font: "600 11.5px var(--sans)",
+                color: "var(--text)",
+                cursor: "pointer",
+              }}
+            >
+              Close now
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Mirror mode's thread end: a slim line, on every screen, for as long as an
  *  approved build sits uninstalled. Installing swaps the binary and relaunches
@@ -758,6 +877,9 @@ function Shell() {
       <CommandPalette open={palette} close={() => setPalette(false)} actions={actions} />
       {approvalSheet && <ApprovalSheet close={() => setApprovalSheet(false)} />}
       <Toasts />
+      {/* Above everything, including the palette and the approval sheet: once
+          the window is going, nothing else is actionable. */}
+      <ClosingOverlay />
     </div>
   );
 }

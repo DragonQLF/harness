@@ -1427,6 +1427,7 @@ dependencies = [
 name = "harness"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "harness-agent-claude",
  "harness-agent-sidecar",
  "harness-app",

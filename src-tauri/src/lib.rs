@@ -2,6 +2,7 @@
 //! surface together. All state lives in `Workspace`; this file only assembles.
 
 mod chat;
+mod closing;
 mod commands;
 mod director_tools;
 mod reflection;
@@ -61,16 +62,20 @@ pub fn run() {
                 if !workspace.settings().commit_wip_on_close && !look_due {
                     return;
                 }
+                // Pressing close while already closing means the operator is
+                // done waiting — not that a second shutdown should start.
+                if !workspace.begin_closing() {
+                    api.prevent_close();
+                    workspace.stop_waiting();
+                    return;
+                }
                 // Hold the window open just long enough for running agents to
                 // leave a wip commit behind — and, once a day, for the Director
-                // to file what he noticed.
+                // to file what he noticed. `closing::run` narrates the wait and
+                // destroys the window on every path out.
                 api.prevent_close();
                 let window = window.clone();
-                tauri::async_runtime::spawn(async move {
-                    reflection::maybe_run_daily_look(&workspace).await;
-                    workspace.shutdown().await;
-                    let _ = window.destroy();
-                });
+                tauri::async_runtime::spawn(closing::run(window, workspace));
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -156,6 +161,7 @@ pub fn run() {
             commands::system::open_claude_terminal,
             commands::system::open_agent_terminal,
             commands::system::prepare_shutdown,
+            commands::system::close_now,
             commands::system::curator_run,
             commands::system::updates_list,
             commands::system::update_install,

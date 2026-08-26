@@ -109,6 +109,11 @@ pub struct Workspace {
     inbox: Mutex<InboxState>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
+    /// Set by whoever wins the race to close the window, so a second close
+    /// press means "stop waiting" rather than a second shutdown sequence.
+    closing: std::sync::atomic::AtomicBool,
+    /// Cancelled when the operator refuses to wait for the close sequence.
+    closing_token: CancellationToken,
 }
 
 impl Workspace {
@@ -174,6 +179,8 @@ impl Workspace {
             chat_turns: Mutex::new(HashMap::new()),
             inbox: Mutex::new(inbox),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
+            closing: std::sync::atomic::AtomicBool::new(false),
+            closing_token: CancellationToken::new(),
         });
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
@@ -1143,6 +1150,32 @@ impl Workspace {
                 std::sync::atomic::Ordering::SeqCst,
             )
             .is_ok()
+    }
+
+    /// The token the close sequence watches. Cancelling it ends the wait.
+    pub fn closing_token(&self) -> CancellationToken {
+        self.closing_token.clone()
+    }
+
+    /// True for the first caller only: that one runs the close sequence.
+    /// Everyone after it is a second press of the close button, which means
+    /// the operator is done waiting.
+    pub fn begin_closing(&self) -> bool {
+        self.closing
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+
+    /// Stop waiting: the close sequence gives up whatever it was doing and the
+    /// window goes. Nothing filed is lost — proposals are written when the
+    /// tool runs, and a look that did not finish is due again, not marked done.
+    pub fn stop_waiting(&self) {
+        self.closing_token.cancel();
     }
 
     pub fn release_daily_look(&self) {
