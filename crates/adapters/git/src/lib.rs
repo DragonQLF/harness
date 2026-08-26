@@ -696,14 +696,19 @@ impl GitPort for CliGit {
 mod tests {
     use super::*;
 
+    /// Every test in this module gets its own directory, guaranteed rather
+    /// than hoped for. The name used to be pid plus nanoseconds, which is not
+    /// unique: these tests run in parallel, the helper's first act is to delete
+    /// that path, and two tests landing in the same nanosecond bucket meant one
+    /// wiping the other's repository mid-setup. Windows's finer clock hid it;
+    /// a macOS runner failed on `git init` inside a directory that had just
+    /// been removed underneath it. A counter cannot collide.
     fn fresh_repo() -> (PathBuf, CliGit) {
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "harness-git-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .subsec_nanos()
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let repo = dir.join("repo");

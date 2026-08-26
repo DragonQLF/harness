@@ -189,13 +189,14 @@ mod tests {
     use harness_ports::RunEvent;
 
     fn temp_dir(tag: &str) -> PathBuf {
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "harness-{tag}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .subsec_nanos()
+            // A counter, not a clock. Uniqueness here rests on the tag being
+            // distinct; a counter means a reused tag cannot quietly race a
+            // sibling test for the same directory.
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir
