@@ -43,7 +43,7 @@ pnpm tauri dev
 ```
 
 To build a runnable app: `pnpm tauri build` (add `--no-bundle` to skip the
-installers and just produce `target/release/harness.exe`).
+installers and just produce `target/release/relay.exe`).
 
 **Always go through `pnpm tauri`.** A plain `cargo build` — debug or release —
 produces a binary that still points its webview at the dev server

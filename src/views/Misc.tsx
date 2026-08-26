@@ -355,6 +355,17 @@ function Row({
   );
 }
 
+/** The accent choices, drawn from the palette rather than from four loose
+ *  hexes. The first follows the theme's own accent, which is what an operator
+ *  who never opened this row is already using. */
+const ACCENTS: { name: string; value: string; swatch: string }[] = [
+  { name: "Theme default", value: "", swatch: "var(--accent)" },
+  { name: "Mint", value: "#4fd1a5", swatch: "#4fd1a5" },
+  { name: "Periwinkle", value: "#9b8cff", swatch: "#9b8cff" },
+  { name: "Amber", value: "#ffb35c", swatch: "#ffb35c" },
+  { name: "Rose", value: "#ff6b81", swatch: "#ff6b81" },
+];
+
 export function Settings() {
   const { settings, status, dataDir, saveSettings, installSidecar, toast } = useStore();
   const [log, setLog] = useState<string[]>([]);
@@ -426,22 +437,32 @@ export function Settings() {
       <div style={card}>
         <Row name="Appearance" note="Light by day, dark for late sessions" last>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {["#6b5cf6", "#0fa47f", "#3b7ff0", "#e0455f"].map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-label={`accent ${c}`}
-                onClick={() => saveSettings({ accent: c })}
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: "50%",
-                  background: c,
-                  border: settings.accent === c ? "2px solid var(--text)" : "1px solid var(--line)",
-                  cursor: "pointer",
-                }}
-              />
-            ))}
+            {ACCENTS.map((a) => {
+              const picked = settings.accent === a.value;
+              return (
+                <button
+                  key={a.value || "theme"}
+                  type="button"
+                  title={a.name}
+                  aria-label={a.name}
+                  aria-pressed={picked}
+                  onClick={() => saveSettings({ accent: a.value })}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    padding: 0,
+                    borderRadius: "50%",
+                    background: a.swatch,
+                    border: picked
+                      ? "2px solid var(--text)"
+                      : "1px solid var(--line3)",
+                    boxShadow: picked ? "0 0 0 3px var(--accentSoft)" : "none",
+                    cursor: "pointer",
+                    transition: "box-shadow .16s ease, border-color .16s ease",
+                  }}
+                />
+              );
+            })}
             {pillRow(["light", "dark"], settings.theme, (v) => saveSettings({ theme: v }), true)}
           </div>
         </Row>

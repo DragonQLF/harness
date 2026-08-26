@@ -196,7 +196,7 @@ function Toggle({
             width: 13,
             height: 13,
             borderRadius: "50%",
-            background: on ? "var(--accent2)" : "#5a564e",
+            background: on ? "var(--accent2)" : "var(--line4)",
             transition: "background .18s ease",
           }}
         />
@@ -601,7 +601,7 @@ export function Agents({
                             width: 11,
                             height: 11,
                             borderRadius: 4,
-                            border: `1px solid ${on ? "var(--accent2)" : "#3a3833"}`,
+                            border: `1px solid ${on ? "var(--accent2)" : "var(--line3)"}`,
                             background: on ? "var(--accent2)" : "transparent",
                           }}
                         />

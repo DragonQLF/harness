@@ -201,7 +201,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               borderRadius: 24,
               background: "var(--surface)",
               overflow: "hidden",
-              boxShadow: "0 1px 2px rgba(20,20,40,.05)",
+              boxShadow: "var(--panel)",
               animation: "fadeUp .45s ease both",
             }}
           >
@@ -409,7 +409,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               borderRadius: 24,
               background: "var(--surface)",
               overflow: "hidden",
-              boxShadow: "0 1px 2px rgba(20,20,40,.05)",
+              boxShadow: "var(--panel)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 18px 14px" }}>
@@ -952,7 +952,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                 borderRadius: 24,
                 background: "var(--surface)",
                 overflow: "hidden",
-                boxShadow: "0 1px 2px rgba(20,20,40,.05)",
+                boxShadow: "var(--panel)",
                 animation: "fadeUp .45s ease both",
               }}
             >

@@ -354,16 +354,49 @@ export function useStore(): Store {
   return store;
 }
 
+/** Relative luminance, so the text on a chosen accent is decided rather than
+ *  assumed. A picker that accepts any hex cannot also hardcode white on it. */
+function luminance(hex: string): number {
+  const channel = (i: number) => {
+    const v = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
+}
+
+/** Lighten toward white by `amount`, for the hover tone of a chosen accent. */
+function lift(hex: string, amount: number): string {
+  const mix = (i: number) => {
+    const v = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+    return Math.round(v + (255 - v) * amount)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${mix(0)}${mix(1)}${mix(2)}`;
+}
+
 export function applyTheme(settings: Pick<Settings, "theme" | "accent">) {
   const root = document.documentElement;
   root.setAttribute("data-theme", settings.theme === "light" ? "light" : "dark");
+  // An empty accent is the normal state, not a missing one: the theme's own
+  // token wins, so a palette change in CSS actually reaches the screen. Clear
+  // the overrides rather than leaving the last choice stuck on the element.
   const a = settings.accent;
-  if (/^#[0-9a-fA-F]{6}$/.test(a)) {
-    root.style.setProperty("--accent", a);
-    root.style.setProperty("--accent2", a);
-    root.style.setProperty("--accentSoft", `${a}1f`);
-    root.style.setProperty("--accentLine", `${a}4d`);
+  const vars = ["--accent", "--accent2", "--accentSoft", "--accentLine", "--onAccent", "--select"];
+  if (!/^#[0-9a-fA-F]{6}$/.test(a)) {
+    vars.forEach((v) => root.style.removeProperty(v));
+    return;
   }
+  root.style.setProperty("--accent", a);
+  // Not the same colour twice: accent2 is the hover, and a hover that does not
+  // move is not a hover.
+  root.style.setProperty("--accent2", lift(a, 0.28));
+  root.style.setProperty("--accentSoft", `${a}29`);
+  root.style.setProperty("--accentLine", `${a}55`);
+  root.style.setProperty("--select", `${a}52`);
+  // What sits on the fill follows the fill. White on a light accent is the
+  // contrast failure this picker would otherwise ship at four of five choices.
+  root.style.setProperty("--onAccent", luminance(a) > 0.45 ? "#0b1116" : "#ffffff");
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {

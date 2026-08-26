@@ -32,6 +32,10 @@ const WALL_CLOCK: Duration = Duration::from_secs(120);
 /// files at most a handful of proposals.
 const BUDGET_USD: f64 = 0.30;
 
+/// The one name these conversations carry, so an unanswered one can be found
+/// again rather than duplicated.
+const LOOK_TITLE: &str = "End-of-day review";
+
 /// Run the daily look if it is due. Returns what it said (for tests and logs);
 /// `None` when it was not due or could not start. Safe to call from several
 /// shutdown paths: exactly one wins the claim.
@@ -61,14 +65,26 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
 
     // A real conversation row: the operator can open it tomorrow and read why
     // a proposal exists, which is the whole auditability of the Mirror chain.
-    let conversation = match ws.new_conversation(Some(agents::DIRECTOR_ID.to_string()), None) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("could not open the end-of-day review conversation: {e}");
-            return None;
-        }
+    //
+    // A look that never got an answer left one of these behind, and the day
+    // stays due, so the next close would start another. One unanswered review
+    // is a record; four are a list of times the app was killed. Reuse the empty
+    // one instead of stacking husks.
+    let unanswered = ws
+        .conversations(false)
+        .into_iter()
+        .find(|c| c.title == LOOK_TITLE && c.messages == 0);
+    let conversation = match unanswered {
+        Some(c) => c,
+        None => match ws.new_conversation(Some(agents::DIRECTOR_ID.to_string()), None) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("could not open the end-of-day review conversation: {e}");
+                return None;
+            }
+        },
     };
-    let _ = ws.rename_conversation(&conversation.id, "End-of-day review");
+    let _ = ws.rename_conversation(&conversation.id, LOOK_TITLE);
 
     // The opening turn goes in before the run, exactly as `chat::send` writes
     // the operator's words first. Without it the row is empty until the model

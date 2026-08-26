@@ -328,7 +328,7 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
               border: "none",
               borderRadius: 999,
               background: "var(--bad)",
-              color: "#fff",
+              color: "var(--onAccent)",
               fontSize: 13.5,
               fontWeight: 700,
               cursor: "pointer",

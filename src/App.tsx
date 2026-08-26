@@ -207,7 +207,7 @@ function UpdateBanner() {
           padding: "4px 12px",
           borderRadius: 7,
           background: "var(--accent)",
-          color: "#fff",
+          color: "var(--onAccent)",
           font: "600 11px var(--sans)",
           cursor: busy ? "default" : "pointer",
           opacity: busy ? 0.6 : 1,

@@ -44,12 +44,15 @@
   --text3: #8d8880;
   --text4: #6f6a60;
 
-  --accent: #8b7cff;
-  --accent2: #a99dff;
-  --accentSoft: rgba(139, 124, 255, 0.16);
-  --accentLine: rgba(139, 124, 255, 0.32);
-  --accentDeep: #241f3a;
-  --onAccent: #15130f;
+  --accent: #38adee;
+  --accent2: #74c8f6;
+  --accentSoft: rgba(56, 173, 238, 0.16);
+  --accentLine: rgba(56, 173, 238, 0.34);
+  --accentDeep: #0e2634;
+  --onAccent: #041520;
+  /* Selection is its own weight: accentSoft is a wash, and a wash cannot show
+     which words are held. */
+  --select: rgba(56, 173, 238, 0.32);
 
   --ok: #4fd1a5;
   --okSoft: rgba(79, 209, 165, 0.14);
@@ -58,18 +61,22 @@
   --bad: #ff6b81;
   --bad2: #ff8b9d;
   --badSoft: rgba(255, 107, 129, 0.12);
-  --info: #6cb4ff;
-  --infoSoft: rgba(108, 180, 255, 0.14);
+  --info: #9b8cff;
+  --infoSoft: rgba(155, 140, 255, 0.16);
 
-  --ink: linear-gradient(140deg, #1e1c2c 0%, #17161a 60%, #131311 100%);
-  --banner: radial-gradient(120% 150% at 12% 8%, #262239 0%, #1a1820 45%, #131311 100%);
-  --bannerGlow: radial-gradient(circle, rgba(139, 124, 255, 0.28), transparent 68%);
+  --ink: linear-gradient(140deg, #14252f 0%, #16191b 60%, #131311 100%);
+  --banner: radial-gradient(120% 150% at 12% 8%, #16323f 0%, #172227 45%, #131311 100%);
+  --bannerGlow: radial-gradient(circle, rgba(56, 173, 238, 0.3), transparent 68%);
   --onBanner: #f2efe8;
   --onBanner2: rgba(242, 239, 232, 0.66);
   --onBanner3: rgba(242, 239, 232, 0.44);
 
   --shadow: 0 30px 70px -28px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04);
   --lift: 0 6px 18px rgba(0, 0, 0, 0.35);
+  /* A panel sitting on the pane. The inset hairline is the lit top edge — on a
+     near-black surface that reads as material where a drop shadow cannot. */
+  --panel: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 1px 2px rgba(0, 0, 0, 0.45),
+    0 14px 32px -22px rgba(0, 0, 0, 0.8);
   --bannerShadow: 0 26px 60px -30px rgba(0, 0, 0, 0.7);
 }
 
@@ -95,12 +102,13 @@
   --text3: #8b8577;
   --text4: #9a9487;
 
-  --accent: #5b53d8;
-  --accent2: #7d74f0;
-  --accentSoft: #eeecfd;
-  --accentLine: #d9d5f8;
-  --accentDeep: #eeecfd;
+  --accent: #0d74b8;
+  --accent2: #1f92da;
+  --accentSoft: #e7f3fb;
+  --accentLine: #c5e2f5;
+  --accentDeep: #e7f3fb;
   --onAccent: #ffffff;
+  --select: #cae3f7;
 
   --ok: #12866a;
   --okSoft: #e4f4ee;
@@ -109,13 +117,15 @@
   --bad: #cf4257;
   --bad2: #cf4257;
   --badSoft: #fbe9ec;
-  --info: #3272d8;
-  --infoSoft: #e8effc;
+  --info: #5a52d0;
+  --infoSoft: #ecebfb;
 
   --ink: linear-gradient(122deg, #26302a 0%, #1a201c 58%, #141715 100%);
   --banner: radial-gradient(120% 150% at 12% 8%, #2f3b33 0%, #1d2420 45%, #141715 100%);
   --shadow: 0 40px 90px -32px rgba(45, 38, 24, 0.26), 0 0 0 1px rgba(30, 26, 16, 0.05);
   --lift: 0 12px 26px -18px rgba(45, 38, 24, 0.3);
+  --panel: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(45, 38, 24, 0.07),
+    0 14px 30px -24px rgba(45, 38, 24, 0.24);
 }
 
 * {
@@ -194,6 +204,33 @@ select {
 input::placeholder,
 textarea::placeholder {
   color: var(--text4);
+}
+
+/* The surfaces the browser draws for us and hands to no design system:
+   selection, the caret, the control tint, and the shape of a number. Left at
+   their defaults they are the one part of the window that belongs to nobody. */
+::selection {
+  background: var(--select);
+  color: var(--text);
+}
+
+input,
+textarea,
+[contenteditable] {
+  caret-color: var(--accent);
+}
+
+:root {
+  accent-color: var(--accent);
+}
+
+/* Figures that are read against each other — spend, counts, durations, ids —
+   must not wobble as they tick. The mono face is already tabular; the sans is
+   not, and cost updates once a second. */
+[data-nums],
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 /* ---- keyframes, verbatim from the design ---- */

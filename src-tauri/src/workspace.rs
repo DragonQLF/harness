@@ -118,7 +118,8 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn load(app: AppHandle, paths: AppPaths) -> Arc<Self> {
-        let settings: Settings = paths::read_json_or_default(&paths.settings_file());
+        let mut settings: Settings = paths::read_json_or_default(&paths.settings_file());
+        settings.forget_unchosen_accent();
         let settings = Arc::new(Mutex::new(settings));
         let router = Arc::new(ApprovalRouter::new(Arc::clone(&settings)));
         router.attach(Box::new(WindowNotifier(app.clone())));

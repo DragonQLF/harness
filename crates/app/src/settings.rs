@@ -11,6 +11,9 @@ use crate::allow::AllowRule;
 #[serde(default)]
 pub struct Settings {
     pub theme: String,
+    /// An accent the operator picked, or empty to follow the theme's own. It is
+    /// empty by default: a hardcoded hex here outranks every token in the
+    /// stylesheet, so a palette change in CSS would land on nothing.
     pub accent: String,
     /// Run agents through the Node sidecar (Agent SDK). Off falls back to the
     /// `claude` command line adapter.
@@ -36,7 +39,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: "dark".to_string(),
-            accent: "#6b5cf6".to_string(),
+            accent: String::new(),
             sidecar: true,
             director_reviews_first: true,
             commit_wip_on_close: true,
@@ -49,7 +52,20 @@ impl Default for Settings {
     }
 }
 
+/// The accent every build shipped as a default until the palette moved to
+/// Relay's azure. Nobody chose it, so it is not a preference to preserve —
+/// stored copies are cleared on load and follow the theme again.
+const LEGACY_DEFAULT_ACCENT: &str = "#6b5cf6";
+
 impl Settings {
+    /// A stored accent nobody deliberately picked is dropped, so the theme's
+    /// own token wins. Anything else the operator chose is left alone.
+    pub fn forget_unchosen_accent(&mut self) {
+        if self.accent.eq_ignore_ascii_case(LEGACY_DEFAULT_ACCENT) {
+            self.accent = String::new();
+        }
+    }
+
     pub fn policy(&self) -> EnginePolicy {
         EnginePolicy {
             director_reviews_first: self.director_reviews_first,

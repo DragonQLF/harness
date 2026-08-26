@@ -18,6 +18,16 @@ const LEGAL: Record<Status, Status[]> = {
   done: [],
 };
 
+/** What an empty column actually means. "Empty" five times over is the same
+ *  word standing in for five different states of the work. */
+const EMPTY_COLUMN: Record<Status, string> = {
+  backlog: "Nothing parked for later",
+  ready: "Nothing waiting to start",
+  running: "No agent working",
+  review: "Nothing to review",
+  done: "Nothing finished yet",
+};
+
 const COLUMN_COLOR: Record<Status, string> = {
   backlog: "var(--text4)",
   ready: "var(--info)",
@@ -320,7 +330,17 @@ export function Board({
                         opacity: drag === card.id ? 0.45 : 1,
                       }}
                     >
-                      <span style={{ font: "500 12.5px/1.42 var(--sans)", color: "var(--text)" }}>
+                      <span
+                        title={card.title}
+                        style={{
+                          font: "500 12.5px/1.42 var(--sans)",
+                          color: "var(--text)",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
                         {card.title}
                       </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -440,7 +460,7 @@ export function Board({
                       borderRadius: 12,
                     }}
                   >
-                    {hot ? "Drop here" : "Empty"}
+                    {hot ? "Drop here" : EMPTY_COLUMN[status]}
                   </div>
                 )}
               </div>

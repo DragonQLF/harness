@@ -155,11 +155,11 @@ pub fn default_marker(appdata_root: &Path) -> PathBuf {
 /// Where the previous binary is parked: beside the running one, same name
 /// with `.previous` before the extension.
 pub fn previous_binary_path() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("harness.exe"));
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("relay.exe"));
     let stem = exe
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "harness".to_string());
+        .unwrap_or_else(|| "relay".to_string());
     let ext = exe
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
