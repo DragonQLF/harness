@@ -38,6 +38,8 @@
     ],
     "resources": {
       "../sidecar/index.mjs": "sidecar/index.mjs",
+      "../sidecar/pathguard.mjs": "sidecar/pathguard.mjs",
+      "../sidecar/toolsum.mjs": "sidecar/toolsum.mjs",
       "../sidecar/package.json": "sidecar/package.json"
     }
   }
