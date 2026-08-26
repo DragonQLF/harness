@@ -512,6 +512,11 @@ export function Loading({ what }: { what: string }) {
   return (
     <div
       style={{
+        // Centred in the space it is given, not pinned to the top of it. A
+        // spinner sitting under the header with a screenful of nothing below
+        // reads as a page that failed rather than one that is working.
+        flex: 1,
+        minHeight: 220,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

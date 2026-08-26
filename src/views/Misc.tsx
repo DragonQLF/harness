@@ -1,7 +1,7 @@
 /** Worktrees, Activity and Settings. The Director now lives on the chat
  *  screen, so nothing here needs a page of its own. */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { clock, money } from "../lib/format";
 import { ruleIsRevoked, ruleLabel, type WorktreeRow } from "../lib/types";
@@ -212,10 +212,8 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
   return (
     <div style={{ padding: "22px 26px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Activity</h1>
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          Every event in this project, newest first
-        </span>
+        {/* The chrome above already names the screen and what it lists. Every
+            other view leaves the heading to it; this one said it twice. */}
         <div style={{ flex: 1 }} />
         <div
           style={{
@@ -261,7 +259,38 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
           background: "var(--surface)",
         }}
       >
-        {rows.map((e) => (
+        {rows.map((e, i) => {
+          // Events written before the envelope carried a timestamp deserialize
+          // to zero. Dating them 1 January 1970 is a confident wrong answer;
+          // saying they predate the record is the true one.
+          const undated = !e.ts_ms;
+          const day = undated ? "undated" : new Date(e.ts_ms).toDateString();
+          const prev = rows[i - 1];
+          const prevDay = !prev ? null : !prev.ts_ms ? "undated" : new Date(prev.ts_ms).toDateString();
+          const fresh = day !== prevDay;
+          const today = new Date().toDateString();
+          return (
+        <Fragment key={e.seq}>
+          {fresh && (
+            <div
+              style={{
+                padding: "9px 18px 7px",
+                borderBottom: "1px solid var(--line2)",
+                background: "var(--recess)",
+                font: "600 10.5px var(--sans)",
+                letterSpacing: ".04em",
+                color: "var(--text4)",
+              }}
+            >
+              {undated
+                ? "BEFORE TIMES WERE RECORDED"
+                : day === today
+                  ? "TODAY"
+                  : new Date(e.ts_ms)
+                      .toLocaleDateString(undefined, { day: "numeric", month: "long" })
+                      .toUpperCase()}
+            </div>
+          )}
           <button
             key={e.seq}
             type="button"
@@ -301,17 +330,27 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
               }}
             />
             <span style={{ fontWeight: 600, ...truncate }}>{e.label}</span>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--text3)" }}>
+            <span
+              title={e.card_id}
+              style={{
+                fontFamily: "var(--mono)",
+                fontSize: 11.5,
+                color: "var(--text3)",
+                ...truncate,
+              }}
+            >
               {e.card_id}
             </span>
             <span style={{ color: "var(--text2)", ...truncate }}>
               {e.detail || snapshot?.cards.find((c) => c.id === e.card_id)?.title || ""}
             </span>
             <span style={{ fontSize: 11.5, color: "var(--text3)", textAlign: "right", ...tabular }}>
-              {clock(e.ts_ms)}
+              {undated ? "—" : clock(e.ts_ms)}
             </span>
           </button>
-        ))}
+        </Fragment>
+          );
+        })}
         {rows.length === 0 && (
           <div
             style={{ padding: "22px 18px", textAlign: "center", fontSize: 12.5, color: "var(--text3)" }}
