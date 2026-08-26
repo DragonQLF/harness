@@ -11,7 +11,8 @@
 # the matrix is what actually lets the same release serve a Mac.
 #
 # Cutting a release:
-#   1. bump `version` in src-tauri/tauri.conf.json (and src-tauri/Cargo.toml)
+#   1. bump `version` in all three places that carry it and must agree:
+#      src-tauri/tauri.conf.json, src-tauri/Cargo.toml, package.json
 #   2. commit, then tag it:  git tag v0.2.0 && git push origin v0.2.0
 # The tag is the trigger; the draft it produces is published by hand, so a bad
 # build is never something every install picks up on its own.
@@ -39,8 +40,6 @@ jobs:
           # served by an arm64-only build.
           - platform: macos-latest
             args: "--target universal-apple-darwin"
-          - platform: ubuntu-22.04
-            args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -62,12 +61,6 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-
-      - name: Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - run: pnpm install --frozen-lockfile
 
