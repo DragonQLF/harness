@@ -150,12 +150,14 @@ function ClosingOverlay() {
  *  approved build sits uninstalled. Installing swaps the binary and relaunches
  *  — the rollback machinery decides whether the next start keeps it. */
 function UpdateBanner() {
-  const { toast } = useStore();
+  const { toast, settings } = useStore();
+  const token = settings?.update_token?.trim() ?? "";
   const [pending, setPending] = useState<PendingUpdate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [release, setRelease] = useState<Release | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
 
   // A published version, from the release feed rather than from anything on
   // this machine. This is what makes an update a version instead of a file: it
@@ -164,21 +166,45 @@ function UpdateBanner() {
   useEffect(() => {
     let alive = true;
     const look = async () => {
+      // Relay's own repository is private, so its releases are too: without a
+      // token the feed answers 404 to everyone, this app included.
+      if (!token) {
+        setFeedError(null);
+        setRelease(null);
+        return;
+      }
       try {
-        const found = await check();
-        if (alive) setRelease(found);
-      } catch {
-        // Offline, rate-limited, or no release yet. Not being able to reach
-        // the feed is not something to interrupt the operator about.
+        const found = await check({
+          headers: {
+            Authorization: `Bearer ${token}`,
+            // Serves both halves: raw.githubusercontent ignores it for the
+            // manifest, and the release-asset API needs exactly this to hand
+            // back bytes instead of JSON about the bytes.
+            Accept: "application/octet-stream",
+          },
+        });
+        if (alive) {
+          setRelease(found);
+          setFeedError(null);
+        }
+      } catch (e) {
+        // Silence here cost an evening: the feed was answering 404 because the
+        // repository is private, and the app had no way to say so. A failure
+        // the operator cannot see is a failure they cannot fix. It is still not
+        // worth a toast on every transient hiccup, so it lands in Settings
+        // beside the rest of the system's state.
+        if (alive) setFeedError(reason(e));
       }
     };
     look();
     const every = setInterval(look, 3 * 60 * 60 * 1000);
+    window.addEventListener("focus", look);
     return () => {
       alive = false;
+      window.removeEventListener("focus", look);
       clearInterval(every);
     };
-  }, []);
+  }, [token]);
 
   // Checked at mount, again whenever the window regains focus, and on a slow
   // timer. The original read once and never again, so a build finishing while
@@ -237,6 +263,29 @@ function UpdateBanner() {
         onInstall={install}
         onLater={() => setDismissed(release.version)}
       />
+    );
+  }
+
+  // A feed that cannot be reached is worth one quiet line, not a banner: it is
+  // the difference between "you are up to date" and "nobody knows".
+  if (feedError && !pending?.length) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 16px",
+          borderBottom: "1px solid var(--line)",
+          background: "var(--surface)",
+          ...mono,
+          fontSize: 10.5,
+          color: "var(--text4)",
+        }}
+        title={feedError}
+      >
+        <span>could not check for updates — {feedError}</span>
+      </div>
     );
   }
 

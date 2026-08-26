@@ -33,6 +33,15 @@ pub struct Settings {
     /// Project shown when the app opens.
     pub last_project: Option<String>,
     pub user_name: String,
+    /// A GitHub token that can read this repository's releases, or empty.
+    ///
+    /// Relay's source is private, so its own updates are private too: the
+    /// release feed answers 404 to anyone who is not logged in. The token is
+    /// the operator's, kept in their app data rather than compiled into the
+    /// binary — a secret baked into a shipped executable is a secret anyone
+    /// holding the executable has. Empty means updates are simply not checked,
+    /// which is a working state, not a broken one.
+    pub update_token: String,
 }
 
 impl Default for Settings {
@@ -48,6 +57,7 @@ impl Default for Settings {
             always_allow: Vec::new(),
             last_project: None,
             user_name: "Operator".to_string(),
+            update_token: String::new(),
         }
     }
 }

@@ -507,6 +507,36 @@ export function Settings() {
 
       <div style={card}>
         <Row
+          name="Update token"
+          note="Relay's own repository is private, so its releases are too. A GitHub token that can read it lets this copy see new versions. Without one, updates are simply not checked."
+          last
+        >
+          <input
+            type="password"
+            defaultValue={settings.update_token}
+            placeholder="github_pat_… or ghp_…"
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next !== settings.update_token) saveSettings({ update_token: next });
+            }}
+            spellCheck={false}
+            style={{
+              width: 260,
+              padding: "8px 12px",
+              borderRadius: 8,
+              background: "var(--surface2)",
+              border: "1px solid var(--line3)",
+              color: "var(--text)",
+              fontFamily: "var(--mono)",
+              fontSize: 11.5,
+              outline: "none",
+            }}
+          />
+        </Row>
+      </div>
+
+      <div style={card}>
+        <Row
           name="Node sidecar"
           note="Runs agents through the Claude Agent SDK. Off falls back to the claude command line."
         >
