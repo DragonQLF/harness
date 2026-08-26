@@ -241,12 +241,15 @@ export interface QueueRow {
   reasons: string[];
 }
 
-/** A mirror build waiting for the operator's decision. */
+/** A build waiting for the operator's decision. */
 export interface PendingUpdate {
   card_id: string;
   commit_sha: string;
   built_at_ms: number;
   binary: string;
+  /** `card` when an agent's run produced it, `build` when it is a newer binary
+   *  the operator compiled themselves. */
+  kind: "card" | "build";
 }
 
 /** Why the window is being held on close, sent before the waiting starts. */

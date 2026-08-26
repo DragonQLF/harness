@@ -26,3 +26,9 @@ dist-ssr
 
 # ts-rs default output when a test runs without TS_RS_EXPORT_DIR set
 **/bindings/
+
+# The updater's private key. It lives outside the repository (~/.relay) and in
+# a CI secret; a copy in here would let anyone publish an update every install
+# would trust.
+*.key
+relay-updater.key

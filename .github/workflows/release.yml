@@ -1,0 +1,98 @@
+# Publishing a Relay version.
+#
+# Every install checks one URL — the `latest.json` attached to the newest
+# release — and installs only what the updater's key signed. That signature is
+# the whole security model: without it the app would download and execute
+# whatever answered the request. The private key is never in this repository;
+# it lives in the TAURI_SIGNING_PRIVATE_KEY secret and in ~/.relay on the
+# machine that generated it.
+#
+# Cross-device lives here too. A Windows box cannot build a macOS binary, so
+# the matrix is what actually lets the same release serve a Mac.
+#
+# Cutting a release:
+#   1. bump `version` in src-tauri/tauri.conf.json (and src-tauri/Cargo.toml)
+#   2. commit, then tag it:  git tag v0.2.0 && git push origin v0.2.0
+# The tag is the trigger; the draft it produces is published by hand, so a bad
+# build is never something every install picks up on its own.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+          # Both Mac architectures from one runner; Intel machines are not
+          # served by an arm64-only build.
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      # The sidecar ships as a resource and installs its own dependencies on
+      # first run, but its lockfile must resolve for the build to be honest.
+      - run: pnpm install --frozen-lockfile
+        working-directory: sidecar
+
+      - name: Check before publishing
+        run: |
+          pnpm exec tsc --noEmit
+          cargo test --workspace
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Relay ${{ github.ref_name }}"
+          releaseBody: "See the commit log for what changed."
+          # Published by hand: an install that self-updates should never pick
+          # up a build nobody looked at.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}

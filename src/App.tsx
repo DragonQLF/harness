@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { check, type Update as Release } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { TitleBar } from "./components/TitleBar";
 import { NavRail } from "./components/NavRail";
 import { RightNow, RightNowStrip } from "./components/RightNow";
@@ -9,8 +11,8 @@ import {
   type PaletteAction,
 } from "./components/Overlays";
 import { Icon, Loading, Spinner, mono, truncate } from "./components/ui";
-import { api, events } from "./lib/ipc";
-import { money, plural } from "./lib/format";
+import { api, events, reason } from "./lib/ipc";
+import { ago, money, plural } from "./lib/format";
 import { STATUS_TONE, tone } from "./lib/types";
 import type { ClosingBegan, ClosingPhase, PendingUpdate } from "./lib/types";
 import { StoreProvider, useStore } from "./state/store";
@@ -148,20 +150,95 @@ function ClosingOverlay() {
  *  approved build sits uninstalled. Installing swaps the binary and relaunches
  *  — the rollback machinery decides whether the next start keeps it. */
 function UpdateBanner() {
+  const { toast } = useStore();
   const [pending, setPending] = useState<PendingUpdate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [release, setRelease] = useState<Release | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
 
+  // A published version, from the release feed rather than from anything on
+  // this machine. This is what makes an update a version instead of a file: it
+  // is the same answer on every device, and the signature is checked before a
+  // byte of it runs.
   useEffect(() => {
     let alive = true;
-    api
-      .updatesList()
-      .then((rows) => alive && setPending(rows))
-      .catch(() => {});
+    const look = async () => {
+      try {
+        const found = await check();
+        if (alive) setRelease(found);
+      } catch {
+        // Offline, rate-limited, or no release yet. Not being able to reach
+        // the feed is not something to interrupt the operator about.
+      }
+    };
+    look();
+    const every = setInterval(look, 3 * 60 * 60 * 1000);
     return () => {
       alive = false;
+      clearInterval(every);
     };
   }, []);
+
+  // Checked at mount, again whenever the window regains focus, and on a slow
+  // timer. The original read once and never again, so a build finishing while
+  // Relay was open stayed invisible until the next launch — which is exactly
+  // when it matters, because the operator has just gone and compiled it.
+  useEffect(() => {
+    let alive = true;
+    const look = () =>
+      api
+        .updatesList()
+        .then((rows) => alive && setPending(rows))
+        .catch(() => {});
+    look();
+    window.addEventListener("focus", look);
+    const every = setInterval(look, 60_000);
+    return () => {
+      alive = false;
+      window.removeEventListener("focus", look);
+      clearInterval(every);
+    };
+  }, []);
+
+  if (release && release.version !== dismissed) {
+    const install = async () => {
+      setBusy(true);
+      setProgress(0);
+      try {
+        let got = 0;
+        let total = 0;
+        await release.downloadAndInstall((event) => {
+          if (event.event === "Started") total = event.data.contentLength ?? 0;
+          else if (event.event === "Progress") {
+            got += event.data.chunkLength;
+            if (total) setProgress(Math.round((got / total) * 100));
+          }
+        });
+        await relaunch();
+      } catch (e) {
+        setBusy(false);
+        setProgress(null);
+        toast("var(--bad)", "Could not install the update", reason(e));
+      }
+    };
+    return (
+      <Banner
+        label={`Relay ${release.version} is available`}
+        detail={
+          busy
+            ? progress === null
+              ? "installing…"
+              : `downloading ${progress}%`
+            : "installing restarts the app"
+        }
+        busy={busy}
+        action={busy ? "installing…" : "Install & restart"}
+        onInstall={install}
+        onLater={() => setDismissed(release.version)}
+      />
+    );
+  }
 
   if (!pending?.length) return null;
   const update = pending[0];
@@ -173,11 +250,53 @@ function UpdateBanner() {
       .updateInstall(update.card_id)
       .catch((e) => {
         setBusy(false);
-        console.error("install failed", e);
+        // It refuses while any agent is working. Sending that to the console
+        // left the button flipping back with nothing said.
+        toast("var(--bad)", "Could not install the update", reason(e));
       });
     // If the swap works, this process is already on its way out.
   };
 
+  return (
+    <Banner
+      label={
+        update.kind === "build"
+          ? "A newer Relay is built in your checkout"
+          : `Built from ${update.card_id}`
+      }
+      detail={[
+        update.commit_sha ? update.commit_sha.slice(0, 7) : "",
+        update.kind === "build" ? ago(update.built_at_ms) : "",
+        "installing restarts the app (the previous version is kept)",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      busy={busy}
+      action={busy ? "installing…" : "Install & restart"}
+      onInstall={install}
+      onLater={() => setDismissed(update.card_id)}
+    />
+  );
+}
+
+/** The one strip, whichever source the update came from. A version from the
+ *  release feed and a build a card produced are the same offer to the operator:
+ *  something newer exists, here is what it is, install or not. */
+function Banner({
+  label,
+  detail,
+  busy,
+  action,
+  onInstall,
+  onLater,
+}: {
+  label: string;
+  detail: string;
+  busy: boolean;
+  action: string;
+  onInstall: () => void;
+  onLater: () => void;
+}) {
   return (
     <div
       style={{
@@ -190,19 +309,34 @@ function UpdateBanner() {
       }}
     >
       <span style={{ ...mono, fontSize: 10.5, color: "var(--accent2)" }}>UPDATE</span>
-      <span style={{ flex: 1, minWidth: 0, font: "400 12.5px var(--sans)", color: "var(--text)", ...truncate }}>
-        Built from{" "}
-        <b style={{ fontWeight: 600 }}>{update.card_id}</b> · {update.commit_sha.slice(0, 7)} ·
-        installing restarts the app (the previous version is kept)
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          font: "400 12.5px var(--sans)",
+          color: "var(--text)",
+          ...truncate,
+        }}
+      >
+        <b style={{ fontWeight: 600 }}>{label}</b> · {detail}
       </span>
       {!busy && (
-        <span className="quiet" onClick={() => setDismissed(update.card_id)} style={{ padding: "4px 8px", borderRadius: 8, font: "500 11.5px var(--sans)", cursor: "pointer" }}>
+        <span
+          className="quiet"
+          onClick={onLater}
+          style={{
+            padding: "4px 8px",
+            borderRadius: 8,
+            font: "500 11.5px var(--sans)",
+            cursor: "pointer",
+          }}
+        >
           Later
         </span>
       )}
       <span
         className="primary"
-        onClick={busy ? undefined : install}
+        onClick={busy ? undefined : onInstall}
         style={{
           padding: "4px 12px",
           borderRadius: 8,
@@ -213,7 +347,7 @@ function UpdateBanner() {
           opacity: busy ? 0.6 : 1,
         }}
       >
-        {busy ? "installing…" : "Install & restart"}
+        {action}
       </span>
     </div>
   );

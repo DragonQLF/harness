@@ -21,6 +21,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // The updater relaunches into the version it just installed.
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let paths = AppPaths::new(app.path().app_data_dir()?)?;
             // Rollback first, before anything else: if the last update never

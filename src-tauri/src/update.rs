@@ -24,6 +24,9 @@ pub struct PendingUpdate {
     pub built_at_ms: u64,
     /// Absolute path to the parked binary.
     pub binary: PathBuf,
+    /// `card` when an agent's run produced it, `build` when it is simply a
+    /// newer binary sitting in the repository's target directory.
+    pub kind: String,
 }
 
 fn marker_default_name() -> &'static str {
@@ -63,6 +66,7 @@ pub fn list_pending(updates_dir: &Path) -> Vec<PendingUpdate> {
             continue;
         }
         out.push(PendingUpdate {
+            kind: "card".to_string(),
             card_id: card_id.to_string(),
             commit_sha: sha.to_string(),
             built_at_ms: value
@@ -321,4 +325,8 @@ mod tests {
         assert!(!marker.exists(), "the marker is spent either way");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+
+
+
 }
