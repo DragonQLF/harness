@@ -329,14 +329,29 @@ impl GitPort for FakeGit {
     }
 }
 
+/// Poll until the engine has caught up, or give up loudly.
+///
+/// The budget is deliberately far longer than any of these tests needs. It is
+/// only ever spent when something is actually broken: a passing check returns
+/// on the first poll, so a generous ceiling costs a healthy suite nothing. The
+/// previous six seconds were enough on a developer machine and not enough on a
+/// loaded CI runner, where thirty-odd async tests share whatever cores the
+/// hosted runner feels like giving them — which turns a real failure signal
+/// into a coin flip.
+const WAIT_BUDGET: Duration = Duration::from_secs(30);
+const WAIT_POLL: Duration = Duration::from_millis(20);
+
 async fn wait_for(label: &str, mut check: impl AsyncFnMut() -> bool) {
-    for _ in 0..300 {
+    let deadline = std::time::Instant::now() + WAIT_BUDGET;
+    loop {
         if check().await {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        if std::time::Instant::now() >= deadline {
+            panic!("timeout after {WAIT_BUDGET:?}: {label}");
+        }
+        tokio::time::sleep(WAIT_POLL).await;
     }
-    panic!("timeout: {label}");
 }
 
 /// Records the `resume_session` each run was handed, so a test can prove the
