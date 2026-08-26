@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { money, plural } from "../lib/format";
 import {
   STATUS_NAME,
@@ -35,6 +35,47 @@ const COLUMN_COLOR: Record<Status, string> = {
   review: "var(--warn)",
   done: "var(--ok)",
 };
+
+/** Which cards changed column since the last render, and which way they went.
+ *
+ *  This is the board's whole reason for animating: an agent finishing a run
+ *  moves a card with no action from the operator, and a silent re-render makes
+ *  that indistinguishable from nothing having happened. The comparison is
+ *  against the previous render rather than against a backend event, so a change
+ *  is caught however it arrived — the operator's own drag included.
+ *
+ *  The mark clears itself, or a card would keep announcing a move it made
+ *  minutes ago every time React re-rendered for an unrelated reason.
+ */
+function useArrivals(cards: { id: string; status: Status }[] | undefined) {
+  const seen = useRef(new Map<string, Status>());
+  const [moves, setMoves] = useState<Map<string, "forward" | "back">>(new Map());
+
+  useEffect(() => {
+    if (!cards) return;
+    const previous = seen.current;
+    const next = new Map<string, Status>();
+    const fresh = new Map<string, "forward" | "back">();
+    for (const card of cards) {
+      next.set(card.id, card.status);
+      const was = previous.get(card.id);
+      // A card seen for the first time has not moved; it was created, or the
+      // board just loaded. Announcing those would light up the whole screen.
+      if (was && was !== card.status) {
+        const from = STATUS_ORDER.indexOf(was);
+        const to = STATUS_ORDER.indexOf(card.status);
+        fresh.set(card.id, to >= from ? "forward" : "back");
+      }
+    }
+    seen.current = next;
+    if (fresh.size === 0) return;
+    setMoves(fresh);
+    const done = setTimeout(() => setMoves(new Map()), 900);
+    return () => clearTimeout(done);
+  }, [cards]);
+
+  return moves;
+}
 
 /** The one place a card is created by hand: a line, who takes it, and whether
  *  it starts now. */
@@ -146,6 +187,7 @@ export function Board({
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<Status | null>(null);
   const [adding, setAdding] = useState(false);
+  const arrived = useArrivals(snapshot?.cards);
 
   if (!snapshot) return <Loading what="Reading the board" />;
   const cards = snapshot.cards;
@@ -242,6 +284,9 @@ export function Board({
                 gridTemplateRows: "auto minmax(0,1fr)",
                 background: hot ? "var(--hover)" : "var(--bg)",
                 transition: "background .2s ease",
+                animation: list.some((c) => arrived.get(c.id) === "forward" || arrived.get(c.id) === "back")
+                  ? "tookOne .9s ease both"
+                  : undefined,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px 10px" }}>
@@ -328,7 +373,11 @@ export function Board({
                         gap: 8,
                         cursor: "grab",
                         opacity: drag === card.id ? 0.45 : 1,
+                        animation: arrived.has(card.id)
+                          ? `${arrived.get(card.id) === "back" ? "arriveBack" : "arriveForward"} .42s cubic-bezier(.16,1,.3,1) both`
+                          : undefined,
                       }}
+                      data-arrived={arrived.has(card.id) ? "" : undefined}
                     >
                       <span
                         title={card.title}

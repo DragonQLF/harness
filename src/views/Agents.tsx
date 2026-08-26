@@ -857,7 +857,7 @@ export function Agents({
                 </div>
               )}
 
-              <div style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid rgba(255,107,129,.22)" }}>
+              <div style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--bad)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)" }}>
                     Remove this profile
@@ -867,7 +867,7 @@ export function Agents({
                     style={{
                       padding: "6px 12px",
                       borderRadius: 8,
-                      border: "1px solid rgba(255,107,129,.35)",
+                      border: "1px solid var(--bad)",
                       color: "var(--bad2)",
                       font: "600 11.5px var(--sans)",
                       cursor: agent.id === "director" ? "not-allowed" : "pointer",

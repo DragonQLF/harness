@@ -492,7 +492,7 @@ export function Review({
                 style={{
                   padding: "8px 14px",
                   borderRadius: 8,
-                  border: "1px solid rgba(255,179,92,.4)",
+                  border: "1px solid var(--warn)",
                   color: "var(--warn)",
                   font: "600 12.5px var(--sans)",
                   cursor: "pointer",

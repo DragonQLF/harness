@@ -84,7 +84,7 @@ function ApprovalCard({
         padding: "14px 16px",
         borderRadius: 12,
         background: "var(--surface)",
-        border: "1px solid rgba(255,179,92,.26)",
+        border: "1px solid var(--warn)",
         animation: "sheetIn .42s cubic-bezier(.2,.8,.25,1) both",
       }}
     >
@@ -326,7 +326,7 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
           minWidth: 0,
           borderRadius: 8,
           background: "var(--surface)",
-          border: `1px solid ${isResult && msg.ok === false ? "rgba(255,107,129,.4)" : "var(--line2)"}`,
+          border: `1px solid ${isResult && msg.ok === false ? "var(--bad)" : "var(--line2)"}`,
           overflow: "hidden",
         }}
       >

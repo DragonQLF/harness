@@ -276,8 +276,12 @@ export function RightNow({
                 gap: 8,
                 padding: "10px 12px",
                 borderRadius: 12,
-                background: "rgba(255,179,92,.08)",
-                border: "1px solid rgba(255,179,92,.24)",
+                // --warn, spelled out by hand: the light theme's warn is a
+                // darker amber, so the literal was a dark-theme value showing
+                // through on both.
+                background: "var(--warnSoft)",
+                border: "1px solid var(--warn)",
+                animation: "askedIn .34s cubic-bezier(.16,1,.3,1) both",
                 marginBottom: 8,
               }}
             >

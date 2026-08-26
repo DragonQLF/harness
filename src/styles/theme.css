@@ -233,6 +233,75 @@ input[type="number"] {
   font-feature-settings: "tnum" 1;
 }
 
+/* A card that changed column while the operator was watching something else.
+   The board is the one screen where things move without you: an agent finishes
+   and Working becomes Review with no click of yours. Re-rendering silently
+   makes that invisible, so the card that moved says which one it was.
+
+   The travel direction is real information — the board runs left to right, so a
+   card entering Review came from the left, and one sent back came from the
+   right. Only the card that changed moves; if everything moves, nothing did. */
+@keyframes arriveForward {
+  from {
+    opacity: 0;
+    transform: translateX(-14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes arriveBack {
+  from {
+    opacity: 0;
+    transform: translateX(14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The column that received it, so the change is catchable from the corner of
+   an eye without watching the card itself. */
+@keyframes tookOne {
+  0% {
+    box-shadow: inset 0 2px 0 -1px transparent;
+  }
+  30% {
+    box-shadow: inset 0 2px 0 -1px var(--accent);
+  }
+  100% {
+    box-shadow: inset 0 2px 0 -1px transparent;
+  }
+}
+
+/* Reduced motion keeps the message and drops the travel: the card still
+   announces itself, it just does not move to do it. Silence here would hide a
+   state change, which is the opposite of what the preference asks for. */
+@media (prefers-reduced-motion: reduce) {
+  [data-arrived] {
+    animation: none !important;
+    background: var(--accentSoft) !important;
+    transition: background 1.2s ease 0.4s !important;
+  }
+}
+
+/* An agent has stopped and cannot continue until the operator answers. It is
+   the only thing in the app that is actually blocked on a human, so it is
+   allowed to arrive rather than appear. Once, on the way in — a loop would turn
+   the highest-stakes row in the window into wallpaper. */
+@keyframes askedIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ---- keyframes, verbatim from the design ---- */
 
 @keyframes pulse {
