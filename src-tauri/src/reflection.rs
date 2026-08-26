@@ -67,8 +67,21 @@ async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
     };
     let _ = ws.rename_conversation(&conversation.id, "End-of-day review");
 
+    // The opening turn goes in before the run, exactly as `chat::send` writes
+    // the operator's words first. Without it the row is empty until the model
+    // speaks — and a turn that never speaks leaves a conversation that opens
+    // onto nothing, with no trace of what was asked or why it exists.
+    let asked = harness_app::director::daily_look_prompt();
+    ws.append_chat_line(
+        &conversation.id,
+        RunLogLine {
+            ts_ms: SystemClock.now_millis(),
+            event: RunEvent::UserMessage { text: asked.clone() },
+        },
+    );
+
     let spec = RunSpec {
-        prompt: harness_app::director::daily_look_prompt(),
+        prompt: asked,
         cwd: ws.paths.root().to_path_buf(),
         model: profile.model.clone(),
         // Everything he needs sits in the read set; board tools stay out of his
@@ -102,7 +115,9 @@ async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
     // turn: the same typed listener serves both.
     let forward = async move {
         let mut last_text = String::new();
+        let mut heard = false;
         while let Some(ev) = ev_rx.recv().await {
+            heard = true;
             match &ev {
                 RunEvent::Started { session_id } => {
                     ws_forward.record_chat_session(&conversation_id, session_id);
@@ -138,7 +153,7 @@ async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
                 },
             );
         }
-        last_text
+        (last_text, heard)
     };
 
     // Whoever finishes first ends the wait: the answer, or the clock. Either
@@ -158,12 +173,34 @@ async fn run_bounded(ws: &Arc<Workspace>) -> Option<String> {
                 .map(str::to_string)
         }
     };
-    let text = forward.await;
+    let (text, heard) = forward.await;
+
+    // A look that produced nothing at all — the agent never started, or the
+    // app was closed out from under it — still says so. Silence in a
+    // transcript is indistinguishable from a look that found nothing worth
+    // proposing, and the two mean opposite things.
+    if !heard {
+        ws.append_chat_line(
+            &conversation.id,
+            RunLogLine {
+                ts_ms: SystemClock.now_millis(),
+                event: RunEvent::Notice {
+                    text: String::from(
+                        "The end-of-day look never got an answer: the turn ended without a \
+                         single event. Nothing was proposed. It is due again on the next close.",
+                    ),
+                },
+            },
+        );
+    }
 
     ws.finish_chat_turn(&conversation.id);
-    // Marked either way: a look that found nothing is still a look, and a cut
-    // one retries tomorrow rather than tonight.
-    ws.mark_daily_look();
+    // A look that found nothing is still a look, and a cut one retries tomorrow
+    // rather than tonight. One that never ran at all is not: marking it would
+    // buy a day of silence for a failure nobody saw.
+    if heard {
+        ws.mark_daily_look();
+    }
 
     Some(match (closing, text.is_empty()) {
         (Some(reason), _) => format!("({reason})"),
