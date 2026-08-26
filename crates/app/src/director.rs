@@ -427,6 +427,40 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
     prompt
 }
 
+/// Files the operator attached to a message, folded into the message itself.
+///
+/// Nothing is uploaded anywhere: Harness runs on the operator's machine and the
+/// agent already has Read, Glob and Grep — the pathguard only fences *writes*
+/// (#39, #62). So an attachment is a pointer, named in the operator's own turn,
+/// and the model opens what it needs. That also means the transcript records
+/// exactly which files were on the table, which a hidden side channel would not.
+pub fn with_attachments(message: &str, files: &[String]) -> String {
+    let files: Vec<&str> = files
+        .iter()
+        .map(|f| f.trim())
+        .filter(|f| !f.is_empty())
+        .collect();
+    let message = message.trim();
+    if files.is_empty() {
+        return message.to_string();
+    }
+    let mut out = String::from(message);
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(if files.len() == 1 {
+        "Attached file, on this machine — read it with your own tools:\n"
+    } else {
+        "Attached files, on this machine — read them with your own tools:\n"
+    });
+    for file in files {
+        out.push_str("- ");
+        out.push_str(file);
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
 /// The Analyst: reads the numbers the app already computed — never computes
 /// its own, models miscount — and answers with an ordered list of what to fix,
 /// citing card ids as evidence. It writes nothing; the answer is the work.
@@ -824,5 +858,25 @@ mod tests {
         assert_eq!(line.id, "c_7");
         assert_eq!(line.agent_id, "scout");
         assert_eq!(line.review, Some((true, "scoped".to_string())));
+    }
+
+    #[test]
+    fn attachments_are_named_in_the_operators_own_turn() {
+        let one = with_attachments("look at this", &["C:/tmp/shot.png".into()]);
+        assert!(one.starts_with("look at this\n\n"));
+        assert!(one.contains("Attached file, on this machine"));
+        assert!(one.ends_with("- C:/tmp/shot.png"));
+
+        let many = with_attachments(
+            "compare",
+            &["C:/a.md".into(), "  ".into(), "C:/b.md".into()],
+        );
+        assert!(many.contains("Attached files"));
+        assert!(many.contains("- C:/a.md\n- C:/b.md"));
+
+        // Nothing attached leaves the message exactly as typed.
+        assert_eq!(with_attachments(" hello ", &[]), "hello");
+        // A message can be nothing but files.
+        assert!(with_attachments("", &["C:/a.md".into()]).starts_with("Attached file"));
     }
 }

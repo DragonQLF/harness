@@ -803,6 +803,11 @@ export const Icon = {
       <path d="M6 2.4v7.2M2.4 6h7.2" />
     </svg>
   ),
+  clip: () => (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M11.6 7.2l-4.3 4.3a2.3 2.3 0 01-3.3-3.3l4.9-4.9a1.5 1.5 0 012.1 2.1l-4.9 4.9a.7.7 0 01-1-1l4.4-4.4" />
+    </svg>
+  ),
   chat: () => (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
       <path d="M13.4 8.2c0 2.6-2.4 4.7-5.4 4.7-.7 0-1.4-.1-2-.3L3 13.6l.6-2.3a4.4 4.4 0 01-1-2.9c0-2.6 2.4-4.7 5.4-4.7s5.4 2.1 5.4 4.5z" />

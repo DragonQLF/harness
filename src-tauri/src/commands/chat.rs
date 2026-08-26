@@ -8,6 +8,7 @@ use harness_app::agents::AgentProfile;
 use harness_app::conversations::Conversation;
 use harness_ports::RunLogLine;
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 
 use crate::workspace::Workspace;
 
@@ -104,10 +105,28 @@ pub async fn conversation_transcript(
 pub async fn chat_send(
     text: String,
     conversation_id: Option<String>,
+    attachments: Option<Vec<String>>,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
     let ws = Arc::clone(&ws);
-    crate::chat::send(&ws, conversation_id, text).await
+    crate::chat::send(&ws, conversation_id, text, attachments.unwrap_or_default()).await
+}
+
+/// Files to attach to the next message. The picker is native, so the operator
+/// chooses with the same dialog they know; Harness only learns the paths.
+#[tauri::command]
+pub async fn chat_pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Attach files to this message")
+        .pick_files(move |picked| {
+            let _ = tx.send(picked.unwrap_or_default());
+        });
+    let picked = rx
+        .await
+        .map_err(|_| "the file picker closed".to_string())?;
+    Ok(picked.into_iter().map(|p| p.to_string()).collect())
 }
 
 /// Profiles the operator can create from. Returned on request only: a template
@@ -188,7 +207,12 @@ pub async fn analyst_ask(
         Some(harness_app::agents::DIRECTOR_ID.to_string()),
         project_id,
     )?;
-    crate::chat::send(&ws, Some(conversation.id.clone()), harness_app::director::analyst_prompt(&tables))
+    crate::chat::send(
+        &ws,
+        Some(conversation.id.clone()),
+        harness_app::director::analyst_prompt(&tables),
+        Vec::new(),
+    )
         .await?;
     Ok(conversation.id)
 }

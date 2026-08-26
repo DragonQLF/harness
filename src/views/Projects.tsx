@@ -39,7 +39,7 @@ function clipTop(d: string): string {
 }
 
 export function ProjectPage({ go }: { go: (v: View) => void }) {
-  const { projectId, project, snapshot, agents, toast } = useStore();
+  const { projectId, project, projects, snapshot, agents, toast, refreshProjects } = useStore();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -82,6 +82,31 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         ? { label: "passing", fg: "var(--ok)", soft: "var(--okSoft)" }
         : { label: "not run", fg: "var(--text3)", soft: "var(--surface2)" };
   const agentNames = new Set(detail.commits.map((c) => c.agent).filter(Boolean));
+
+  /** Mirror mode: the project Harness treats as its own home — where the
+   *  Director's accepted proposals become cards (#72, #79) and where read_docs
+   *  looks for DEBT.md and DECISIONS.md (#78). Exactly one project holds it;
+   *  the backend takes it from whoever had it before. */
+  const held = projects.find((p) => p.mirror);
+  const toggleMirror = async () => {
+    if (!project) return;
+    setBusy(true);
+    try {
+      await api.projectUpdate({ ...project, mirror: !project.mirror });
+      await refreshProjects();
+      toast(
+        "var(--ok)",
+        project.mirror ? "Mirror mode off" : "Mirror mode on",
+        project.mirror
+          ? "The Director has nowhere to file accepted proposals until another project takes it."
+          : `Accepted proposals become cards in ${project.name}, and read_docs reads its docs/.`,
+      );
+    } catch (e) {
+      toast("var(--bad)", "Could not change mirror mode", reason(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const runChecks = async () => {
     if (!projectId) return;
@@ -307,6 +332,59 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   : "never"}
               </span>
               <span style={{ flex: 1 }} />
+              <button
+                type="button"
+                className="hv-link"
+                disabled={busy}
+                onClick={toggleMirror}
+                title={
+                  project.mirror
+                    ? "Harness's own home: accepted proposals are born here and read_docs reads this repository's docs/"
+                    : held
+                      ? `Mirror mode is on ${held.name}. Turning it on here takes it from there.`
+                      : "Make this the project Harness improves itself in"
+                }
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  padding: "3px 10px 3px 7px",
+                  borderRadius: 999,
+                  background: project.mirror ? "var(--okSoft)" : "var(--surface2)",
+                  border: `1px solid ${project.mirror ? "var(--ok)" : "var(--line)"}`,
+                  color: project.mirror ? "var(--ok)" : "var(--text3)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: busy ? "default" : "pointer",
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 12,
+                    borderRadius: 999,
+                    background: project.mirror ? "var(--ok)" : "var(--line3)",
+                    position: "relative",
+                    transition: "background .16s ease",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      left: project.mirror ? 12 : 2,
+                      width: 8,
+                      height: 8,
+                      borderRadius: 999,
+                      background: "var(--surface)",
+                      transition: "left .16s ease",
+                    }}
+                  />
+                </span>
+                mirror mode
+              </button>
+              <span style={{ opacity: 0.5 }}>·</span>
               <button
                 type="button"
                 className="hv-link"
@@ -942,6 +1020,22 @@ export function Projects({ go }: { go: (v: View) => void }) {
                       />
                       {st.label}
                     </span>
+                    {p.mirror && (
+                      <span
+                        title="Mirror mode: the project Harness improves itself in"
+                        style={{
+                          padding: "3px 9px",
+                          borderRadius: 999,
+                          background: "var(--okSoft)",
+                          color: "var(--ok)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          flex: "none",
+                        }}
+                      >
+                        mirror
+                      </span>
+                    )}
                   </div>
                   <p
                     style={{

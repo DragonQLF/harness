@@ -135,8 +135,14 @@ export const api = {
     invoke<RunLogLine[]>("conversation_transcript", { conversationId }),
   /** Send a message. The answer streams back on the run channel, keyed by the
    *  conversation id. */
-  chatSend: (text: string, conversationId?: string | null) =>
-    invoke<Conversation>("chat_send", { text, conversationId: conversationId ?? null }),
+  chatSend: (text: string, conversationId?: string | null, attachments: string[] = []) =>
+    invoke<Conversation>("chat_send", {
+      text,
+      conversationId: conversationId ?? null,
+      attachments,
+    }),
+  /** Native picker for files to attach to the next message. */
+  pickFiles: () => invoke<string[]>("chat_pick_files"),
 
   /** Profiles you can create from. Fetched on request: a template is a menu
    *  entry, never something Harness installs by itself. */

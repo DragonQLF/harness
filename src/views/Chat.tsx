@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { clock, money, plural } from "../lib/format";
 import { ruleLabel, tone, type AllowRule, type PendingApproval } from "../lib/types";
 import { useStore, type ChatMsg } from "../state/store";
-import { api } from "../lib/ipc";
+import { api, reason } from "../lib/ipc";
 import { Caret, Glyph, Icon, Spinner, mono, truncate } from "../components/ui";
 
 /** What a standing rule for this request would cover. Mirrors the backend: a
@@ -385,6 +385,13 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
   );
 }
 
+/** The last segment of a path, either separator — the chip shows the name and
+ *  keeps the full path in its tooltip. */
+function baseName(path: string): string {
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return cut >= 0 ? path.slice(cut + 1) : path;
+}
+
 export function Chat() {
   const {
     chat,
@@ -399,6 +406,7 @@ export function Chat() {
     approvals,
     newConversation,
     pinConversation,
+    toast,
   } = useStore();
   const conversationId = conversation?.id ?? null;
 
@@ -407,6 +415,7 @@ export function Chat() {
   };
 
   const [text, setText] = useState("");
+  const [attached, setAttached] = useState<string[]>([]);
   const [pickProfile, setPickProfile] = useState(false);
   const [pickProject, setPickProject] = useState(false);
   const end = useRef<HTMLDivElement | null>(null);
@@ -422,9 +431,22 @@ export function Chat() {
   }, [chat.length, chatBusy, chatThinking, approvals.length]);
 
   const send = () => {
-    if (!text.trim() || chatBusy) return;
-    sendChat(text);
+    if ((!text.trim() && attached.length === 0) || chatBusy) return;
+    sendChat(text, attached);
     setText("");
+    setAttached([]);
+  };
+
+  /** Files travel with the next message and no further: the picker adds, the
+   *  chip removes, sending clears. Nothing is copied anywhere — the paths are
+   *  named in the turn and the agent reads them from disk. */
+  const attach = async () => {
+    try {
+      const picked = await api.pickFiles();
+      if (picked.length) setAttached((was) => [...new Set([...was, ...picked])]);
+    } catch (e) {
+      toast("var(--bad)", "Could not open the file picker", reason(e));
+    }
   };
 
   // One divider per day, the way the design dates the conversation.
@@ -703,6 +725,46 @@ export function Chat() {
             border: "1px solid var(--line3)",
           }}
         >
+          {attached.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                padding: "10px 12px 0",
+              }}
+            >
+              {attached.map((file) => (
+                <span
+                  key={file}
+                  title={file}
+                  onClick={() => setAttached((was) => was.filter((f) => f !== file))}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    maxWidth: 260,
+                    padding: "4px 9px",
+                    borderRadius: 8,
+                    background: "var(--surface2)",
+                    border: "1px solid var(--line3)",
+                    ...mono,
+                    fontSize: 10.5,
+                    color: "var(--text2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon.clip />
+                  <span style={{ ...truncate }}>{baseName(file)}</span>
+                  <span style={{ color: "var(--text4)" }}>×</span>
+                </span>
+              ))}
+              <span style={{ ...mono, fontSize: 10, color: "var(--text4)", alignSelf: "center" }}>
+                read from disk, not uploaded
+              </span>
+            </div>
+          )}
+
           <textarea
             ref={field}
             rows={2}
@@ -728,20 +790,20 @@ export function Chat() {
           />
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px 10px 12px" }}>
             <span
-              title="New chat"
-              onClick={() => newConversation(speaker?.id)}
+              title="Attach files to this message"
+              onClick={attach}
               style={{
                 display: "grid",
                 placeItems: "center",
                 width: 26,
                 height: 26,
                 borderRadius: 8,
-                background: "var(--surface2)",
-                color: "var(--text2)",
+                background: attached.length ? tone("accent").soft : "var(--surface2)",
+                color: attached.length ? "var(--accent)" : "var(--text2)",
                 cursor: "pointer",
               }}
             >
-              <Icon.plus />
+              <Icon.clip />
             </span>
 
             <span style={{ position: "relative" }}>

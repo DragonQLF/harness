@@ -316,7 +316,7 @@ interface Store {
   discard: (cardId: string) => Promise<void>;
   loadRunLog: (runId: string, cardId: string) => Promise<void>;
 
-  sendChat: (text: string) => Promise<void>;
+  sendChat: (text: string, attachments?: string[]) => Promise<void>;
   /** Start a fresh conversation, which means a fresh Claude session. */
   newConversation: (profileId?: string) => Promise<void>;
   /** Open the standing conversation with a profile, creating one only if there
@@ -939,10 +939,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendChat = useCallback(
-    async (text: string) => {
+    async (text: string, attachments: string[] = []) => {
       const clean = text.trim();
-      if (!clean || chatBusy) return;
-      setChat((cs) => [...cs, { role: "user", text: clean, ts: Date.now() }]);
+      if ((!clean && attachments.length === 0) || chatBusy) return;
+      // What goes on screen is what the backend will fold into the turn: the
+      // message, then the files by name. No hidden context.
+      const shown = attachments.length
+        ? [clean, attachments.map((f) => `- ${f}`).join("\n")].filter(Boolean).join("\n\n")
+        : clean;
+      setChat((cs) => [...cs, { role: "user", text: shown, ts: Date.now() }]);
       setChatBusy(true);
       setChatThinking("");
       streamedRef.current = false;
@@ -960,7 +965,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // returns. The backend decides which conversation this belongs to and
         // hands it back, so the first message of a new chat lands in the right
         // thread.
-        const conversation = await api.chatSend(clean, chatRef.current);
+        const conversation = await api.chatSend(clean, chatRef.current, attachments);
         setConversationId(conversation.id);
         chatRef.current = conversation.id;
         await refreshConversations();

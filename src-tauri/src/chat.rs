@@ -61,8 +61,16 @@ pub async fn send(
     ws: &Arc<Workspace>,
     conversation_id: Option<String>,
     text: String,
+    attachments: Vec<String>,
 ) -> Result<Conversation, String> {
-    let message = text.trim().to_string();
+    // A file that is not there is worse than no file: the model would go
+    // looking and report a failure the operator caused. Refuse now, by name.
+    for file in &attachments {
+        if !PathBuf::from(file).is_file() {
+            return Err(format!("{file} is not a file on this machine"));
+        }
+    }
+    let message = director::with_attachments(&text, &attachments);
     if message.is_empty() {
         return Err("nothing to send".to_string());
     }

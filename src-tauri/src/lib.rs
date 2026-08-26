@@ -103,6 +103,7 @@ pub fn run() {
             commands::chat::conversation_pin,
             commands::chat::conversation_transcript,
             commands::chat::chat_send,
+            commands::chat::chat_pick_files,
             commands::chat::agent_templates,
             commands::chat::agent_create_from_template,
             commands::chat::agent_duplicate,

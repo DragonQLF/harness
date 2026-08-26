@@ -794,6 +794,11 @@ impl Workspace {
                 .find(|p| p.id == project.id)
                 .ok_or_else(|| format!("unknown project {}", project.id))?;
             *slot = project.clone();
+            // Mirror mode is one home, not a flag per project (#65): whoever
+            // claims it takes it from whoever held it.
+            if project.mirror {
+                harness_app::projects::only_mirror(&mut guard, &project.id);
+            }
         }
         self.save_projects_file()?;
         Ok(project)

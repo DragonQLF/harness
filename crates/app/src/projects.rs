@@ -47,6 +47,16 @@ pub fn mirror_project(projects: &[Project]) -> Option<&Project> {
     projects.iter().find(|p| p.mirror)
 }
 
+/// Mirror mode belongs to exactly one project. Turning it on for `id` turns it
+/// off everywhere else, so `mirror_project` is never asked to choose between
+/// two homes — the toggle in the UI is one flag with several off positions,
+/// not several independent flags.
+pub fn only_mirror(projects: &mut [Project], id: &str) {
+    for project in projects.iter_mut() {
+        project.mirror = project.id == id;
+    }
+}
+
 /// Initials for the project avatar.
 pub fn glyph_for(name: &str) -> String {
     let letters: String = name
@@ -180,5 +190,22 @@ mod tests {
             Some("_harness")
         );
         assert!(mirror_project(&[]).is_none());
+    }
+
+    #[test]
+    fn turning_mirror_on_turns_it_off_everywhere_else() {
+        let mut projects = vec![
+            Project { id: "site".into(), ..Default::default() },
+            Project { id: "_harness".into(), mirror: true, ..Default::default() },
+            Project { id: "tools".into(), mirror: true, ..Default::default() },
+        ];
+        only_mirror(&mut projects, "site");
+        assert_eq!(
+            projects.iter().filter(|p| p.mirror).map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["site"],
+        );
+        // Naming nobody clears the flag: that is how the toggle turns off.
+        only_mirror(&mut projects, "");
+        assert!(mirror_project(&projects).is_none());
     }
 }
