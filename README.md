@@ -1,4 +1,4 @@
-# Harness
+# Relay
 
 Desktop orchestrator for Claude Code agents. You point it at git repositories,
 describe what should happen, and a crew of agents does the work — each card in
@@ -90,7 +90,7 @@ on first start, and Settings can install its dependencies there.
   Completion commits with `Harness-Card` / `Harness-Run` / `Harness-Agent`
   trailers — which is how per-agent line counts and per-card history are read
   back out of git. Cancel or failure leaves a `wip:` commit.
-- **The Director can act.** It holds Harness's own tools — create, move, approve,
+- **The Director can act.** It holds Relay's own tools — create, move, approve,
   send back or delete a card, read a diff, and open a screen in your window.
   Anything that *changes* the board reaches your permission sheet first; showing
   you a screen and reading a diff do not, because they change nothing.
@@ -122,7 +122,7 @@ on first start, and Settings can install its dependencies there.
 
 ## Screens
 
-The frontend is a transcription of `Harness v4.dc.html`: tokens and keyframes
+The frontend is a transcription of `Relay v4.dc.html`: tokens and keyframes
 live in `src/styles/theme.css`, everything else carries the design's own inline
 styles so a screen can be read side by side with the design file.
 
@@ -135,7 +135,7 @@ styles so a screen can be read side by side with the design file.
 | Sessions | Every recorded run and its transcript, replayed from disk |
 | Worktrees | The checkouts that exist right now, and a way to drop them |
 | Activity | The event log, filterable, newest first |
-| Projects | Every repository Harness is allowed to touch |
+| Projects | Every repository Relay is allowed to touch |
 | Director | What it decided, its policy toggles, its standing brief |
 | Settings | How agents run, allowances, appearance, auth, where data lives |
 

@@ -1,4 +1,4 @@
-//! Every file Harness writes lives under the OS app-data directory, never next
+//! Every file Relay writes lives under the OS app-data directory, never next
 //! to the binary or inside a project the operator pointed us at.
 //!
 //! ```text

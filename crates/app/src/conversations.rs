@@ -13,11 +13,11 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// One chat: a Harness conversation bound to a native Claude session.
+/// One chat: a Relay conversation bound to a native Claude session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default)]
 pub struct Conversation {
-    /// Harness's own id, and the run-log file name. Prefixed `chat_` so it can
+    /// Relay's own id, and the run-log file name. Prefixed `chat_` so it can
     /// never be mistaken for a card id (`c_…`).
     pub id: String,
     /// The Claude Agent SDK session this continues. `None` before the first

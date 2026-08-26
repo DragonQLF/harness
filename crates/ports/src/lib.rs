@@ -131,7 +131,7 @@ pub struct ApprovalRequest {
 pub type Approver =
     Arc<dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
-/// A tool the agent calls that Harness itself implements — moving a card,
+/// A tool the agent calls that Relay itself implements — moving a card,
 /// opening a screen, reading a diff. The adapter forwards the call; the shell
 /// carries it out. Like any other tool the agent does not already hold, it goes
 /// through the approval flow first.
@@ -225,7 +225,7 @@ pub struct RunSpec {
     pub approver: Option<Approver>,
     /// Session to resume instead of starting fresh.
     pub resume_session: Option<String>,
-    /// Harness's own tools, when this run is allowed to act on the app.
+    /// Relay's own tools, when this run is allowed to act on the app.
     pub tools: Option<ToolRunner>,
     /// Room for the model to reason before answering. Without it there is no
     /// thinking to stream.

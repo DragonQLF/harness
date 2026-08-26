@@ -1,6 +1,6 @@
 /** Primitives lifted straight from the design file, so a screen reads as the
  *  same composition the design has. Styles stay inline on purpose: it keeps
- *  each element comparable with `Harness v4.dc.html` line by line. */
+ *  each element comparable with `Relay v4.dc.html` line by line. */
 
 import type { CSSProperties, ReactNode } from "react";
 

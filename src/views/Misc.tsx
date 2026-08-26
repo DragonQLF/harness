@@ -612,7 +612,7 @@ export function Settings() {
         <div style={card}>
           <Row
             name="Standing allowances"
-            note="Calls Harness stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
+            note="Calls Relay stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
             last
           >
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
@@ -698,7 +698,7 @@ export function Settings() {
           </div>
           <div style={{ fontSize: 11.5, color: "var(--text3)", lineHeight: 1.6 }}>
             Event logs, run transcripts, agent profiles and worktrees all live there — never inside
-            the repositories you point Harness at.
+            the repositories you point Relay at.
           </div>
           <button
             type="button"

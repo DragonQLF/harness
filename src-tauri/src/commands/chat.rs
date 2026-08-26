@@ -113,7 +113,7 @@ pub async fn chat_send(
 }
 
 /// Files to attach to the next message. The picker is native, so the operator
-/// chooses with the same dialog they know; Harness only learns the paths.
+/// chooses with the same dialog they know; Relay only learns the paths.
 #[tauri::command]
 pub async fn chat_pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -130,7 +130,7 @@ pub async fn chat_pick_files(app: tauri::AppHandle) -> Result<Vec<String>, Strin
 }
 
 /// Profiles the operator can create from. Returned on request only: a template
-/// is a menu entry, never something Harness installs by itself.
+/// is a menu entry, never something Relay installs by itself.
 #[tauri::command]
 pub async fn agent_templates() -> Result<Vec<AgentProfile>, String> {
     Ok(harness_app::agents::templates())
@@ -158,7 +158,7 @@ pub async fn agent_remove(agent_id: String, ws: Shared<'_>) -> Result<Vec<AgentP
 }
 
 /// The tables the Analyst reads: per project, the stats and recent activity
-/// Harness already derived. JSON because it is exact, and the model reads it.
+/// Relay already derived. JSON because it is exact, and the model reads it.
 async fn analyst_tables(ws: &Arc<Workspace>, only: Option<&str>) -> Result<String, String> {
     let mut out = String::new();
     for project in ws.projects() {

@@ -1,4 +1,4 @@
-//! Everything Harness knows how to do that does not need a window.
+//! Everything Relay knows how to do that does not need a window.
 //!
 //! The Tauri shell is a thin adapter over this crate: app-data layout, operator
 //! settings, agent profiles, approval routing and the numbers the UI shows all

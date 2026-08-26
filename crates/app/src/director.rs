@@ -204,10 +204,10 @@ fn boards(projects: &[ProjectBrief]) -> String {
     out
 }
 
-/// What Harness is, told once per session rather than every turn.
+/// What Relay is, told once per session rather than every turn.
 fn how_harness_works(ctx: &ChatContext) -> String {
     let mut out = String::from(
-        "Harness is where this conversation lives: a desktop app on their own machine that \
+        "Relay is where this conversation lives: a desktop app on their own machine that \
          runs Claude agents. What it can do for you:\n\
          - A **project** is a git repository with a board. Work you want an agent to carry out \
          becomes a **card**; one card is one agent run, in its own git worktree, reviewed as a \
@@ -255,7 +255,7 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         ctx.speaker.name.trim()
     };
     prompt.push_str(&format!(
-        "You are {who}{}, talking with {} in Harness — their own agent harness, on their machine.\n\n",
+        "You are {who}{}, talking with {} in Relay — their own agent harness, on their machine.\n\n",
         if ctx.speaker.title.trim().is_empty() {
             String::new()
         } else {
@@ -429,7 +429,7 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
 
 /// Files the operator attached to a message, folded into the message itself.
 ///
-/// Nothing is uploaded anywhere: Harness runs on the operator's machine and the
+/// Nothing is uploaded anywhere: Relay runs on the operator's machine and the
 /// agent already has Read, Glob and Grep — the pathguard only fences *writes*
 /// (#39, #62). So an attachment is a pointer, named in the operator's own turn,
 /// and the model opens what it needs. That also means the transcript records
@@ -466,7 +466,7 @@ pub fn with_attachments(message: &str, files: &[String]) -> String {
 /// citing card ids as evidence. It writes nothing; the answer is the work.
 pub fn analyst_prompt(tables: &str) -> String {
     format!(
-        "You are the Analyst. Below are tables Harness already computed about its own \
+        "You are the Analyst. Below are tables Relay already computed about its own \
          operation: card flow, spend, runs, reviews.\n\n\
          Rules:\n\
          - Interpret; do not recompute. The arithmetic is given and trusted. If two numbers \
@@ -481,7 +481,7 @@ pub fn analyst_prompt(tables: &str) -> String {
 }
 
 /// The end-of-day look: a short, self-directed turn run once a day when the
-/// operator closes Harness. It is not a conversation — nobody is talking to
+/// operator closes Relay. It is not a conversation — nobody is talking to
 /// him. He looks, and either files proposals or says the day was clean.
 pub fn daily_look_prompt() -> String {
     "This is your end-of-day look. Nobody is talking to you; you are looking at what happened \
@@ -562,7 +562,7 @@ mod tests {
     fn it_is_not_framed_as_a_software_manager() {
         let prompt = chat_prompt(&ctx(&[]), "hello");
         for gone in [
-            "You are the Director of Harness, a desktop tool",
+            "You are the Director of Relay, a desktop tool",
             "you never write code yourself",
             "break the first piece of work into cards",
         ] {
@@ -627,7 +627,7 @@ mod tests {
         // The session already holds the identity; sending it again would have
         // it start the conversation over.
         assert!(!prompt.contains("You are Director"));
-        assert!(!prompt.contains("Harness is where this conversation lives"));
+        assert!(!prompt.contains("Relay is where this conversation lives"));
         // But the boards may have moved while it was away.
         assert!(prompt.contains("Usage rollup"));
         assert!(prompt.contains("may have changed since we last spoke"));

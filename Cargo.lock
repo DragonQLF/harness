@@ -1424,30 +1424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "harness-agent-claude",
- "harness-agent-sidecar",
- "harness-app",
- "harness-domain",
- "harness-engine",
- "harness-git-cli",
- "harness-ports",
- "harness-store-jsonl",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tokio",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
 name = "harness-agent-claude"
 version = "0.1.0"
 dependencies = [
@@ -2886,6 +2862,30 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "relay"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "harness-agent-claude",
+ "harness-agent-sidecar",
+ "harness-app",
+ "harness-domain",
+ "harness-engine",
+ "harness-git-cli",
+ "harness-ports",
+ "harness-store-jsonl",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
 
 [[package]]
 name = "reqwest"

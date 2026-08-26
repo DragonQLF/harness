@@ -1,4 +1,4 @@
-//! The tools an agent may use on Harness itself.
+//! The tools an agent may use on Relay itself.
 //!
 //! These are the only way an agent can touch the app rather than a repository.
 //! The ones that *change* something are deliberately not in the run's
@@ -479,7 +479,7 @@ pub async fn run(
             }
         }
 
-        other => ToolReply::refused(format!("Harness has no tool called {other}")),
+        other => ToolReply::refused(format!("Relay has no tool called {other}")),
     }
 }
 

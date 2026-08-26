@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Harness",
+  "productName": "Relay",
   "version": "0.1.0",
   "identifier": "com.harness.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Harness",
+        "title": "Relay",
         "width": 1440,
         "height": 900,
         "minWidth": 1040,

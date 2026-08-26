@@ -149,7 +149,7 @@ export const api = {
   pickFiles: () => invoke<string[]>("chat_pick_files"),
 
   /** Profiles you can create from. Fetched on request: a template is a menu
-   *  entry, never something Harness installs by itself. */
+   *  entry, never something Relay installs by itself. */
   agentTemplates: () => invoke<AgentProfile[]>("agent_templates"),
   agentCreateFromTemplate: (templateId: string) =>
     invoke<AgentProfile>("agent_create_from_template", { templateId }),

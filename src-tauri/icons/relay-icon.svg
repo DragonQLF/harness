@@ -1,0 +1,25 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="surface" x1="124" y1="92" x2="916" y2="958" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34E0D0"/>
+      <stop offset="0.52" stop-color="#14A6E8"/>
+      <stop offset="1" stop-color="#0B4FC4"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="256" y1="154" x2="740" y2="740" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="236" fill="#0B1020"/>
+  <rect x="72" y="72" width="880" height="880" rx="212" fill="url(#surface)"/>
+  <g stroke="#F8F7FF" stroke-width="140" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M347 250V780"/>
+    <path d="M347 250H537A140 140 0 0 1 537 530H347"/>
+    <path d="M451 530L677 780"/>
+  </g>
+  <g stroke="url(#sheen)" stroke-width="140" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M347 250V780"/>
+    <path d="M347 250H537A140 140 0 0 1 537 530H347"/>
+    <path d="M451 530L677 780"/>
+  </g>
+</svg>

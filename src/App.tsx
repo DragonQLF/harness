@@ -92,7 +92,7 @@ function ClosingOverlay() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Spinner />
           <span style={{ font: "700 14px var(--sans)", letterSpacing: "-.01em" }}>
-            {leaving ? "Closing Harness" : waitingFor}
+            {leaving ? "Closing Relay" : waitingFor}
           </span>
         </div>
 
@@ -104,7 +104,7 @@ function ClosingOverlay() {
           }}
         >
           {phase?.detail ??
-            "Harness is finishing what it started before it lets go of the window."}
+            "Relay is finishing what it started before it lets go of the window."}
         </p>
 
         <div
@@ -487,7 +487,7 @@ function Shell() {
     return (
       <div style={{ padding: 40, maxWidth: 640 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>
-          Harness could not start
+          Relay could not start
         </h1>
         <pre
           style={{
@@ -503,7 +503,7 @@ function Shell() {
           {fatal}
         </pre>
         <p style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          The backend refused the first call. Check the terminal Harness was started from.
+          The backend refused the first call. Check the terminal Relay was started from.
         </p>
       </div>
     );
@@ -512,7 +512,7 @@ function Shell() {
   if (!ready) {
     return (
       <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
-        <Loading what="Starting Harness" />
+        <Loading what="Starting Relay" />
       </div>
     );
   }
@@ -558,7 +558,7 @@ function Shell() {
     activity: ["Activity", `every board change, newest first`],
     trees: ["Worktrees", "one checkout per card, until you remove it"],
     projects: ["Projects", plural(projects.length, "repository")],
-    settings: ["Settings", "what Harness may do without asking"],
+    settings: ["Settings", "what Relay may do without asking"],
   };
   const [headTitle, headMeta] = heads[view];
 

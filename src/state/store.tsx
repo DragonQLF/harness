@@ -61,7 +61,7 @@ export interface LogLine {
 }
 
 export interface ChatMsg {
-  /** `notice` is Harness itself talking: a failed resume, a cancelled turn.
+  /** `notice` is Relay itself talking: a failed resume, a cancelled turn.
    *  `tool` is what the agent tried (`summary`) — its result arrives as a
    *  second tool bubble matched by id, green or red, expandable. */
   role: "user" | "agent" | "notice" | "tool";
@@ -672,7 +672,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               streamedRef.current = false;
               break;
             case "notice":
-              // Harness itself talking — a resume that could not be honoured.
+              // Relay itself talking — a resume that could not be honoured.
               if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text!, ts: u.ts_ms }]);
               break;
             case "done":
@@ -1290,7 +1290,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           `${info.path} has files but no git repository.
 
 ` +
-            "Run git init there so Harness can work on it?",
+            "Run git init there so Relay can work on it?",
         );
         if (!ok) return;
         await adopt(info.path, true, info.name);

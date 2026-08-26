@@ -1,5 +1,5 @@
 //! The end-of-day look: one self-directed Director turn, once a day, when the
-//! operator closes Harness.
+//! operator closes Relay.
 //!
 //! Never each turn — patterns are visible over weeks, not messages, and a
 //! model asked to reflect constantly reflects about nothing. The app owns the
@@ -180,7 +180,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         _ = skip.cancelled() => {
             token.cancel();
             let _ = (&mut run).await;
-            Some("you closed Harness before the look finished; what was filed is filed")
+            Some("you closed Relay before the look finished; what was filed is filed")
                 .map(str::to_string)
         }
     };

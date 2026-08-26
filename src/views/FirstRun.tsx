@@ -1,4 +1,4 @@
-/** What Harness shows before it has a project: the two ways in, and the
+/** What Relay shows before it has a project: the two ways in, and the
  *  Director, who can be asked what to do first. Never a dead end. */
 
 import { useState } from "react";
@@ -104,7 +104,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
               maxWidth: "62ch",
             }}
           >
-            Harness works on git repositories — local ones. Point it at a repo you already have, or
+            Relay works on git repositories — local ones. Point it at a repo you already have, or
             start a new one from scratch: no remote, no account, nothing leaves this machine unless
             an agent asks you to push.
           </div>
@@ -221,7 +221,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
           <Step
             n="1"
             title="Pick a repository"
-            body="A local repository is enough — no remote required. Harness never writes inside it directly: each card gets its own worktree under app data, on a harness/<card> branch."
+            body="A local repository is enough — no remote required. Relay never writes inside it directly: each card gets its own worktree under app data, on a harness/<card> branch."
           />
           <Step
             n="2"
@@ -331,7 +331,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-              Where Harness keeps things
+              Where Relay keeps things
             </div>
             <div
               title={dataDir}

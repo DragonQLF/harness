@@ -396,7 +396,7 @@ impl AgentPort for SlowCancelAgent {
     }
 }
 
-/// An agent that reports its work through the harness tool Harness handed the
+/// An agent that reports its work through the harness tool Relay handed the
 /// run — twice, with different summaries. Proves the tool reaches the engine,
 /// that both land in the event log, and that the *last* wins at commit time.
 struct ReportingAgent;

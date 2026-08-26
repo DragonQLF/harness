@@ -39,7 +39,7 @@ use crate::workspace::{SwitchingAgent, SystemClock};
 use crate::workspace::Workspace;
 use harness_ports::ClockPort;
 
-/// Harness tools that only read, navigate, or write into our own layer.
+/// Relay tools that only read, navigate, or write into our own layer.
 /// Granted outright, because none of them changes a board — see decisions #29
 /// and #76. Everything that *changes* a board is absent on purpose, so it
 /// reaches the approver. The mirror tools (`self_report`, `read_docs`,
@@ -157,7 +157,7 @@ pub async fn send(
     );
     let conversation = ws.record_chat_message(&conversation.id, &message)?;
 
-    // Harness's own tools. The mutating ones are not in `allowed_tools`, so the
+    // Relay's own tools. The mutating ones are not in `allowed_tools`, so the
     // SDK sends each call through the approver first: the operator sees "the
     // Director wants to move c_7b30" before anything moves.
     let delegating = profile.can_delegate;
@@ -186,7 +186,7 @@ pub async fn send(
         tools: Some(tools),
         // The operator watches it think while it works, so give it room to.
         thinking_tokens: Some(4000),
-        // A conversation acts through Harness's own tools; no fan-out, and
+        // A conversation acts through Relay's own tools; no fan-out, and
         // nothing to report — its work is the conversation itself.
         subagents: false,
         report_work: false,

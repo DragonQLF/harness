@@ -1,5 +1,5 @@
 /** The review screen: one finished run, what it changed, and the two things you
- *  can do about it. Harness never merges — approving moves the card, the branch
+ *  can do about it. Relay never merges — approving moves the card, the branch
  *  and its worktree stay where they are. */
 
 import { useEffect, useMemo, useState } from "react";
@@ -470,7 +470,7 @@ export function Review({
                   color: "var(--text4)",
                 }}
               >
-                Approving moves the card to Done. Harness does not merge:{" "}
+                Approving moves the card to Done. Relay does not merge:{" "}
                 <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
                   {diff?.branch ?? session?.branch ?? "the branch"}
                 </span>{" "}

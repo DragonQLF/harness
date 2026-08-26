@@ -1,4 +1,4 @@
-//! The project registry: git repositories the operator pointed Harness at.
+//! The project registry: git repositories the operator pointed Relay at.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -41,7 +41,7 @@ impl Default for Project {
 
 pub const TONES: [&str; 4] = ["accent", "info", "ok", "warn"];
 
-/// The harness's own project — the one mirror mode builds. Work on Harness
+/// The harness's own project — the one mirror mode builds. Work on Relay
 /// itself is born here, never in whatever the operator has open (#72).
 pub fn mirror_project(projects: &[Project]) -> Option<&Project> {
     projects.iter().find(|p| p.mirror)
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn glyphs_come_from_the_first_letters() {
-        assert_eq!(glyph_for("harness"), "H");
+        assert_eq!(glyph_for("relay"), "R");
         assert_eq!(glyph_for("atlas api"), "AA");
         assert_eq!(glyph_for("seven-web-site"), "SW");
         assert_eq!(glyph_for("   "), "P");
@@ -150,8 +150,8 @@ mod tests {
 
     #[test]
     fn ids_do_not_collide() {
-        let taken = vec!["harness".to_string(), "harness-2".to_string()];
-        assert_eq!(unique_id("Harness", &taken), "harness-3");
+        let taken = vec!["relay".to_string(), "relay-2".to_string()];
+        assert_eq!(unique_id("Relay", &taken), "relay-3");
         assert_eq!(unique_id("Other Thing", &taken), "other-thing");
     }
 

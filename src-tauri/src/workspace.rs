@@ -903,7 +903,7 @@ impl Workspace {
                 program: "pnpm".into(),
                 args: vec!["tauri".into(), "build".into(), "--no-bundle".into()],
                 updates_dir: self.paths.updates_dir(),
-                artifact: "target/release/harness.exe".into(),
+                artifact: "target/release/relay.exe".into(),
             });
         }
         if let Some(director_profile) = self.agent(agents::DIRECTOR_ID) {

@@ -93,7 +93,7 @@ async fn drive(
             "model": spec.model,
             "max_budget_usd": spec.max_budget_usd,
             "resume_session": spec.resume_session,
-            // Whether this run may act on Harness itself.
+            // Whether this run may act on Relay itself.
             "harness_tools": spec.tools.is_some() && !spec.report_work,
             // Worker runs carry exactly one harness tool: report_work.
             "report_work": spec.report_work,
@@ -286,7 +286,7 @@ async fn drive(
                         }
                     }
                     Some("tool_request") => {
-                        // A Harness tool: the shell carries it out and we hand
+                        // A Relay tool: the shell carries it out and we hand
                         // the answer straight back to the model.
                         let request_id = msg
                             .get("request_id")
@@ -309,7 +309,7 @@ async fn drive(
                                 .await
                             }
                             None => harness_ports::ToolReply::refused(
-                                "this run cannot act on Harness",
+                                "this run cannot act on Relay",
                             ),
                         };
 

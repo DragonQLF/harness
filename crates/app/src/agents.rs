@@ -156,7 +156,7 @@ impl AgentProfile {
   pub fn prompt_for(&self, card_title: &str, extra: Option<&str>) -> String {
     let mut prompt = String::new();
     prompt.push_str(
-      "Harness commits for you — never commit yourself. What it expects from you at the \
+      "Relay commits for you — never commit yourself. What it expects from you at the \
        end is one call to the report_work tool: a summary of what changed, and durable \
        notes worth keeping after this card.\n\n",
     );
@@ -250,7 +250,7 @@ pub fn defaults() -> Vec<AgentProfile> {
 }
 
 /// Profiles the operator can create from, and nothing more: a template is a
-/// starting point in a list, never something Harness turns on by itself. Only
+/// starting point in a list, never something Relay turns on by itself. Only
 /// the Director is required; every one of these is optional.
 pub fn templates() -> Vec<AgentProfile> {
     vec![
@@ -603,7 +603,7 @@ mod tests {
         assert!(prompt.contains("see issue 12"));
 
         let bare = AgentProfile::default().prompt_for("Do a thing", None);
-        assert!(bare.starts_with("Harness commits for you"));
+        assert!(bare.starts_with("Relay commits for you"));
       assert!(bare.ends_with("Task: Do a thing"));
     }
 

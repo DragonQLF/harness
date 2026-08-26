@@ -22,7 +22,7 @@ function scopeOf(request: PendingApproval): AllowRule {
   return { tool: request.tool, command: words || undefined };
 }
 
-/** A chained command cannot be narrowed into a rule, so Harness will not
+/** A chained command cannot be narrowed into a rule, so Relay will not
  *  record one — the sheet says so rather than pretending. */
 function scopable(request: PendingApproval): boolean {
   const rule = scopeOf(request);
@@ -196,7 +196,7 @@ function ApprovalCard({
             }}
           >
             {canScope
-              ? "Scoped to that command. A bare shell rule authorises nothing, so Harness will not record one."
+              ? "Scoped to that command. A bare shell rule authorises nothing, so Relay will not record one."
               : "This command chains others, so it cannot be narrowed into a rule. It is allowed once."}
           </span>
         </span>

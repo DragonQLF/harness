@@ -1,4 +1,4 @@
-//! The single writer. Every state change in Harness goes through this actor:
+//! The single writer. Every state change in Relay goes through this actor:
 //! a command is decided against the board, persisted, then broadcast. Runs and
 //! reviews happen in spawned tasks that report back through the same queue, so
 //! there is exactly one owner of the truth.

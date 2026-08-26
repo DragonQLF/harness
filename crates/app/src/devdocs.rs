@@ -53,7 +53,7 @@ pub fn render(docs_dir: &Path, doc: Doc, find: Option<&str>) -> Result<String, S
     let path = docs_dir.join(doc.file_name());
     let text = std::fs::read_to_string(&path).map_err(|_| {
         format!(
-            "{} ({}) could not be read from {}. Harness's own repository is not registered as a \
+            "{} ({}) could not be read from {}. Relay's own repository is not registered as a \
              project here, so there is nowhere to look it up.",
             doc.title(),
             doc.file_name(),

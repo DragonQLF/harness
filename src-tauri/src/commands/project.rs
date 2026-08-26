@@ -197,7 +197,7 @@ pub async fn remove_worktree(
     // before comparing, and refuse anything that cannot be resolved.
     if !inside(&expected, &target) {
         return Err(format!(
-            "{} is not a worktree Harness created",
+            "{} is not a worktree Relay created",
             target.display()
         ));
     }

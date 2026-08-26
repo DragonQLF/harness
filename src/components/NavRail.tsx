@@ -150,7 +150,7 @@ export function NavRail({
           H
         </span>
         <span style={{ font: "600 15px var(--sans)", color: "var(--text)", letterSpacing: "-.02em" }}>
-          Harness
+          Relay
         </span>
         <div style={{ flex: 1 }} />
         <span

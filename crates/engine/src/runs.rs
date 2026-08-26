@@ -358,7 +358,7 @@ impl Engine {
                 .await;
                 match accepted {
                     Ok(()) => harness_ports::ToolReply::ok(
-                        "reported; the summary becomes the body of Harness's commit",
+                        "reported; the summary becomes the body of Relay's commit",
                     ),
                     Err(reason) => harness_ports::ToolReply::refused(reason),
                 }
@@ -384,7 +384,7 @@ impl Engine {
             approver: self.approver.clone(),
             resume_session: resume_session.clone(),
             // The worker's one harness tool: its own account of the work. A
-            // write to Harness, not to the repository, so it rides in
+            // write to Relay, not to the repository, so it rides in
             // allowed_tools instead of the approval queue.
             tools,
             thinking_tokens: None,

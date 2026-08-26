@@ -119,7 +119,7 @@ impl CliGit {
         "main".to_string()
     }
 
-    /// The `origin` URL, when there is one. Harness needs no remote: a purely
+    /// The `origin` URL, when there is one. Relay needs no remote: a purely
     /// local repository is a first-class project.
     pub fn remote(&self) -> Option<String> {
         self.git(&self.repo_root, &["remote", "get-url", "origin"])
@@ -139,7 +139,7 @@ impl CliGit {
     /// Give this repository a local identity so agent commits can succeed. Only
     /// ever repo-local, and only when there is none to inherit.
     pub fn set_local_identity(&self) -> Result<(), GitError> {
-        self.git(&self.repo_root, &["config", "user.name", "Harness"])?;
+        self.git(&self.repo_root, &["config", "user.name", "Relay"])?;
         self.git(&self.repo_root, &["config", "user.email", "harness@localhost"])?;
         Ok(())
     }
@@ -587,7 +587,7 @@ pub fn ensure_workspace(dir: &Path) -> Result<(), GitError> {
         }
         git.git(dir, &["add", "-A"])?;
         // A fresh install may have no committer identity configured.
-        let _ = git.git(dir, &["config", "user.name", "Harness"]);
+        let _ = git.git(dir, &["config", "user.name", "Relay"]);
         let _ = git.git(dir, &["config", "user.email", "harness@localhost"]);
         git.git(dir, &["commit", "-m", "chore: workspace bootstrap"])?;
     }

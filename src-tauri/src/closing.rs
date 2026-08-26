@@ -1,6 +1,6 @@
 //! Closing the window, out loud.
 //!
-//! Harness holds the window on close for two reasons: running agents get to
+//! Relay holds the window on close for two reasons: running agents get to
 //! leave a wip commit behind, and once a day the Director takes his end-of-day
 //! look (#79). Both are deliberate. Neither used to say anything — the operator
 //! pressed the close button and the window simply refused, which from the

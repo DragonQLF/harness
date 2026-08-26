@@ -83,7 +83,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         : { label: "not run", fg: "var(--text3)", soft: "var(--surface2)" };
   const agentNames = new Set(detail.commits.map((c) => c.agent).filter(Boolean));
 
-  /** Mirror mode: the project Harness treats as its own home — where the
+  /** Mirror mode: the project Relay treats as its own home — where the
    *  Director's accepted proposals become cards (#72, #79) and where read_docs
    *  looks for DEBT.md and DECISIONS.md (#78). Exactly one project holds it;
    *  the backend takes it from whoever had it before. */
@@ -173,7 +173,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
           title={
             detail.remote
               ? detail.remote
-              : "Local only — Harness never needs a remote. Nothing leaves this machine unless an agent asks you to push."
+              : "Local only — Relay never needs a remote. Nothing leaves this machine unless an agent asks you to push."
           }
         >
           {detail.remote ? "origin" : "local only"}
@@ -339,10 +339,10 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 onClick={toggleMirror}
                 title={
                   project.mirror
-                    ? "Harness's own home: accepted proposals are born here and read_docs reads this repository's docs/"
+                    ? "Relay's own home: accepted proposals are born here and read_docs reads this repository's docs/"
                     : held
                       ? `Mirror mode is on ${held.name}. Turning it on here takes it from there.`
-                      : "Make this the project Harness improves itself in"
+                      : "Make this the project Relay improves itself in"
                 }
                 style={{
                   display: "flex",
@@ -908,7 +908,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
           {projects.length}
         </span>
         <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
-          Every repository Harness is allowed to touch
+          Every repository Relay is allowed to touch
         </span>
         <div style={{ flex: 1 }} />
         <button
@@ -1022,7 +1022,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                     </span>
                     {p.mirror && (
                       <span
-                        title="Mirror mode: the project Harness improves itself in"
+                        title="Mirror mode: the project Relay improves itself in"
                         style={{
                           padding: "3px 9px",
                           borderRadius: 999,
