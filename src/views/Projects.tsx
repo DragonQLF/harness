@@ -147,7 +147,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         </h1>
         <span
           style={{
-            padding: "3px 9px",
+            padding: "4px 10px",
             borderRadius: 999,
             background: "var(--surface)",
             border: "1px solid var(--line)",
@@ -161,11 +161,11 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         </span>
         <span
           style={{
-            padding: "3px 9px",
+            padding: "4px 10px",
             borderRadius: 999,
             background: "var(--surface2)",
             border: "1px solid var(--line)",
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: 700,
             color: "var(--text3)",
             fontFamily: "var(--mono)",
@@ -187,18 +187,18 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(0,1fr) 292px",
-          gap: 13,
+          gap: 14,
           alignItems: "start",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 13, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
           <section
             style={{
               position: "relative",
               display: "flex",
               flexDirection: "column",
               border: "1px solid var(--line)",
-              borderRadius: 24,
+              borderRadius: 20,
               background: "var(--surface)",
               overflow: "hidden",
               boxShadow: "var(--panel)",
@@ -230,24 +230,24 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   width: 54,
                   height: 54,
                   flex: "none",
-                  borderRadius: 17,
+                  borderRadius: 16,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   background: "var(--surface)",
                   border: `1px solid ${t.color}`,
                   color: t.color,
-                  fontSize: 19,
+                  fontSize: 20,
                   fontWeight: 800,
                 }}
               >
                 {project.glyph}
               </span>
               <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span
                     style={{
-                      fontSize: 17,
+                      fontSize: 16,
                       fontWeight: 800,
                       letterSpacing: "-.02em",
                       fontFamily: "var(--mono)",
@@ -309,9 +309,9 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 position: "relative",
                 display: "flex",
                 alignItems: "center",
-                gap: 9,
+                gap: 10,
                 marginTop: 18,
-                padding: "13px 20px",
+                padding: "14px 20px",
                 borderTop: "1px solid var(--line2)",
                 fontSize: 11.5,
                 color: "var(--text3)",
@@ -347,13 +347,13 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 7,
-                  padding: "3px 10px 3px 7px",
+                  gap: 8,
+                  padding: "4px 10px 4px 8px",
                   borderRadius: 999,
                   background: project.mirror ? "var(--okSoft)" : "var(--surface2)",
                   border: `1px solid ${project.mirror ? "var(--ok)" : "var(--line)"}`,
                   color: project.mirror ? "var(--ok)" : "var(--text3)",
-                  fontSize: 11,
+                  fontSize: 11.5,
                   fontWeight: 700,
                   cursor: busy ? "default" : "pointer",
                   opacity: busy ? 0.6 : 1,
@@ -406,14 +406,14 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
           <section
             style={{
               border: "1px solid var(--line)",
-              borderRadius: 24,
+              borderRadius: 20,
               background: "var(--surface)",
               overflow: "hidden",
               boxShadow: "var(--panel)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 18px 14px" }}>
-              <h2 style={{ margin: 0, fontSize: 13.5, fontWeight: 800, letterSpacing: "-.01em" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px 14px" }}>
+              <h2 style={{ margin: 0, fontSize: 14, fontWeight: 800, letterSpacing: "-.01em" }}>
                 History
               </h2>
               <span
@@ -520,7 +520,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                       minWidth: 0,
                       display: "flex",
                       alignItems: "center",
-                      gap: 13,
+                      gap: 14,
                       paddingRight: 18,
                     }}
                   >
@@ -535,7 +535,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         justifyContent: "center",
                         background: at.soft,
                         color: at.color,
-                        fontSize: 11,
+                        fontSize: 11.5,
                         fontWeight: 800,
                       }}
                     >
@@ -545,7 +545,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                       <span
                         style={{
                           display: "block",
-                          fontSize: 13.5,
+                          fontSize: 14,
                           fontWeight: 600,
                           letterSpacing: "-.01em",
                           ...truncate,
@@ -557,9 +557,9 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 7,
-                          marginTop: 3,
-                          fontSize: 11,
+                          gap: 8,
+                          marginTop: 4,
+                          fontSize: 11.5,
                           color: "var(--text3)",
                         }}
                       >
@@ -575,11 +575,11 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         {c.card && (
                           <span
                             style={{
-                              padding: "1px 7px",
+                              padding: "1px 8px",
                               borderRadius: 999,
                               background: "var(--okSoft)",
                               color: "var(--ok)",
-                              fontSize: 10,
+                              fontSize: 10.5,
                               fontWeight: 800,
                               fontFamily: "var(--mono)",
                             }}
@@ -594,9 +594,9 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         flex: "none",
                         display: "flex",
                         alignItems: "center",
-                        gap: 7,
+                        gap: 8,
                         fontFamily: "var(--mono)",
-                        fontSize: 11,
+                        fontSize: 11.5,
                         ...tabular,
                       }}
                     >
@@ -636,7 +636,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
           </section>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <section
             style={{
               border: "1px solid var(--line)",
@@ -664,7 +664,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                     display: "flex",
                     alignItems: "center",
                     gap: 10,
-                    padding: "11px 16px",
+                    padding: "12px 16px",
                     borderTop: "1px solid var(--line2)",
                   }}
                 >
@@ -710,7 +710,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               border: "1px solid var(--line)",
               borderRadius: 20,
               background: "var(--surface)",
-              padding: "15px 16px 16px",
+              padding: "16px 16px 16px",
             }}
           >
             <div
@@ -718,7 +718,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
             >
               Languages
             </div>
-            <div style={{ display: "flex", gap: 2, height: 8, borderRadius: 5, overflow: "hidden" }}>
+            <div style={{ display: "flex", gap: 2, height: 8, borderRadius: 4, overflow: "hidden" }}>
               {langs.map((l, i) => (
                 <span
                   key={l.name}
@@ -736,7 +736,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 flexWrap: "wrap",
                 gap: "6px 14px",
                 marginTop: 12,
-                fontSize: 11,
+                fontSize: 11.5,
                 color: "var(--text3)",
               }}
             >
@@ -765,17 +765,17 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               overflow: "hidden",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "14px 16px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px 12px" }}>
               <span style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em" }}>
                 Checks on {detail.default_branch}
               </span>
               <span
                 style={{
-                  padding: "1px 7px",
+                  padding: "1px 8px",
                   borderRadius: 999,
                   background: worst.soft,
                   color: worst.fg,
-                  fontSize: 10,
+                  fontSize: 10.5,
                   fontWeight: 800,
                 }}
               >
@@ -823,7 +823,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   <span
                     style={{ width: 7, height: 7, flex: "none", borderRadius: "50%", background: dot }}
                   />
-                  <span style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11, ...truncate }}>
+                  <span style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11.5, ...truncate }}>
                     {ck.name}
                   </span>
                   <span
@@ -859,7 +859,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               border: "1px solid var(--line)",
               borderRadius: 20,
               background: "var(--surface)",
-              padding: "15px 16px",
+              padding: "16px 16px",
             }}
           >
             <div style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em" }}>Spend</div>
@@ -871,10 +871,10 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 marginTop: 8,
               }}
             >
-              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.03em", ...tabular }}>
+              <span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-.02em", ...tabular }}>
                 {money(project.stats.spend_total)}
               </span>
-              <span style={{ fontSize: 11, color: "var(--text3)" }}>
+              <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
                 {plural(project.stats.runs_total, "run")}
               </span>
             </div>
@@ -903,7 +903,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
           className="hv-bright"
           onClick={addProject}
           style={{
-            padding: "8px 15px",
+            padding: "8px 16px",
             border: "none",
             borderRadius: 999,
             background: "var(--accent)",
@@ -918,7 +918,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 13 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 14 }}>
         {projects.map((p) => {
           const t = tone(p.tone);
           const st = !p.exists
@@ -936,7 +936,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
               style={{
                 position: "relative",
                 border: "1px solid var(--line)",
-                borderRadius: 24,
+                borderRadius: 20,
                 background: "var(--surface)",
                 overflow: "hidden",
                 boxShadow: "var(--panel)",
@@ -968,7 +968,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                     width: 46,
                     height: 46,
                     flex: "none",
-                    borderRadius: 15,
+                    borderRadius: 16,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -982,7 +982,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   {p.glyph}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span
                       style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...truncate }}
                     >
@@ -993,11 +993,11 @@ export function Projects({ go }: { go: (v: View) => void }) {
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        padding: "3px 9px",
+                        padding: "4px 10px",
                         borderRadius: 999,
                         background: st.soft,
                         color: st.fg,
-                        fontSize: 11,
+                        fontSize: 11.5,
                         fontWeight: 700,
                         flex: "none",
                       }}
@@ -1011,11 +1011,11 @@ export function Projects({ go }: { go: (v: View) => void }) {
                       <span
                         title="Mirror mode: the project Relay improves itself in"
                         style={{
-                          padding: "3px 9px",
+                          padding: "4px 10px",
                           borderRadius: 999,
                           background: "var(--okSoft)",
                           color: "var(--ok)",
-                          fontSize: 11,
+                          fontSize: 11.5,
                           fontWeight: 700,
                           flex: "none",
                         }}
@@ -1046,7 +1046,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   position: "relative",
                   display: "flex",
                   alignItems: "center",
-                  gap: 9,
+                  gap: 10,
                   marginTop: 16,
                   padding: "12px 20px",
                   borderTop: "1px solid var(--line2)",
@@ -1126,10 +1126,10 @@ export function Projects({ go }: { go: (v: View) => void }) {
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: 9,
+            gap: 10,
             minHeight: 168,
             border: "1px dashed var(--line)",
-            borderRadius: 24,
+            borderRadius: 20,
             background: "transparent",
             color: "var(--text3)",
             cursor: "pointer",
@@ -1145,7 +1145,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 17,
+              fontSize: 16,
             }}
           >
             +

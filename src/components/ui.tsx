@@ -54,7 +54,7 @@ export function CardHead({
   note?: string;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "17px 20px 14px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 20px 14px" }}>
       <span style={{ fontSize: "var(--t-lg)", fontWeight: 700 }}>{title}</span>
       {count != null && (
         <span
@@ -198,7 +198,7 @@ export function StrongButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: "9px 17px",
+        padding: "10px 18px",
         border: "none",
         borderRadius: 999,
         background: "var(--text)",
@@ -235,7 +235,7 @@ export function QuietButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: "9px 15px",
+        padding: "10px 16px",
         border: tone ? "1px solid transparent" : "1px solid var(--line)",
         borderRadius: 999,
         background: tone?.soft ?? "transparent",
@@ -269,8 +269,8 @@ export function Segmented<T extends string>({
     <div
       style={{
         display: "flex",
-        gap: 3,
-        padding: 3,
+        gap: 4,
+        padding: 4,
         borderRadius: 999,
         background: "var(--surface2)",
         border: "1px solid var(--line)",
@@ -359,14 +359,14 @@ export function SwitchRow({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 13,
-        padding: "13px 17px",
+        gap: 14,
+        padding: "14px 18px",
         borderTop: first ? "none" : "1px solid var(--line2)",
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>
-        <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--text3)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{name}</div>
+        <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text3)", lineHeight: 1.5 }}>
           {note}
         </div>
       </div>
@@ -389,7 +389,7 @@ export function WeekBars({
 }) {
   const peak = Math.max(1, ...values);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height }}>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height }}>
       {values.map((v, i) => (
         <span
           key={i}
@@ -399,14 +399,14 @@ export function WeekBars({
             style={{
               width: "100%",
               height: `${Math.max(6, Math.round((v / peak) * (height - 18)))}px`,
-              borderRadius: 5,
+              borderRadius: 4,
               background: color,
               opacity: Number((0.3 + 0.7 * (v / peak)).toFixed(2)),
               transformOrigin: "bottom",
               animation: "riseBar .7s cubic-bezier(.2,.8,.2,1) both",
             }}
           />
-          <span style={{ fontSize: 10, color: "var(--text3)" }}>{labels[i]}</span>
+          <span style={{ fontSize: 10.5, color: "var(--text3)" }}>{labels[i]}</span>
         </span>
       ))}
     </div>
@@ -560,7 +560,7 @@ export function PageHead({
           margin: 0,
           fontSize: "var(--t-xl)",
           fontWeight: 800,
-          letterSpacing: "-.03em",
+          letterSpacing: "-.02em",
           lineHeight: 1.2,
         }}
       >
@@ -569,7 +569,7 @@ export function PageHead({
       {crumb && (
         <span
           style={{
-            padding: "4px 11px",
+            padding: "4px 12px",
             borderRadius: 999,
             background: "var(--surface2)",
             border: "1px solid var(--line)",
@@ -610,7 +610,7 @@ export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSP
       style={{
         fontSize: "var(--t-xs)",
         fontWeight: 500,
-        letterSpacing: ".1em",
+        letterSpacing: ".08em",
         color: "var(--text3)",
         ...style,
       }}
@@ -699,7 +699,7 @@ export function Caret() {
         display: "inline-block",
         width: 7,
         height: 12,
-        marginLeft: 3,
+        marginLeft: 4,
         background: "var(--accent)",
         animation: "caret 1.05s steps(1) infinite",
         verticalAlign: "-1px",

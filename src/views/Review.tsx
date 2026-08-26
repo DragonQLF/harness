@@ -59,7 +59,7 @@ function FileSection({ file }: { file: FilePatch }) {
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "5px 18px",
+          padding: "6px 18px",
           cursor: "pointer",
           position: "sticky",
           top: 0,
@@ -68,12 +68,12 @@ function FileSection({ file }: { file: FilePatch }) {
           borderBottom: "1px solid var(--line)",
         }}
       >
-        <span style={{ ...mono, fontSize: 9, color: "var(--text4)", width: 10 }}>
+        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", width: 10 }}>
           {open ? "▾" : "▸"}
         </span>
         <span
           title={file.path}
-          style={{ flex: 1, minWidth: 0, ...mono, fontSize: 11, fontWeight: 600, color: "var(--text2)", ...truncate }}
+          style={{ flex: 1, minWidth: 0, ...mono, fontSize: 11.5, fontWeight: 600, color: "var(--text2)", ...truncate }}
         >
           {file.path}
         </span>
@@ -95,7 +95,7 @@ function FileSection({ file }: { file: FilePatch }) {
                 background: c.bg,
                 color: c.color,
                 ...mono,
-                fontSize: 12,
+                fontSize: 12.5,
                 lineHeight: 1.85,
                 whiteSpace: "pre",
               }}
@@ -171,7 +171,7 @@ export function Review({
         }}
       >
         <div style={{ maxWidth: 420, textAlign: "center" }}>
-          <div style={{ font: "600 15px var(--sans)", color: "var(--text)", marginBottom: 8 }}>
+          <div style={{ font: "600 16px var(--sans)", color: "var(--text)", marginBottom: 8 }}>
             Nothing is waiting for you
           </div>
           <div style={{ font: "400 12.5px/1.7 var(--sans)", color: "var(--text3)" }}>
@@ -235,7 +235,7 @@ export function Review({
           </div>
         </div>
         {sorted.length > 1 && (
-          <div style={{ display: "flex", gap: 5 }}>
+          <div style={{ display: "flex", gap: 6 }}>
             {sorted.map((c) => {
               const r = riskOf(c.id);
               return (
@@ -244,17 +244,17 @@ export function Review({
                   onClick={() => select(c.id)}
                   title={r >= 0 ? `triage risk ${r}` : undefined}
                   style={{
-                    padding: "4px 9px",
+                    padding: "4px 10px",
                     borderRadius: 999,
                     border: `1px solid ${c.id === card.id ? "var(--accentLine)" : "var(--line3)"}`,
                     background: c.id === card.id ? "var(--accentSoft)" : "transparent",
                     ...mono,
-                    fontSize: 10,
+                    fontSize: 10.5,
                     color: c.id === card.id ? "var(--accent2)" : "var(--text3)",
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 5,
+                    gap: 6,
                   }}
                 >
                   {c.id}
@@ -268,10 +268,10 @@ export function Review({
             })}
           </div>
         )}
-        <span style={{ ...mono, fontSize: 11, fontWeight: 500, color: "var(--ok)" }}>
+        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--ok)" }}>
           +{diff?.added ?? 0}
         </span>
-        <span style={{ ...mono, fontSize: 11, fontWeight: 500, color: "var(--bad)" }}>
+        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--bad)" }}>
           −{diff?.removed ?? 0}
         </span>
       </div>
@@ -293,12 +293,12 @@ export function Review({
             overflowY: "auto",
           }}
         >
-          <div style={{ padding: "14px 15px 20px" }}>
+          <div style={{ padding: "14px 16px 20px" }}>
             {card.last_review && (
               <div
                 style={{
-                  padding: "11px 12px",
-                  borderRadius: 11,
+                  padding: "12px 12px",
+                  borderRadius: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--line2)",
                 }}
@@ -313,7 +313,7 @@ export function Review({
                   >
                     {card.last_review.by === "director" ? "D" : "Y"}
                   </Glyph>
-                  <span style={{ font: "600 11px var(--sans)", color: "var(--text)" }}>
+                  <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)" }}>
                     {card.last_review.by === "director" ? "The Director" : "You"}{" "}
                     {card.last_review.approved ? "approved it" : "sent it back"}
                   </span>
@@ -348,7 +348,7 @@ export function Review({
 
             <Eyebrow style={{ display: "block", padding: "16px 2px 6px" }}>HISTORY</Eyebrow>
             {history.length === 0 && (
-              <div style={{ font: "400 11px var(--sans)", color: "var(--text4)" }}>
+              <div style={{ font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
                 Nothing recorded for this card yet.
               </div>
             )}
@@ -362,7 +362,7 @@ export function Review({
                     ? "var(--accent)"
                     : "var(--line4)";
               return (
-                <div key={row.seq} style={{ display: "flex", gap: 9, padding: "4px 2px" }}>
+                <div key={row.seq} style={{ display: "flex", gap: 10, padding: "4px 2px" }}>
                   <span
                     style={{
                       width: 5,
@@ -373,7 +373,7 @@ export function Review({
                       background: dot,
                     }}
                   />
-                  <span style={{ flex: 1, font: "400 11px/1.5 var(--sans)", color: "var(--text2)" }}>
+                  <span style={{ flex: 1, font: "400 11.5px/1.5 var(--sans)", color: "var(--text2)" }}>
                     {row.label}
                     {row.detail ? ` — ${row.detail}` : ""}
                     <span style={{ color: "var(--text4)" }}> · {ago(row.ts_ms)}</span>
@@ -403,12 +403,12 @@ export function Review({
             className="logscroll"
             style={{ minHeight: 0, overflowY: "auto", padding: "14px 0", animation: "fadeIn .5s ease .1s both" }}
           >
-            <div style={{ padding: "0 18px 10px", ...mono, fontSize: 11, color: "var(--text4)" }}>
+            <div style={{ padding: "0 18px 10px", ...mono, fontSize: 11.5, color: "var(--text4)" }}>
               git diff {diff?.base ?? project?.base_branch ?? "main"}…
               {diff?.branch ?? session?.branch ?? "the worktree"}
             </div>
             {!diff && (
-              <div style={{ padding: "0 18px", ...mono, fontSize: 12, color: "var(--text4)" }}>
+              <div style={{ padding: "0 18px", ...mono, fontSize: 12.5, color: "var(--text4)" }}>
                 reading the worktree…
               </div>
             )}
@@ -429,7 +429,7 @@ export function Review({
               padding: "12px 18px 14px",
               display: "flex",
               flexDirection: "column",
-              gap: 9,
+              gap: 10,
             }}
           >
             <div
@@ -437,8 +437,8 @@ export function Review({
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
-                padding: "9px 12px",
-                borderRadius: 10,
+                padding: "10px 12px",
+                borderRadius: 12,
                 background: "var(--surface)",
                 border: "1px solid var(--line3)",
               }}
@@ -456,7 +456,7 @@ export function Review({
                   border: "none",
                   outline: "none",
                   background: "transparent",
-                  font: "400 12px var(--sans)",
+                  font: "400 12.5px var(--sans)",
                   color: "var(--text)",
                 }}
               />
@@ -466,7 +466,7 @@ export function Review({
                 style={{
                   flex: 1,
                   maxWidth: 430,
-                  font: "400 11px/1.45 var(--sans)",
+                  font: "400 11.5px/1.45 var(--sans)",
                   color: "var(--text4)",
                 }}
               >
@@ -491,10 +491,10 @@ export function Review({
                 }}
                 style={{
                   padding: "8px 14px",
-                  borderRadius: 9,
+                  borderRadius: 8,
                   border: "1px solid rgba(255,179,92,.4)",
                   color: "var(--warn)",
-                  font: "600 12px var(--sans)",
+                  font: "600 12.5px var(--sans)",
                   cursor: "pointer",
                 }}
               >
@@ -505,10 +505,10 @@ export function Review({
                 onClick={() => approve(card.id)}
                 style={{
                   padding: "8px 16px",
-                  borderRadius: 9,
+                  borderRadius: 8,
                   background: "var(--ok)",
                   color: "var(--onAccent)",
-                  font: "600 12px var(--sans)",
+                  font: "600 12.5px var(--sans)",
                   cursor: "pointer",
                 }}
               >

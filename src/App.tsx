@@ -113,7 +113,7 @@ function ClosingOverlay() {
             alignItems: "center",
             gap: 8,
             marginTop: 16,
-            paddingTop: 13,
+            paddingTop: 14,
             borderTop: "1px solid var(--line2)",
           }}
         >
@@ -126,7 +126,7 @@ function ClosingOverlay() {
               className="primary"
               onClick={() => api.closeNow().catch(() => {})}
               style={{
-                padding: "5px 13px",
+                padding: "6px 14px",
                 borderRadius: 8,
                 background: "var(--surface2)",
                 border: "1px solid var(--line3)",
@@ -184,19 +184,19 @@ function UpdateBanner() {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        padding: "7px 16px",
+        padding: "8px 16px",
         borderBottom: "1px solid var(--line)",
         background: "var(--accentSoft)",
       }}
     >
-      <span style={{ ...mono, fontSize: 9, color: "var(--accent2)" }}>UPDATE</span>
-      <span style={{ flex: 1, minWidth: 0, font: "400 12px var(--sans)", color: "var(--text)", ...truncate }}>
+      <span style={{ ...mono, fontSize: 10.5, color: "var(--accent2)" }}>UPDATE</span>
+      <span style={{ flex: 1, minWidth: 0, font: "400 12.5px var(--sans)", color: "var(--text)", ...truncate }}>
         Built from{" "}
         <b style={{ fontWeight: 600 }}>{update.card_id}</b> · {update.commit_sha.slice(0, 7)} ·
         installing restarts the app (the previous version is kept)
       </span>
       {!busy && (
-        <span className="quiet" onClick={() => setDismissed(update.card_id)} style={{ padding: "3px 8px", borderRadius: 6, font: "500 11px var(--sans)", cursor: "pointer" }}>
+        <span className="quiet" onClick={() => setDismissed(update.card_id)} style={{ padding: "4px 8px", borderRadius: 8, font: "500 11.5px var(--sans)", cursor: "pointer" }}>
           Later
         </span>
       )}
@@ -205,10 +205,10 @@ function UpdateBanner() {
         onClick={busy ? undefined : install}
         style={{
           padding: "4px 12px",
-          borderRadius: 7,
+          borderRadius: 8,
           background: "var(--accent)",
           color: "var(--onAccent)",
-          font: "600 11px var(--sans)",
+          font: "600 11.5px var(--sans)",
           cursor: busy ? "default" : "pointer",
           opacity: busy ? 0.6 : 1,
         }}
@@ -492,11 +492,11 @@ function Shell() {
         <pre
           style={{
             padding: "14px 16px",
-            borderRadius: 14,
+            borderRadius: 16,
             background: "var(--surface)",
             border: "1px solid var(--line3)",
             fontFamily: "var(--mono)",
-            fontSize: 12,
+            fontSize: 12.5,
             whiteSpace: "pre-wrap",
           }}
         >
@@ -609,10 +609,10 @@ function Shell() {
               className="quiet"
               onClick={() => api.openClaudeTerminal().catch(() => {})}
               style={{
-                padding: "5px 12px",
+                padding: "6px 12px",
                 border: "1px solid currentColor",
                 borderRadius: 999,
-                font: "600 11px var(--sans)",
+                font: "600 11.5px var(--sans)",
                 cursor: "pointer",
               }}
             >
@@ -624,10 +624,10 @@ function Shell() {
               className="quiet"
               onClick={installSidecar}
               style={{
-                padding: "5px 12px",
+                padding: "6px 12px",
                 border: "1px solid currentColor",
                 borderRadius: 999,
-                font: "600 11px var(--sans)",
+                font: "600 11.5px var(--sans)",
                 cursor: "pointer",
               }}
             >
@@ -688,11 +688,11 @@ function Shell() {
                 style={{
                   flex: 1,
                   maxWidth: 420,
-                  padding: "5px 9px",
+                  padding: "6px 10px",
                   borderRadius: 8,
                   border: "1px solid var(--accentLine)",
                   background: "var(--surface)",
-                  font: "600 13px var(--sans)",
+                  font: "600 12.5px var(--sans)",
                   color: "var(--text)",
                   outline: "none",
                 }}
@@ -701,7 +701,7 @@ function Shell() {
               <>
                 <span
                   style={{
-                    font: "600 13.5px var(--sans)",
+                    font: "600 14px var(--sans)",
                     color: "var(--text)",
                     letterSpacing: "-.01em",
                     maxWidth: 460,
@@ -729,7 +729,7 @@ function Shell() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 7,
+                    gap: 8,
                     padding: "4px 10px",
                     borderRadius: 999,
                     background: "var(--surface)",
@@ -776,7 +776,7 @@ function Shell() {
                       placeItems: "center",
                       width: 24,
                       height: 24,
-                      borderRadius: 7,
+                      borderRadius: 8,
                       border: "1px solid var(--line3)",
                       color: "var(--text2)",
                       cursor: "pointer",
@@ -800,7 +800,7 @@ function Shell() {
                 placeItems: "center",
                 width: 24,
                 height: 24,
-                borderRadius: 7,
+                borderRadius: 8,
                 border: "1px solid var(--line3)",
                 color: "var(--text2)",
                 cursor: "pointer",

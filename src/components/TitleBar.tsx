@@ -35,7 +35,7 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
         style={{
           display: "grid",
           placeItems: "center",
-          padding: "0 9px",
+          padding: "0 10px",
           font: "400 11.5px var(--sans)",
           color: open ? "var(--text)" : "var(--text2)",
           background: open ? "var(--active)" : "transparent",
@@ -52,8 +52,8 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
             left: 0,
             zIndex: 200,
             minWidth: 208,
-            padding: 5,
-            borderRadius: 11,
+            padding: 6,
+            borderRadius: 12,
             background: "var(--elev)",
             border: "1px solid var(--line3)",
             boxShadow: "var(--shadow)",
@@ -73,16 +73,16 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
-                padding: "6px 9px",
+                padding: "6px 10px",
                 borderRadius: 8,
-                font: "400 12px var(--sans)",
+                font: "400 12.5px var(--sans)",
                 color: item.run ? "var(--text1)" : "var(--text4)",
                 cursor: item.run ? "pointer" : "default",
               }}
             >
               <span style={{ flex: 1 }}>{item.label}</span>
               {item.hint && (
-                <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>{item.hint}</span>
+                <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{item.hint}</span>
               )}
             </div>
           ))}
@@ -144,7 +144,7 @@ export function TitleBar({
         placeItems: "center",
         width,
         height: 24,
-        borderRadius: 6,
+        borderRadius: 8,
         color: dim ? "var(--line4)" : "var(--text4)",
         cursor: dim ? "default" : "pointer",
       }}
@@ -167,7 +167,7 @@ export function TitleBar({
         zIndex: 100,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 1, paddingLeft: 7 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 1, paddingLeft: 8 }}>
         {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, 24)}
         {chrome("Back", <Icon.back />, () => canBack && back(), 22, !canBack)}
         {chrome("Forward", <Icon.forward />, () => canForward && forward(), 22, !canForward)}
@@ -215,14 +215,14 @@ export function TitleBar({
         data-tauri-drag-region
         style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
       >
-        <span style={{ ...mono, fontSize: 11, fontWeight: 500, color: "var(--text3)" }}>{line}</span>
+        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--text3)" }}>{line}</span>
         {stats != null && settings != null && stats.spend_today > settings.daily_budget_usd && (
           <span
             style={{
               ...mono,
-              fontSize: 10,
+              fontSize: 10.5,
               padding: "1px 6px",
-              borderRadius: 6,
+              borderRadius: 8,
               background: "var(--badSoft)",
               color: "var(--bad2)",
             }}

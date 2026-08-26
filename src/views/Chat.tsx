@@ -81,8 +81,8 @@ function ApprovalCard({
         display: "flex",
         flexDirection: "column",
         gap: 10,
-        padding: "14px 15px",
-        borderRadius: 13,
+        padding: "14px 16px",
+        borderRadius: 12,
         background: "var(--surface)",
         border: "1px solid rgba(255,179,92,.26)",
         animation: "sheetIn .42s cubic-bezier(.2,.8,.25,1) both",
@@ -110,8 +110,8 @@ function ApprovalCard({
       <span
         style={{
           alignSelf: "flex-start",
-          padding: "5px 10px",
-          borderRadius: 9,
+          padding: "6px 10px",
+          borderRadius: 8,
           background: "var(--warnSoft)",
           ...mono,
           fontSize: 11.5,
@@ -124,10 +124,10 @@ function ApprovalCard({
 
       <span
         style={{
-          padding: "11px 13px",
-          borderRadius: 11,
+          padding: "12px 14px",
+          borderRadius: 12,
           background: "var(--bg)",
-          font: "400 12px/1.65 var(--sans)",
+          font: "400 12.5px/1.65 var(--sans)",
           color: "var(--text2)",
           wordBreak: "break-word",
         }}
@@ -159,11 +159,11 @@ function ApprovalCard({
       >
         <span
           style={{
-            width: 17,
-            height: 17,
+            width: 18,
+            height: 18,
             flex: "none",
             marginTop: 1,
-            borderRadius: 6,
+            borderRadius: 8,
             border: `1px solid ${always ? "var(--accent)" : "var(--line3)"}`,
             background: always ? "var(--accent)" : "transparent",
             display: "grid",
@@ -183,7 +183,7 @@ function ApprovalCard({
           />
         </span>
         <span style={{ flex: 1 }}>
-          <span style={{ display: "block", font: "400 12px var(--sans)", color: "var(--text2)" }}>
+          <span style={{ display: "block", font: "400 12.5px var(--sans)", color: "var(--text2)" }}>
             Always allow{" "}
             <span style={{ ...mono, fontSize: 11.5, color: "var(--text2)" }}>{ruleLabel(rule)}</span>
           </span>
@@ -202,13 +202,13 @@ function ApprovalCard({
         </span>
       </span>
 
-      <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span
           className="primary"
           onClick={() => answerApproval(request.request_id, true, always && canScope)}
           style={{
             flex: 1,
-            padding: 9,
+            padding: 10,
             borderRadius: 999,
             background: "var(--accent)",
             color: "var(--onAccent)",
@@ -224,7 +224,7 @@ function ApprovalCard({
           onClick={() => answerApproval(request.request_id, false, false)}
           style={{
             flex: 1,
-            padding: 9,
+            padding: 10,
             borderRadius: 999,
             border: "1px solid var(--line3)",
             color: "var(--text2)",
@@ -237,7 +237,7 @@ function ApprovalCard({
         </span>
       </span>
       {more > 0 && (
-        <span style={{ font: "400 11px var(--sans)", color: "var(--text3)", textAlign: "center" }}>
+        <span style={{ font: "400 11.5px var(--sans)", color: "var(--text3)", textAlign: "center" }}>
           {more} more waiting after this one
         </span>
       )}
@@ -270,7 +270,7 @@ function RunPanel({ cardId }: { cardId: string }) {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 9,
+          gap: 10,
           padding: "8px 12px",
           background: "var(--elev)",
           borderBottom: "1px solid var(--line2)",
@@ -279,7 +279,7 @@ function RunPanel({ cardId }: { cardId: string }) {
         <Glyph color={t.color} soft={t.soft} size={16} font={8}>
           {agent?.initial ?? "?"}
         </Glyph>
-        <span style={{ flex: 1, font: "500 11px var(--sans)", color: "var(--text2)", ...truncate }}>
+        <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
           {agent?.name ?? card.agent_id} · {card.id} · live
         </span>
         <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
@@ -319,12 +319,12 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
         : "var(--bad)";
   return (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", paddingLeft: depth * 16 }}>
-      <span style={{ width: 27, flex: "none" }} />
+      <span style={{ width: 28, flex: "none" }} />
       <div
         style={{
           flex: 1,
           minWidth: 0,
-          borderRadius: 9,
+          borderRadius: 8,
           background: "var(--surface)",
           border: `1px solid ${isResult && msg.ok === false ? "rgba(255,107,129,.4)" : "var(--line2)"}`,
           overflow: "hidden",
@@ -339,7 +339,7 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
             padding: "6px 10px",
             cursor: msg.detail ? "pointer" : "default",
             ...mono,
-            fontSize: 11,
+            fontSize: 11.5,
           }}
         >
           <b style={{ color: accent, fontWeight: 600 }}>
@@ -373,7 +373,7 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
               color: "var(--text3)",
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
-              fontSize: 11,
+              fontSize: 11.5,
               lineHeight: 1.7,
             }}
           >
@@ -488,7 +488,7 @@ export function Chat() {
         <div
           style={{
             flex: "none",
-            padding: "9px 20px",
+            padding: "10px 20px",
             background: "var(--badSoft)",
             borderBottom: "1px solid var(--line)",
             font: "400 11.5px/1.55 var(--sans)",
@@ -517,7 +517,7 @@ export function Chat() {
         }}
       >
         {chat.length === 0 && !chatBusy && (
-          <div style={{ maxWidth: 620, font: "400 13.5px/1.75 var(--sans)", color: "var(--text3)" }}>
+          <div style={{ maxWidth: 620, font: "400 14px/1.75 var(--sans)", color: "var(--text3)" }}>
             Ask {speaker?.name ?? "the Director"} about anything — a plan, a question, work you want
             done. It can put cards on the board and read the diffs, and every one of those calls comes
             back to you as a permission request. This conversation is kept, so it survives a restart.
@@ -551,8 +551,8 @@ export function Chat() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 9,
-                    padding: "8px 13px",
+                    gap: 10,
+                    padding: "8px 14px",
                     borderBottom: "1px solid var(--line2)",
                   }}
                 >
@@ -563,9 +563,9 @@ export function Chat() {
                 </div>
                 <div
                   style={{
-                    padding: "11px 14px",
+                    padding: "12px 14px",
                     ...mono,
-                    fontSize: 12,
+                    fontSize: 12.5,
                     lineHeight: 1.8,
                     color: "var(--text2)",
                     whiteSpace: "pre-wrap",
@@ -581,21 +581,21 @@ export function Chat() {
               <div style={{ flex: "none", display: "flex", gap: 12 }}>
                 <span
                   style={{
-                    width: 27,
-                    height: 27,
+                    width: 28,
+                    height: 28,
                     flex: "none",
-                    borderRadius: 9,
+                    borderRadius: 8,
                     background: `linear-gradient(140deg,${t.color},${t.color})`,
                     color: "var(--onAccent)",
                     display: "grid",
                     placeItems: "center",
-                    font: "700 11px var(--sans)",
+                    font: "700 11.5px var(--sans)",
                   }}
                 >
                   {speaker?.initial ?? "D"}
                 </span>
                 <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                     <span style={{ font: "600 12.5px var(--sans)", color: "var(--text)" }}>
                       {speaker?.name ?? "Director"}
                     </span>
@@ -607,7 +607,7 @@ export function Chat() {
                   <div
                     style={{
                       maxWidth: 660,
-                      font: "400 13.5px/1.72 var(--sans)",
+                      font: "400 14px/1.72 var(--sans)",
                       color: "var(--text1)",
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
@@ -616,7 +616,7 @@ export function Chat() {
                   >
                     {msg.text}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 13, color: "var(--text4)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--text4)" }}>
                     <CopyButton text={msg.text} />
                     {conversation && (
                       <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
@@ -637,8 +637,8 @@ export function Chat() {
                 style={{
                   flex: "none",
                   alignSelf: "stretch",
-                  padding: "9px 12px",
-                  borderRadius: 10,
+                  padding: "10px 12px",
+                  borderRadius: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--line2)",
                   font: "400 11.5px/1.6 var(--sans)",
@@ -660,7 +660,7 @@ export function Chat() {
               style={{
                 marginLeft: "auto",
                 padding: "4px 10px",
-                borderRadius: 7,
+                borderRadius: 8,
                 border: "1px solid var(--line3)",
                 ...mono,
                 fontSize: 10.5,
@@ -672,15 +672,15 @@ export function Chat() {
             </span>
             <span
               style={{
-                width: 27,
-                height: 27,
+                width: 28,
+                height: 28,
                 flex: "none",
-                borderRadius: 9,
+                borderRadius: 8,
                 background: t.color,
                 color: "var(--onAccent)",
                 display: "grid",
                 placeItems: "center",
-                font: "700 11px var(--sans)",
+                font: "700 11.5px var(--sans)",
               }}
             >
               {speaker?.initial ?? "D"}
@@ -689,7 +689,7 @@ export function Chat() {
               <Spinner size={14} />
               <span
                 style={{
-                  font: "400 12px/1.6 var(--sans)",
+                  font: "400 12.5px/1.6 var(--sans)",
                   color: "var(--text3)",
                   fontStyle: chatThinking ? "italic" : "normal",
                   maxHeight: 60,
@@ -748,7 +748,7 @@ export function Chat() {
                     alignItems: "center",
                     gap: 6,
                     maxWidth: 260,
-                    padding: "4px 9px",
+                    padding: "4px 10px",
                     borderRadius: 8,
                     background: "var(--surface2)",
                     border: "1px solid var(--line3)",
@@ -763,7 +763,7 @@ export function Chat() {
                   <span style={{ color: "var(--text4)" }}>×</span>
                 </span>
               ))}
-              <span style={{ ...mono, fontSize: 10, color: "var(--text4)", alignSelf: "center" }}>
+              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", alignSelf: "center" }}>
                 read from disk, not uploaded
               </span>
             </div>
@@ -787,8 +787,8 @@ export function Chat() {
               border: "none",
               outline: "none",
               background: "transparent",
-              padding: "13px 15px 6px",
-              font: "400 13px/1.6 var(--sans)",
+              padding: "14px 16px 6px",
+              font: "400 12.5px/1.6 var(--sans)",
               color: "var(--text)",
             }}
           />
@@ -817,8 +817,8 @@ export function Chat() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 7,
-                  padding: "5px 11px",
+                  gap: 8,
+                  padding: "6px 12px",
                   borderRadius: 8,
                   background: "var(--surface2)",
                   font: "500 11.5px var(--sans)",
@@ -826,7 +826,7 @@ export function Chat() {
                   cursor: "pointer",
                 }}
               >
-                <span style={{ width: 13, height: 13, borderRadius: 4, background: t.color }} />
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: t.color }} />
                 {speaker?.name ?? "Director"} ▾
               </span>
               {pickProfile && (
@@ -837,7 +837,7 @@ export function Chat() {
                     left: 0,
                     zIndex: 40,
                     minWidth: 210,
-                    padding: 5,
+                    padding: 6,
                     borderRadius: 12,
                     background: "var(--elev)",
                     border: "1px solid var(--line3)",
@@ -860,19 +860,19 @@ export function Chat() {
                           style={{
                             display: "flex",
                             alignItems: "center",
-                            gap: 9,
-                            padding: "7px 9px",
-                            borderRadius: 9,
+                            gap: 10,
+                            padding: "8px 10px",
+                            borderRadius: 8,
                             cursor: "pointer",
                           }}
                         >
                           <Glyph color={at.color} soft={at.soft} size={18} radius={6} font={8.5}>
                             {a.initial}
                           </Glyph>
-                          <span style={{ flex: 1, font: "500 12px var(--sans)", color: "var(--text1)" }}>
+                          <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
                             {a.name}
                           </span>
-                          <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+                          <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
                             {a.model ?? "auto"}
                           </span>
                         </div>
@@ -880,7 +880,7 @@ export function Chat() {
                     })}
                   <div
                     style={{
-                      padding: "6px 9px 4px",
+                      padding: "6px 10px 4px",
                       font: "400 10.5px/1.5 var(--sans)",
                       color: "var(--text4)",
                     }}
@@ -901,7 +901,7 @@ export function Chat() {
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  padding: "5px 11px",
+                  padding: "6px 12px",
                   borderRadius: 8,
                   background: "var(--surface2)",
                   ...mono,
@@ -923,7 +923,7 @@ export function Chat() {
                     left: 0,
                     zIndex: 40,
                     minWidth: 200,
-                    padding: 5,
+                    padding: 6,
                     borderRadius: 12,
                     background: "var(--elev)",
                     border: "1px solid var(--line3)",
@@ -942,9 +942,9 @@ export function Chat() {
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 9,
-                        padding: "7px 9px",
-                        borderRadius: 9,
+                        gap: 10,
+                        padding: "8px 10px",
+                        borderRadius: 8,
                         cursor: "pointer",
                       }}
                     >
@@ -957,11 +957,11 @@ export function Chat() {
                       >
                         {p.glyph}
                       </Glyph>
-                      <span style={{ flex: 1, font: "500 12px var(--sans)", color: "var(--text1)" }}>
+                      <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
                         {p.name}
                       </span>
                       {conversation.project_id === (p.id || null) && (
-                        <span style={{ color: "var(--accent)", fontSize: 11 }}>✓</span>
+                        <span style={{ color: "var(--accent)", fontSize: 11.5 }}>✓</span>
                       )}
                     </div>
                   ))}
@@ -987,7 +987,7 @@ export function Chat() {
                 placeItems: "center",
                 width: 28,
                 height: 28,
-                borderRadius: 9,
+                borderRadius: 8,
                 background: "var(--accent)",
                 color: "var(--onAccent)",
                 cursor: "pointer",

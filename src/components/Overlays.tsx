@@ -18,7 +18,7 @@ export function Toasts() {
         bottom: 22,
         display: "flex",
         flexDirection: "column",
-        gap: 9,
+        gap: 10,
         alignItems: "flex-end",
         zIndex: 60,
       }}
@@ -31,9 +31,9 @@ export function Toasts() {
             minWidth: 250,
             maxWidth: 330,
             display: "flex",
-            gap: 11,
-            padding: "13px 15px",
-            borderRadius: 15,
+            gap: 12,
+            padding: "14px 16px",
+            borderRadius: 16,
             background: "var(--elev)",
             border: "1px solid var(--line)",
             boxShadow: "var(--shadow)",
@@ -52,9 +52,9 @@ export function Toasts() {
             }}
           />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{t.title}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>{t.title}</div>
             {t.body && (
-              <div style={{ fontSize: 12, color: "var(--text3)", lineHeight: 1.5 }}>{t.body}</div>
+              <div style={{ fontSize: 12.5, color: "var(--text3)", lineHeight: 1.5 }}>{t.body}</div>
             )}
           </div>
         </div>
@@ -103,14 +103,14 @@ export function ApprovalSheet({ close }: { close: () => void }) {
         style={{
           width: 490,
           padding: 24,
-          borderRadius: 22,
+          borderRadius: 20,
           background: "var(--elev)",
           border: "1px solid var(--line)",
           boxShadow: "var(--shadow)",
           animation: "popIn .3s cubic-bezier(.2,.8,.2,1) both",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <span
             style={{
               width: 38,
@@ -121,43 +121,43 @@ export function ApprovalSheet({ close }: { close: () => void }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 13,
+              fontSize: 12.5,
               fontWeight: 700,
             }}
           >
             {agent?.initial ?? "?"}
           </span>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 13.5, fontWeight: 700 }}>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 700 }}>
               {agent?.name ?? "An agent"} is asking
             </span>
             <span
               style={{
                 display: "block",
                 fontFamily: "var(--mono)",
-                fontSize: 11,
+                fontSize: 11.5,
                 color: "var(--text3)",
-                marginTop: 3,
+                marginTop: 4,
               }}
             >
               {request.card_id ?? "—"} · paused · {project?.name ?? request.project_id}
             </span>
           </span>
-          <span style={{ fontSize: 11, color: "var(--text3)" }}>{ago(request.asked_ms)}</span>
+          <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{ago(request.asked_ms)}</span>
         </div>
 
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 5, letterSpacing: "-.02em" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6, letterSpacing: "-.02em" }}>
           {card?.title ?? `Permission for ${request.tool}`}
         </div>
         <div
           style={{
             display: "inline-block",
             fontFamily: "var(--mono)",
-            fontSize: 12,
+            fontSize: 12.5,
             color: "var(--warn)",
             background: "var(--warnSoft)",
-            padding: "6px 11px",
-            borderRadius: 9,
+            padding: "6px 12px",
+            borderRadius: 8,
             marginBottom: 14,
           }}
         >
@@ -167,7 +167,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
           style={{
             margin: "0 0 14px",
             padding: "14px 16px",
-            borderRadius: 15,
+            borderRadius: 16,
             background: "var(--surface2)",
             fontFamily: "inherit",
             fontSize: 12.5,
@@ -182,7 +182,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
             "The agent asked to use a tool outside its permissions. No details were given."}
         </pre>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <button
             type="button"
             onClick={() => setAlways((v) => !v)}
@@ -191,12 +191,12 @@ export function ApprovalSheet({ close }: { close: () => void }) {
               width: 18,
               height: 18,
               flex: "none",
-              borderRadius: 6,
+              borderRadius: 8,
               border: "1px solid var(--line)",
               background: always ? "var(--accent)" : "transparent",
               cursor: "pointer",
               color: "var(--onAccent)",
-              fontSize: 10,
+              fontSize: 10.5,
               lineHeight: 1,
               display: "flex",
               alignItems: "center",
@@ -210,7 +210,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: 9 }}>
+        <div style={{ display: "flex", gap: 10 }}>
           <button
             type="button"
             className="hv-bright"
@@ -222,7 +222,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
               borderRadius: 999,
               background: "var(--accent)",
               color: "var(--onAccent)",
-              fontSize: 13.5,
+              fontSize: 14,
               fontWeight: 700,
               cursor: "pointer",
               transition: "filter .18s ease",
@@ -240,7 +240,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
               border: "1px solid var(--line)",
               borderRadius: 999,
               background: "transparent",
-              fontSize: 13.5,
+              fontSize: 14,
               fontWeight: 600,
               cursor: "pointer",
               transition: "all .18s ease",
@@ -282,17 +282,17 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
         style={{
           width: 440,
           padding: 24,
-          borderRadius: 22,
+          borderRadius: 20,
           background: "var(--elev)",
           border: "1px solid var(--line)",
           boxShadow: "var(--shadow)",
           animation: "popIn .3s cubic-bezier(.2,.8,.2,1) both",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, letterSpacing: "-.02em" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6, letterSpacing: "-.02em" }}>
           Send it back
         </div>
-        <p style={{ margin: "0 0 14px", fontSize: 13, color: "var(--text2)", lineHeight: 1.55 }}>
+        <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--text2)", lineHeight: 1.55 }}>
           {card?.title ?? cardId}
         </p>
         <textarea
@@ -308,16 +308,16 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
           style={{
             width: "100%",
             resize: "none",
-            padding: "13px 15px",
-            borderRadius: 15,
+            padding: "14px 16px",
+            borderRadius: 16,
             border: "1px solid var(--line)",
             background: "var(--surface2)",
-            fontSize: 13,
+            fontSize: 12.5,
             lineHeight: 1.6,
             outline: "none",
           }}
         />
-        <div style={{ display: "flex", gap: 9, marginTop: 14 }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <button
             type="button"
             className="hv-bright"
@@ -329,7 +329,7 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
               borderRadius: 999,
               background: "var(--bad)",
               color: "var(--onAccent)",
-              fontSize: 13.5,
+              fontSize: 14,
               fontWeight: 700,
               cursor: "pointer",
               transition: "filter .18s ease",
@@ -348,7 +348,7 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
               borderRadius: 999,
               background: "transparent",
               color: "var(--text2)",
-              fontSize: 13.5,
+              fontSize: 14,
               fontWeight: 600,
               cursor: "pointer",
             }}
@@ -462,7 +462,7 @@ export function CommandPalette({
           placeholder="Search cards, sessions, agents…"
           style={{
             width: "100%",
-            padding: "17px 20px",
+            padding: "18px 20px",
             border: "none",
             borderBottom: "1px solid var(--line)",
             background: "transparent",
@@ -487,7 +487,7 @@ export function CommandPalette({
                 borderRadius: 12,
                 background: i === cursor ? "var(--hover)" : "transparent",
                 color: "var(--text)",
-                fontSize: 13.5,
+                fontSize: 14,
                 cursor: "pointer",
                 textAlign: "left",
                 transition: "background .14s ease",

@@ -63,8 +63,8 @@ export function NavRail({
           alignItems: "center",
           gap: 10,
           height: 32,
-          padding: "0 9px",
-          borderRadius: 9,
+          padding: "0 10px",
+          borderRadius: 8,
           cursor: "pointer",
         }}
       >
@@ -73,7 +73,7 @@ export function NavRail({
             style={{
               position: "absolute",
               inset: 0,
-              borderRadius: 9,
+              borderRadius: 8,
               background: "var(--active)",
               boxShadow: "inset 0 0 0 1px var(--line3)",
               animation: "fadeIn .22s ease both",
@@ -85,8 +85,8 @@ export function NavRail({
             position: "relative",
             display: "grid",
             placeItems: "center",
-            width: 15,
-            height: 15,
+            width: 16,
+            height: 16,
             color: iconColor,
           }}
         >
@@ -131,25 +131,25 @@ export function NavRail({
           flex: "none",
           display: "flex",
           alignItems: "center",
-          gap: 9,
-          padding: "13px 12px 11px",
+          gap: 10,
+          padding: "14px 12px 12px",
         }}
       >
         <span
           style={{
             width: 22,
             height: 22,
-            borderRadius: 7,
+            borderRadius: 8,
             background: "linear-gradient(140deg,var(--accent),var(--warn))",
             display: "grid",
             placeItems: "center",
-            font: "700 11px var(--sans)",
+            font: "700 11.5px var(--sans)",
             color: "var(--onAccent)",
           }}
         >
           H
         </span>
-        <span style={{ font: "600 15px var(--sans)", color: "var(--text)", letterSpacing: "-.02em" }}>
+        <span style={{ font: "600 16px var(--sans)", color: "var(--text)", letterSpacing: "-.02em" }}>
           Relay
         </span>
         <div style={{ flex: 1 }} />
@@ -159,9 +159,9 @@ export function NavRail({
           style={{
             display: "grid",
             placeItems: "center",
-            width: 23,
-            height: 23,
-            borderRadius: 7,
+            width: 24,
+            height: 24,
+            borderRadius: 8,
             color: "var(--text2)",
             cursor: "pointer",
           }}
@@ -175,9 +175,9 @@ export function NavRail({
             position: "relative",
             display: "grid",
             placeItems: "center",
-            width: 23,
-            height: 23,
-            borderRadius: 7,
+            width: 24,
+            height: 24,
+            borderRadius: 8,
             color: "var(--text2)",
             cursor: "pointer",
           }}
@@ -210,7 +210,7 @@ export function NavRail({
         }}
       >
         {item("chat", "Chat", <Icon.chat />, "var(--accent)", (
-          <span style={{ position: "relative", ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)" }}>
+          <span style={{ position: "relative", ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
             ⌘J
           </span>
         ))}
@@ -224,11 +224,11 @@ export function NavRail({
               style={{
                 position: "relative",
                 padding: "1px 6px",
-                borderRadius: 6,
+                borderRadius: 8,
                 background: "var(--warnSoft)",
                 color: "var(--warn)",
                 ...mono,
-                fontSize: 10,
+                fontSize: 10.5,
                 fontWeight: 600,
               }}
             >
@@ -263,7 +263,7 @@ export function NavRail({
           "var(--text2)",
           project ? (
             <span
-              style={{ position: "relative", ...mono, fontSize: 10, color: "var(--text4)", maxWidth: 74, ...truncate }}
+              style={{ position: "relative", ...mono, fontSize: 10.5, color: "var(--text4)", maxWidth: 74, ...truncate }}
             >
               {project.base_branch}
             </span>
@@ -273,7 +273,7 @@ export function NavRail({
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 8px" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 7, padding: "12px 9px 5px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "12px 10px 6px" }}>
           <Eyebrow>CHATS</Eyebrow>
           <div style={{ flex: 1 }} />
           <span
@@ -281,7 +281,7 @@ export function NavRail({
               newConversation();
               go("chat");
             }}
-            style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+            style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
           >
             new
           </span>
@@ -290,8 +290,8 @@ export function NavRail({
         {conversations.length === 0 && (
           <div
             style={{
-              padding: "4px 9px 8px",
-              font: "400 11px var(--sans)",
+              padding: "4px 10px 8px",
+              font: "400 11.5px var(--sans)",
               lineHeight: 1.6,
               color: "var(--text4)",
             }}
@@ -315,13 +315,13 @@ export function NavRail({
                 display: "flex",
                 flexDirection: "column",
                 gap: 2,
-                padding: "6px 9px",
+                padding: "6px 10px",
                 borderRadius: 8,
                 cursor: "pointer",
                 background: on ? "var(--active)" : "transparent",
               }}
             >
-              <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span
                   style={{
                     width: 5,
@@ -334,14 +334,14 @@ export function NavRail({
                 <span
                   style={{
                     flex: 1,
-                    font: "400 12px var(--sans)",
+                    font: "400 12.5px var(--sans)",
                     color: on ? "var(--text)" : "var(--text2)",
                     ...truncate,
                   }}
                 >
                   {c.title}
                 </span>
-                <span style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>
+                <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
                   {shortAgo(c.updated_ms)}
                 </span>
               </span>
@@ -352,7 +352,7 @@ export function NavRail({
                   gap: 6,
                   paddingLeft: 12,
                   ...mono,
-                  fontSize: 10,
+                  fontSize: 10.5,
                   color: "var(--text4)",
                 }}
               >
@@ -367,11 +367,11 @@ export function NavRail({
                     margin: "2px 0 1px 12px",
                     alignSelf: "flex-start",
                     padding: "1px 6px",
-                    borderRadius: 6,
+                    borderRadius: 8,
                     background: "var(--badSoft)",
                     color: "var(--bad2)",
                     ...mono,
-                    fontSize: 9.5,
+                    fontSize: 10.5,
                     fontWeight: 500,
                   }}
                 >
@@ -382,12 +382,12 @@ export function NavRail({
           );
         })}
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 7, padding: "14px 9px 5px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "14px 10px 6px" }}>
           <Eyebrow>PROJECTS</Eyebrow>
           <div style={{ flex: 1 }} />
           <span
             onClick={() => go("projects")}
-            style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+            style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
           >
             all
           </span>
@@ -419,8 +419,8 @@ export function NavRail({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 9,
-                padding: "6px 9px",
+                gap: 10,
+                padding: "6px 10px",
                 borderRadius: 8,
                 cursor: "pointer",
                 background: on ? "var(--active)" : "transparent",
@@ -429,17 +429,17 @@ export function NavRail({
               <Glyph color={t.color} soft={t.soft} size={17} font={8.5}>
                 {p.glyph}
               </Glyph>
-              <span style={{ flex: 1, ...mono, fontSize: 12, fontWeight: 500, color: "var(--text1)", ...truncate }}>
+              <span style={{ flex: 1, ...mono, fontSize: 12.5, fontWeight: 500, color: "var(--text1)", ...truncate }}>
                 {p.name}
               </span>
-              <span style={{ font: "500 10px var(--sans)", color: stateColor }}>{state}</span>
+              <span style={{ font: "500 10.5px var(--sans)", color: stateColor }}>{state}</span>
             </div>
           );
         })}
       </div>
 
-      <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "10px 12px 11px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9, paddingBottom: 9 }}>
+      <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "10px 12px 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 10 }}>
           {running > 0 ? <Spinner /> : <span style={{ width: 16, height: 16, flex: "none" }} />}
           <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)" }}>
             {running > 0 ? `${running} ${running === 1 ? "run" : "runs"} live` : "nothing running"}
@@ -455,7 +455,7 @@ export function NavRail({
             {money(spendToday)} / {money(budget, 0)}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span
             style={{
               width: 22,
@@ -466,13 +466,13 @@ export function NavRail({
               display: "grid",
               placeItems: "center",
               ...mono,
-              fontSize: 9,
+              fontSize: 10.5,
               fontWeight: 600,
             }}
           >
             {initials(name)}
           </span>
-          <span style={{ flex: 1, font: "500 12px var(--sans)", color: "var(--text1)", ...truncate }}>
+          <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)", ...truncate }}>
             {name}
           </span>
           <span

@@ -39,14 +39,14 @@ export function Worktrees() {
 
   return (
     <div style={{ padding: "22px 26px 28px" }}>
-      <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text2)" }}>
+      <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "var(--text2)" }}>
         One branch per card, created under app data. Finished runs commit themselves and leave a
         trailer pointing back at the card.
       </p>
       <div
         style={{
           border: "1px solid var(--line)",
-          borderRadius: 18,
+          borderRadius: 20,
           overflow: "hidden",
           background: "var(--surface)",
         }}
@@ -58,9 +58,9 @@ export function Worktrees() {
             gap: 14,
             padding: "12px 18px",
             borderBottom: "1px solid var(--line)",
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: 700,
-            letterSpacing: ".09em",
+            letterSpacing: ".08em",
             textTransform: "uppercase",
             color: "var(--text3)",
           }}
@@ -90,7 +90,7 @@ export function Worktrees() {
                 transition: "background .18s ease",
               }}
             >
-              <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 500, ...truncate }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 500, ...truncate }}>
                 {w.branch ?? "(detached)"}
               </span>
               <span
@@ -108,7 +108,7 @@ export function Worktrees() {
                 style={{
                   fontSize: 11.5,
                   fontWeight: 700,
-                  padding: "3px 10px",
+                  padding: "4px 10px",
                   borderRadius: 999,
                   justifySelf: "start",
                   background: st.soft,
@@ -126,7 +126,7 @@ export function Worktrees() {
                   className="hv-soft"
                   onClick={() => api.reveal(w.path).catch(() => {})}
                   style={{
-                    padding: "6px 13px",
+                    padding: "6px 14px",
                     border: "1px solid var(--line)",
                     borderRadius: 999,
                     background: "transparent",
@@ -153,7 +153,7 @@ export function Worktrees() {
                       .catch((e) => toast("var(--bad)", "Could not remove it", reason(e)));
                   }}
                   style={{
-                    padding: "6px 13px",
+                    padding: "6px 14px",
                     border: "1px solid var(--line)",
                     borderRadius: 999,
                     background: "transparent",
@@ -216,7 +216,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
           style={{
             display: "flex",
             gap: 2,
-            padding: 3,
+            padding: 4,
             borderRadius: 999,
             background: "var(--surface)",
             border: "1px solid var(--line)",
@@ -230,10 +230,10 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
                 type="button"
                 onClick={() => setFilter(f)}
                 style={{
-                  padding: "7px 15px",
+                  padding: "8px 16px",
                   border: "none",
                   borderRadius: 999,
-                  fontSize: 12,
+                  fontSize: 12.5,
                   cursor: "pointer",
                   transition: "all .18s ease",
                   background: on ? "var(--accent)" : "transparent",
@@ -251,7 +251,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
       <div
         style={{
           border: "1px solid var(--line)",
-          borderRadius: 18,
+          borderRadius: 20,
           overflow: "hidden",
           background: "var(--surface)",
         }}
@@ -271,11 +271,11 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
           {fresh && (
             <div
               style={{
-                padding: "9px 18px 7px",
+                padding: "10px 18px 8px",
                 borderBottom: "1px solid var(--line2)",
                 background: "var(--recess)",
                 font: "600 10.5px var(--sans)",
-                letterSpacing: ".04em",
+                letterSpacing: ".08em",
                 color: "var(--text4)",
               }}
             >
@@ -299,7 +299,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
               gap: 14,
               alignItems: "center",
               width: "100%",
-              padding: "11px 18px",
+              padding: "12px 18px",
               border: "none",
               borderBottom: "1px solid var(--line2)",
               background: "transparent",
@@ -379,13 +379,13 @@ function Row({
         alignItems: "center",
         justifyContent: "space-between",
         gap: 22,
-        padding: "17px 18px",
+        padding: "18px 18px",
         borderBottom: last ? "none" : "1px solid var(--line2)",
       }}
     >
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3 }}>{name}</div>
-        <div style={{ fontSize: 12, color: "var(--text3)", lineHeight: 1.5 }}>{note}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{name}</div>
+        <div style={{ fontSize: 12.5, color: "var(--text3)", lineHeight: 1.5 }}>{note}</div>
       </div>
       <div style={{ flex: "none" }}>{children}</div>
     </div>
@@ -419,7 +419,7 @@ export function Settings() {
 
   const card = {
     border: "1px solid var(--line)",
-    borderRadius: 18,
+    borderRadius: 20,
     background: "var(--surface)",
     overflow: "hidden" as const,
     marginBottom: 12,
@@ -430,7 +430,7 @@ export function Settings() {
       style={{
         display: "flex",
         gap: 2,
-        padding: 3,
+        padding: 4,
         borderRadius: 999,
         background: "var(--surface2)",
         border: "1px solid var(--line)",
@@ -464,7 +464,7 @@ export function Settings() {
 
   return (
     <div style={{ padding: "22px 26px 28px", maxWidth: 880 }}>
-      <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text2)" }}>
+      <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "var(--text2)" }}>
         Applies to new runs. Anything already running keeps the profile it started with.
       </p>
 
@@ -547,7 +547,7 @@ export function Settings() {
                 width: 30,
                 height: 30,
                 border: "1px solid var(--line)",
-                borderRadius: 10,
+                borderRadius: 12,
                 background: "transparent",
                 color: "var(--text2)",
                 cursor: "pointer",
@@ -557,7 +557,7 @@ export function Settings() {
             </button>
             <span
               style={{
-                fontSize: 19,
+                fontSize: 20,
                 fontWeight: 800,
                 minWidth: 66,
                 textAlign: "center",
@@ -574,7 +574,7 @@ export function Settings() {
                 width: 30,
                 height: 30,
                 border: "1px solid var(--line)",
-                borderRadius: 10,
+                borderRadius: 12,
                 background: "transparent",
                 color: "var(--text2)",
                 cursor: "pointer",
@@ -609,7 +609,7 @@ export function Settings() {
               className="hv-text"
               onClick={() => api.openClaudeTerminal().catch(() => {})}
               style={{
-                padding: "8px 15px",
+                padding: "8px 16px",
                 border: "1px solid var(--line)",
                 borderRadius: 999,
                 background: "transparent",
@@ -646,7 +646,7 @@ export function Settings() {
                 className="hv-bright"
                 onClick={installSidecar}
                 style={{
-                  padding: "8px 15px",
+                  padding: "8px 16px",
                   border: "none",
                   borderRadius: 999,
                   background: "var(--accent)",
@@ -697,7 +697,7 @@ export function Settings() {
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
-                      padding: "5px 11px",
+                      padding: "6px 12px",
                       border: "1px solid var(--line)",
                       borderRadius: 999,
                       background: "transparent",
@@ -714,7 +714,7 @@ export function Settings() {
                       <span
                         style={{
                           fontFamily: "var(--sans)",
-                          fontSize: 10,
+                          fontSize: 10.5,
                           fontWeight: 700,
                           color: "var(--warn)",
                           textDecoration: "none",
@@ -733,15 +733,15 @@ export function Settings() {
       )}
 
       <div style={{ ...card, marginBottom: 0 }}>
-        <div style={{ padding: "17px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ padding: "18px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}
           >
-            <span style={{ fontSize: 13 }}>Where everything is written</span>
+            <span style={{ fontSize: 12.5 }}>Where everything is written</span>
             <span
               title={dataDir}
               style={{
-                fontSize: 12,
+                fontSize: 12.5,
                 color: "var(--text3)",
                 fontFamily: "var(--mono)",
                 maxWidth: 460,
@@ -763,8 +763,8 @@ export function Settings() {
             }
             style={{
               alignSelf: "flex-start",
-              marginTop: 5,
-              padding: "8px 15px",
+              marginTop: 6,
+              padding: "8px 16px",
               border: "1px solid var(--line)",
               borderRadius: 999,
               background: "transparent",
@@ -786,7 +786,7 @@ export function Settings() {
                 background: "var(--surface2)",
                 border: "1px solid var(--line)",
                 fontFamily: "var(--mono)",
-                fontSize: 11,
+                fontSize: 11.5,
                 whiteSpace: "pre-wrap",
                 color: "var(--text2)",
               }}

@@ -22,7 +22,7 @@ function Section({
 }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: `${top ?? 0}px 3px 9px` }}>
-      <span style={{ font: "600 11px var(--sans)", color: "var(--text2)" }}>{title}</span>
+      <span style={{ font: "600 11.5px var(--sans)", color: "var(--text2)" }}>{title}</span>
       {count && (
         <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
           · {count}
@@ -72,11 +72,11 @@ export function RightNowStrip({ open }: { open: () => void }) {
         <span
           style={{
             padding: "2px 6px",
-            borderRadius: 7,
+            borderRadius: 8,
             background: "var(--warnSoft)",
             color: "var(--warn)",
             ...mono,
-            fontSize: 9.5,
+            fontSize: 10.5,
             fontWeight: 600,
           }}
         >
@@ -97,7 +97,7 @@ export function RightNowStrip({ open }: { open: () => void }) {
           writingMode: "vertical-rl",
           font: "500 10.5px var(--sans)",
           color: "var(--text4)",
-          letterSpacing: ".12em",
+          letterSpacing: ".08em",
         }}
       >
         RIGHT NOW
@@ -198,8 +198,8 @@ export function RightNow({
           flex: "none",
           display: "flex",
           alignItems: "center",
-          gap: 9,
-          padding: "13px 15px 11px",
+          gap: 10,
+          padding: "14px 16px 12px",
           borderBottom: "1px solid var(--line)",
         }}
       >
@@ -236,12 +236,12 @@ export function RightNow({
         {waiting === 0 && (
           <div
             style={{
-              marginBottom: 7,
-              padding: "12px 13px",
+              marginBottom: 8,
+              padding: "12px 14px",
               borderRadius: 12,
               border: "1px solid var(--line2)",
               background: allQuiet ? "var(--surface)" : "transparent",
-              font: "400 11px var(--sans)",
+              font: "400 11.5px var(--sans)",
               lineHeight: 1.6,
               color: "var(--text4)",
             }}
@@ -273,12 +273,12 @@ export function RightNow({
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: 7,
-                padding: "10px 11px",
+                gap: 8,
+                padding: "10px 12px",
                 borderRadius: 12,
                 background: "rgba(255,179,92,.08)",
                 border: "1px solid rgba(255,179,92,.24)",
-                marginBottom: 7,
+                marginBottom: 8,
               }}
             >
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -290,12 +290,12 @@ export function RightNow({
                 </span>
                 <span
                   style={{
-                    padding: "1px 7px",
-                    borderRadius: 6,
+                    padding: "1px 8px",
+                    borderRadius: 8,
                     background: "var(--warnSoft)",
                     color: "var(--warn)",
                     ...mono,
-                    fontSize: 10,
+                    fontSize: 10.5,
                     fontWeight: 500,
                   }}
                 >
@@ -314,12 +314,12 @@ export function RightNow({
               >
                 {request.summary || "no details given"}
               </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span
                   className="primary"
                   onClick={() => answerApproval(request.request_id, true, false)}
                   style={{
-                    padding: "5px 12px",
+                    padding: "6px 12px",
                     borderRadius: 999,
                     background: "var(--accent)",
                     color: "var(--onAccent)",
@@ -351,10 +351,10 @@ export function RightNow({
                 display: "flex",
                 flexDirection: "column",
                 gap: 6,
-                padding: "10px 11px",
+                padding: "10px 12px",
                 borderRadius: 12,
                 border: "1px solid var(--line2)",
-                marginBottom: 7,
+                marginBottom: 8,
                 cursor: "pointer",
               }}
             >
@@ -395,7 +395,7 @@ export function RightNow({
             openProposals.length > 0 ? (
               <span
                 title="The Director noticed a pattern; you decide whether it becomes work"
-                style={{ ...mono, fontSize: 10, color: "var(--text4)" }}
+                style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}
               >
                 his call, your decision
               </span>
@@ -403,7 +403,7 @@ export function RightNow({
           }
         />
         {openProposals.length === 0 && !allQuiet && (
-          <div style={{ padding: "0 3px 4px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
+          <div style={{ padding: "0 4px 4px", font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
             No proposals waiting.
           </div>
         )}
@@ -414,29 +414,29 @@ export function RightNow({
               display: "flex",
               flexDirection: "column",
               gap: 6,
-              padding: "10px 11px",
+              padding: "10px 12px",
               borderRadius: 12,
               background: "var(--surface)",
               border: "1px solid var(--line2)",
-              marginBottom: 7,
+              marginBottom: 8,
             }}
           >
             <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncate }}>
               {proposal.title}
             </span>
-            <span style={{ font: "400 11px var(--sans)", lineHeight: 1.55, color: "var(--text3)" }}>
+            <span style={{ font: "400 11.5px var(--sans)", lineHeight: 1.55, color: "var(--text3)" }}>
               {proposal.observation}
             </span>
-            <span style={{ font: "400 11px var(--sans)", lineHeight: 1.55, color: "var(--text2)" }}>
+            <span style={{ font: "400 11.5px var(--sans)", lineHeight: 1.55, color: "var(--text2)" }}>
               {proposal.proposal}
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
                 className="primary"
                 onClick={() => acceptProposal(proposal.id)}
                 title="Creates the card in the harness's own project — never the one you have open"
                 style={{
-                  padding: "5px 12px",
+                  padding: "6px 12px",
                   borderRadius: 999,
                   background: "var(--accent)",
                   color: "var(--onAccent)",
@@ -453,7 +453,7 @@ export function RightNow({
                 Dismiss
               </span>
               <span style={{ flex: 1 }} />
-              <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
                 {clock(proposal.created_ms)}
               </span>
             </span>
@@ -465,17 +465,17 @@ export function RightNow({
           count={String(runningCards.length)}
           top={14}
           right={
-            <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>{money(liveSpend, 2)}</span>
+            <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{money(liveSpend, 2)}</span>
           }
         />
         {runningCards.length === 0 && !allQuiet && (
           <div
             style={{
-              marginBottom: 7,
-              padding: "10px 11px",
+              marginBottom: 8,
+              padding: "10px 12px",
               borderRadius: 12,
               border: "1px solid var(--line2)",
-              font: "400 11px var(--sans)",
+              font: "400 11.5px var(--sans)",
               color: "var(--text4)",
             }}
           >
@@ -498,22 +498,22 @@ export function RightNow({
               style={{
                 display: "flex",
                 gap: 10,
-                padding: "10px 11px",
+                padding: "10px 12px",
                 borderRadius: 12,
                 background: "var(--surface)",
                 border: "1px solid var(--line2)",
-                marginBottom: 7,
+                marginBottom: 8,
               }}
             >
               <Glyph color={t.color} soft={t.soft} size={26} radius={9} font={10}>
                 {agent?.initial ?? "?"}
               </Glyph>
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
-                  <span style={{ font: "600 12px var(--sans)", color: "var(--text)" }}>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ font: "600 12.5px var(--sans)", color: "var(--text)" }}>
                     {agent?.name ?? card.agent_id}
                   </span>
-                  <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>{card.id}</span>
+                  <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{card.id}</span>
                   <div style={{ flex: 1 }} />
                   <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
                     {session ? duration(Date.now() - session.started_ms) : "—"}
@@ -548,7 +548,7 @@ export function RightNow({
                     alignItems: "center",
                     gap: 8,
                     ...mono,
-                    fontSize: 10,
+                    fontSize: 10.5,
                     color: "var(--text3)",
                   }}
                 >
@@ -568,13 +568,13 @@ export function RightNow({
           count={String(stats?.done_today ?? doneToday.length)}
           top={14}
           right={
-            <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+            <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
               {money(stats?.spend_today ?? 0)}
             </span>
           }
         />
         {doneToday.length === 0 && !allQuiet && (
-          <div style={{ padding: "0 3px 4px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
+          <div style={{ padding: "0 4px 4px", font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
             Nothing approved yet today.
           </div>
         )}
@@ -590,9 +590,9 @@ export function RightNow({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 9,
-                padding: "7px 8px",
-                borderRadius: 9,
+                gap: 10,
+                padding: "8px 8px",
+                borderRadius: 8,
                 cursor: "pointer",
               }}
             >
@@ -602,7 +602,7 @@ export function RightNow({
               <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
                 {card?.title ?? row.card_id}
               </span>
-              <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>{clock(row.ts_ms)}</span>
+              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{clock(row.ts_ms)}</span>
             </div>
           );
         })}
@@ -614,7 +614,7 @@ export function RightNow({
           right={
             <span
               onClick={openTrees}
-              style={{ font: "400 10px var(--sans)", color: "var(--text4)", cursor: "pointer" }}
+              style={{ font: "400 10.5px var(--sans)", color: "var(--text4)", cursor: "pointer" }}
             >
               manage
             </span>
@@ -622,7 +622,7 @@ export function RightNow({
         />
         <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
           {trees.length === 0 && (
-            <span style={{ padding: "0 3px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
+            <span style={{ padding: "0 4px", font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
               No worktree has been created yet.
             </span>
           )}
@@ -634,18 +634,18 @@ export function RightNow({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 9,
-                padding: "7px 8px",
-                borderRadius: 9,
+                gap: 10,
+                padding: "8px 8px",
+                borderRadius: 8,
                 cursor: "pointer",
               }}
             >
-              <span style={{ flex: 1, ...mono, fontSize: 11, fontWeight: 500, color: "var(--text2)", ...truncate }}>
+              <span style={{ flex: 1, ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--text2)", ...truncate }}>
                 {t.branch ?? t.path.split(/[\\/]/).pop()}
               </span>
               <span
                 style={{
-                  font: "400 10px var(--sans)",
+                  font: "400 10.5px var(--sans)",
                   color: t.dirty ? "var(--warn)" : "var(--text3)",
                 }}
               >

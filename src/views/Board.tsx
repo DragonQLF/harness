@@ -74,8 +74,8 @@ function NewCard({ close }: { close: () => void }) {
         style={{
           flex: 1,
           minWidth: 0,
-          padding: "7px 11px",
-          borderRadius: 9,
+          padding: "8px 12px",
+          borderRadius: 8,
           border: "1px solid var(--line3)",
           background: "var(--bg)",
           font: "400 12.5px var(--sans)",
@@ -87,8 +87,8 @@ function NewCard({ close }: { close: () => void }) {
         value={who}
         onChange={(e) => setWho(e.target.value)}
         style={{
-          padding: "7px 9px",
-          borderRadius: 9,
+          padding: "8px 10px",
+          borderRadius: 8,
           border: "1px solid var(--line3)",
           background: "var(--bg)",
           font: "500 11.5px var(--sans)",
@@ -176,12 +176,12 @@ export function Board({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 9,
-          padding: "9px 16px",
+          gap: 10,
+          padding: "10px 16px",
           borderBottom: "1px solid var(--line)",
         }}
       >
-        <span style={{ font: "400 11px var(--sans)", color: "var(--text4)" }}>
+        <span style={{ font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
           A card moves one column at a time. Anything else is an override, and an override needs a
           reason.
         </span>
@@ -192,11 +192,11 @@ export function Board({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 7,
-            padding: "5px 11px",
+            gap: 8,
+            padding: "6px 12px",
             borderRadius: 999,
             border: "1px solid var(--line3)",
-            font: "500 11px var(--sans)",
+            font: "500 11.5px var(--sans)",
             color: "var(--text2)",
             cursor: "pointer",
           }}
@@ -244,19 +244,19 @@ export function Board({
                 transition: "background .2s ease",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "12px 13px 9px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px 10px" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
                 <span
                   style={{
                     flex: 1,
                     font: "600 10.5px var(--sans)",
                     color,
-                    letterSpacing: ".09em",
+                    letterSpacing: ".08em",
                   }}
                 >
                   {STATUS_NAME[status].toUpperCase()}
                 </span>
-                <span style={{ ...mono, fontSize: 10, fontWeight: 500, color: "var(--text3)" }}>
+                <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
                   {list.length}
                 </span>
               </div>
@@ -266,7 +266,7 @@ export function Board({
                 style={{
                   minHeight: 0,
                   overflowY: "auto",
-                  padding: "0 9px 10px",
+                  padding: "0 10px 10px",
                   display: "flex",
                   flexDirection: "column",
                   gap: 8,
@@ -319,7 +319,7 @@ export function Board({
                       onClick={() => (isReview ? openReview(card.id) : openRun(card.id))}
                       className="tile"
                       style={{
-                        padding: "11px 12px",
+                        padding: "12px 12px",
                         borderRadius: 12,
                         background: "var(--surface)",
                         border: "1px solid var(--line2)",
@@ -343,15 +343,15 @@ export function Board({
                       >
                         {card.title}
                       </span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <Glyph color={t.color} soft={t.soft} size={16} font={8}>
                           {agent?.initial ?? "?"}
                         </Glyph>
-                        <span className="card-id" style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>
+                        <span className="card-id" style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
                           {card.id}
                         </span>
                         <span style={{ flex: 1 }} />
-                        <span style={{ ...mono, fontSize: 10, color: "var(--text3)" }}>{meta}</span>
+                        <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>{meta}</span>
                         {!isRun && (
                           <span
                             title="Delete this card"
@@ -359,7 +359,7 @@ export function Board({
                               e.stopPropagation();
                               discard(card.id);
                             }}
-                            style={{ ...mono, fontSize: 11, color: "var(--text4)", cursor: "pointer" }}
+                            style={{ ...mono, fontSize: 11.5, color: "var(--text4)", cursor: "pointer" }}
                           >
                             ✕
                           </span>
@@ -386,12 +386,12 @@ export function Board({
                             alignSelf: "flex-start",
                             display: "flex",
                             alignItems: "center",
-                            gap: 5,
-                            padding: "1px 7px",
-                            borderRadius: 6,
+                            gap: 6,
+                            padding: "1px 8px",
+                            borderRadius: 8,
                             background: "var(--surface2)",
                             ...mono,
-                            fontSize: 9.5,
+                            fontSize: 10.5,
                             fontWeight: 500,
                             color: "var(--text3)",
                             maxWidth: "100%",
@@ -414,14 +414,14 @@ export function Board({
                             style={{
                               flex: 1,
                               padding: 6,
-                              borderRadius: 9,
+                              borderRadius: 8,
                               background: isRun
                                 ? "var(--badSoft)"
                                 : isReview
                                   ? "var(--okSoft)"
                                   : "var(--infoSoft)",
                               color: isRun ? "var(--bad)" : isReview ? "var(--ok)" : "var(--info)",
-                              font: "600 11px var(--sans)",
+                              font: "600 11.5px var(--sans)",
                               textAlign: "center",
                               cursor: "pointer",
                             }}
@@ -435,8 +435,8 @@ export function Board({
                             }}
                             style={{
                               padding: "6px 10px",
-                              borderRadius: 9,
-                              font: "500 11px var(--sans)",
+                              borderRadius: 8,
+                              font: "500 11.5px var(--sans)",
                               color: "var(--text3)",
                               cursor: "pointer",
                             }}
@@ -454,7 +454,7 @@ export function Board({
                     style={{
                       padding: "14px 8px",
                       textAlign: "center",
-                      font: "400 11px var(--sans)",
+                      font: "400 11.5px var(--sans)",
                       color: "var(--text4)",
                       border: "1px dashed var(--line2)",
                       borderRadius: 12,

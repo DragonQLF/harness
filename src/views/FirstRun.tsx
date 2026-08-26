@@ -29,7 +29,7 @@ function Step({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 11,
+          fontSize: 11.5,
           fontWeight: 800,
           ...tabular,
         }}
@@ -41,7 +41,7 @@ function Step({
         <span
           style={{
             display: "block",
-            marginTop: 3,
+            marginTop: 4,
             fontSize: 11.5,
             color: "var(--text3)",
             lineHeight: 1.55,
@@ -90,7 +90,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
           <div
             style={{
               marginTop: 6,
-              fontSize: 13,
+              fontSize: 12.5,
               lineHeight: 1.55,
               color: "rgba(255,255,255,.62)",
               maxWidth: "62ch",
@@ -112,7 +112,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                 borderRadius: 999,
                 background: "#fff",
                 color: "#17171f",
-                fontSize: 13,
+                fontSize: 12.5,
                 fontWeight: 700,
                 cursor: "pointer",
                 transition: "transform .18s ease",
@@ -154,7 +154,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                 onClick={() => createProject(name)}
                 disabled={!name.trim()}
                 style={{
-                  padding: "7px 14px",
+                  padding: "8px 14px",
                   border: "none",
                   borderRadius: 999,
                   background: name.trim() ? "var(--accent2)" : "rgba(255,255,255,.12)",
@@ -201,9 +201,9 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
         <div
           style={{
             border: "1px solid var(--line)",
-            borderRadius: 18,
+            borderRadius: 20,
             background: "var(--surface)",
-            padding: "17px 18px",
+            padding: "18px 18px",
             display: "flex",
             flexDirection: "column",
             gap: 14,
@@ -236,9 +236,9 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
           <div
             style={{
               border: "1px solid var(--line)",
-              borderRadius: 18,
+              borderRadius: 20,
               background: "var(--surface)",
-              padding: "17px 18px",
+              padding: "18px 18px",
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Before you start</div>
@@ -297,7 +297,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                     className="hv-bright"
                     onClick={installSidecar}
                     style={{
-                      padding: "5px 12px",
+                      padding: "6px 12px",
                       border: "none",
                       borderRadius: 999,
                       background: "var(--accent)",
@@ -317,9 +317,9 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
           <div
             style={{
               border: "1px solid var(--line)",
-              borderRadius: 18,
+              borderRadius: 20,
               background: "var(--surface)",
-              padding: "17px 18px",
+              padding: "18px 18px",
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>

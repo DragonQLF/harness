@@ -129,14 +129,14 @@ export function Sessions({
                 className="row"
                 onClick={() => select(c.id)}
                 style={{
-                  padding: "10px 11px",
+                  padding: "10px 12px",
                   borderRadius: 12,
                   border: `1px solid ${on ? "var(--accentLine)" : "transparent"}`,
                   background: on ? "var(--accentSoft)" : "transparent",
                   cursor: "pointer",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span
                     style={{
                       width: 6,
@@ -217,13 +217,13 @@ export function Sessions({
         ) : (
           <>
             <div style={{ padding: "14px 22px 12px", borderBottom: "1px solid var(--line)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 9 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <Glyph color={at.color} soft={at.soft} size={26} radius="50%" font={10}>
                   {agent?.initial ?? "?"}
                 </Glyph>
                 <span
                   style={{
-                    font: "600 14.5px var(--sans)",
+                    font: "600 14px var(--sans)",
                     color: "var(--text)",
                     letterSpacing: "-.01em",
                     ...truncate,
@@ -234,11 +234,11 @@ export function Sessions({
                 <span
                   style={{
                     flex: "none",
-                    padding: "3px 10px",
+                    padding: "4px 10px",
                     borderRadius: 999,
                     background: status.soft,
                     color: status.color,
-                    font: "600 11px var(--sans)",
+                    font: "600 11.5px var(--sans)",
                   }}
                 >
                   {STATUS_NAME[card.status]}
@@ -254,7 +254,7 @@ export function Sessions({
                       .catch((e) => toast("var(--bad)", "Could not open a terminal", reason(e)));
                   }}
                   style={{
-                    padding: "7px 13px",
+                    padding: "8px 14px",
                     borderRadius: 999,
                     border: "1px solid var(--line3)",
                     font: "400 11.5px var(--sans)",
@@ -277,7 +277,7 @@ export function Sessions({
                     );
                   }}
                   style={{
-                    padding: "7px 13px",
+                    padding: "8px 14px",
                     borderRadius: 999,
                     border: "1px solid var(--line3)",
                     font: "400 11.5px var(--sans)",
@@ -297,7 +297,7 @@ export function Sessions({
                         : startRun(card.id)
                   }
                   style={{
-                    padding: "7px 14px",
+                    padding: "8px 14px",
                     borderRadius: 999,
                     background:
                       card.status === "running"
@@ -329,9 +329,9 @@ export function Sessions({
                   display: "flex",
                   alignItems: "center",
                   flexWrap: "wrap",
-                  gap: 13,
+                  gap: 14,
                   ...mono,
-                  fontSize: 11,
+                  fontSize: 11.5,
                   color: "var(--text3)",
                 }}
               >
@@ -362,7 +362,7 @@ export function Sessions({
               style={{ minHeight: 0, overflowY: "auto", padding: "14px 22px 20px" }}
             >
               {lines.length === 0 && (
-                <div style={{ ...mono, fontSize: 12, color: "var(--text4)" }}>
+                <div style={{ ...mono, fontSize: 12.5, color: "var(--text4)" }}>
                   no transcript for this card yet
                 </div>
               )}
@@ -390,7 +390,7 @@ export function Sessions({
                           display: "flex",
                           gap: 12,
                           ...mono,
-                          fontSize: 12,
+                          fontSize: 12.5,
                           lineHeight: 1.9,
                           paddingLeft: depth * 16,
                           cursor: expandable ? "pointer" : undefined,
@@ -435,7 +435,7 @@ export function Sessions({
                             background: "var(--surface)",
                             border: "1px solid var(--line2)",
                             ...mono,
-                            fontSize: 11,
+                            fontSize: 11.5,
                             lineHeight: 1.7,
                             color: "var(--text3)",
                             whiteSpace: "pre-wrap",
@@ -451,7 +451,7 @@ export function Sessions({
               })()}
 
               {live && !!stream?.turns && (
-                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12.5, lineHeight: 1.9 }}>
                   <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
                     turns
                   </span>
@@ -462,7 +462,7 @@ export function Sessions({
               )}
 
               {stream?.thinking && !stream.text && (
-                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12.5, lineHeight: 1.9 }}>
                   <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
                     thinking
                   </span>
@@ -482,7 +482,7 @@ export function Sessions({
                 </div>
               )}
               {stream?.text && (
-                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12.5, lineHeight: 1.9 }}>
                   <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
                     text
                   </span>
@@ -502,7 +502,7 @@ export function Sessions({
                 </div>
               )}
               {live && !stream?.text && !stream?.thinking && (
-                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12, lineHeight: 1.9 }}>
+                <div style={{ display: "flex", gap: 12, ...mono, fontSize: 12.5, lineHeight: 1.9 }}>
                   <span style={{ flex: "none", width: 74, textAlign: "right", color: "var(--text4)" }}>
                     live
                   </span>

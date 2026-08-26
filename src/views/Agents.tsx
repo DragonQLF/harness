@@ -73,15 +73,15 @@ function Templates() {
   };
 
   return (
-    <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "11px 12px 13px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 7, paddingBottom: 8 }}>
-        <span style={{ font: "600 11px var(--sans)", color: "var(--text2)" }}>New from template</span>
+    <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "12px 12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 8 }}>
+        <span style={{ font: "600 11.5px var(--sans)", color: "var(--text2)" }}>New from template</span>
         <div style={{ flex: 1 }} />
-        <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
           {templates == null ? "…" : templates.length}
         </span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {(templates ?? []).map((t) => {
           const already = agents.some((a) => a.id === t.id);
           return (
@@ -91,7 +91,7 @@ function Templates() {
               title={already ? `${t.name} — you already have one` : t.role}
               onClick={() => createAgentFromTemplate(t.id)}
               style={{
-                padding: "4px 9px",
+                padding: "4px 10px",
                 borderRadius: 999,
                 border: "1px solid var(--line3)",
                 font: "400 10.5px var(--sans)",
@@ -107,7 +107,7 @@ function Templates() {
           className="chip"
           onClick={custom}
           style={{
-            padding: "4px 9px",
+            padding: "4px 10px",
             borderRadius: 999,
             border: "1px dashed var(--line3)",
             font: "400 10.5px var(--sans)",
@@ -118,7 +118,7 @@ function Templates() {
           custom
         </span>
       </div>
-      <div style={{ paddingTop: 9, font: "400 10px/1.5 var(--sans)", color: "var(--text4)" }}>
+      <div style={{ paddingTop: 10, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
         A template is a menu entry. Nothing is installed until you pick one.
       </div>
     </div>
@@ -141,13 +141,13 @@ function Knob({
     <div
       className="row"
       onClick={onCycle}
-      style={{ padding: "11px 13px", background: "var(--surface)", cursor: "pointer" }}
+      style={{ padding: "12px 14px", background: "var(--surface)", cursor: "pointer" }}
     >
-      <div style={{ font: "400 10px var(--sans)", color: "var(--text4)", letterSpacing: ".06em" }}>
+      <div style={{ font: "400 10.5px var(--sans)", color: "var(--text4)", letterSpacing: ".08em" }}>
         {label}
       </div>
       <div style={{ marginTop: 4, font: "600 12.5px var(--sans)", color: "var(--text1)" }}>{value}</div>
-      <div style={{ marginTop: 3, font: "400 10px/1.4 var(--sans)", color: "var(--text4)" }}>{hint}</div>
+      <div style={{ marginTop: 4, font: "400 10.5px/1.4 var(--sans)", color: "var(--text4)" }}>{hint}</div>
     </div>
   );
 }
@@ -170,8 +170,8 @@ function Toggle({
       style={{
         display: "flex",
         alignItems: "flex-start",
-        gap: 11,
-        padding: "12px 13px",
+        gap: 12,
+        padding: "12px 14px",
         borderBottom: "1px solid var(--line)",
         cursor: "pointer",
       }}
@@ -179,7 +179,7 @@ function Toggle({
       <span
         style={{
           width: 30,
-          height: 17,
+          height: 18,
           flex: "none",
           marginTop: 1,
           borderRadius: 999,
@@ -193,8 +193,8 @@ function Toggle({
       >
         <span
           style={{
-            width: 13,
-            height: 13,
+            width: 14,
+            height: 14,
             borderRadius: "50%",
             background: on ? "var(--accent2)" : "var(--line4)",
             transition: "background .18s ease",
@@ -202,7 +202,7 @@ function Toggle({
         />
       </span>
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "block", font: "500 12px var(--sans)", color: "var(--text1)" }}>
+        <span style={{ display: "block", font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
           {label}
         </span>
         <span
@@ -348,10 +348,10 @@ export function Agents({
           overflow: "hidden",
         }}
       >
-        <div className="stagger" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 9px 12px" }}>
+        <div className="stagger" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px 12px" }}>
           {teams.map(([team, members]) => (
             <div key={team}>
-              <Eyebrow style={{ display: "block", padding: "9px 8px 5px" }}>{team}</Eyebrow>
+              <Eyebrow style={{ display: "block", padding: "10px 8px 6px" }}>{team}</Eyebrow>
               {members.map((a) => {
                 const at = tone(a.tone);
                 const on = a.id === agent.id;
@@ -365,9 +365,9 @@ export function Agents({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 9,
-                      padding: "8px 9px",
-                      borderRadius: 10,
+                      gap: 10,
+                      padding: "8px 10px",
+                      borderRadius: 12,
                       cursor: "pointer",
                       background: on ? "var(--active)" : "transparent",
                       boxShadow: on ? "inset 0 0 0 1px var(--line3)" : "none",
@@ -380,7 +380,7 @@ export function Agents({
                       <span
                         style={{
                           display: "block",
-                          font: "600 12px var(--sans)",
+                          font: "600 12.5px var(--sans)",
                           color: on ? "var(--text)" : "var(--text1)",
                           ...truncate,
                         }}
@@ -388,12 +388,12 @@ export function Agents({
                         {a.name}
                       </span>
                       <span
-                        style={{ display: "block", ...mono, fontSize: 10, color: "var(--text4)", ...truncate }}
+                        style={{ display: "block", ...mono, fontSize: 10.5, color: "var(--text4)", ...truncate }}
                       >
                         {a.title} · {a.model ?? "auto"}
                       </span>
                     </span>
-                    <span style={{ font: "500 9.5px var(--sans)", color: state.color }}>
+                    <span style={{ font: "500 10.5px var(--sans)", color: state.color }}>
                       {state.label}
                     </span>
                   </div>
@@ -410,7 +410,7 @@ export function Agents({
           style={{
             display: "flex",
             alignItems: "flex-start",
-            gap: 13,
+            gap: 14,
             padding: "18px 22px 14px",
             borderBottom: "1px solid var(--line)",
             animation: "rowIn .4s cubic-bezier(.2,.8,.25,1) both",
@@ -420,7 +420,7 @@ export function Agents({
             {agent.initial}
           </Glyph>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input
                 value={agent.name}
                 onChange={(e) => patch({ name: e.target.value })}
@@ -441,12 +441,12 @@ export function Agents({
                 placeholder="team"
                 style={{
                   padding: "2px 8px",
-                  borderRadius: 6,
+                  borderRadius: 8,
                   border: "none",
                   background: "var(--surface2)",
                   outline: "none",
                   ...mono,
-                  fontSize: 10,
+                  fontSize: 10.5,
                   color: "var(--text2)",
                   width: 108,
                 }}
@@ -454,9 +454,9 @@ export function Agents({
               <span
                 style={{
                   padding: "2px 8px",
-                  borderRadius: 6,
+                  borderRadius: 8,
                   background: running > 0 ? "var(--okSoft)" : "var(--surface2)",
-                  font: "600 10px var(--sans)",
+                  font: "600 10.5px var(--sans)",
                   color: running > 0 ? "var(--ok)" : "var(--text3)",
                 }}
               >
@@ -470,12 +470,12 @@ export function Agents({
               style={{
                 display: "block",
                 width: "100%",
-                marginTop: 3,
+                marginTop: 4,
                 border: "none",
                 background: "transparent",
                 outline: "none",
                 padding: 0,
-                font: "400 12px var(--sans)",
+                font: "400 12.5px var(--sans)",
                 color: "var(--text3)",
               }}
             />
@@ -498,8 +498,8 @@ export function Agents({
               className="chip"
               onClick={() => !b.off && b.run()}
               style={{
-                padding: "7px 13px",
-                borderRadius: 9,
+                padding: "8px 14px",
+                borderRadius: 8,
                 border: "1px solid var(--line3)",
                 font: "500 11.5px var(--sans)",
                 color: "var(--text2)",
@@ -542,7 +542,7 @@ export function Agents({
                     width: "100%",
                     resize: "vertical",
                     padding: "12px 14px",
-                    borderRadius: 11,
+                    borderRadius: 12,
                     background: "var(--surface)",
                     border: "1px solid var(--line2)",
                     font: "400 12.5px/1.7 var(--sans)",
@@ -562,7 +562,7 @@ export function Agents({
                     width: "100%",
                     resize: "vertical",
                     padding: "12px 14px",
-                    borderRadius: 11,
+                    borderRadius: 12,
                     background: "var(--surface)",
                     border: "1px solid var(--line2)",
                     font: "400 12.5px/1.7 var(--sans)",
@@ -572,7 +572,7 @@ export function Agents({
                 />
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 7 }}>TOOLS IT MAY USE</Eyebrow>
+                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>TOOLS IT MAY USE</Eyebrow>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {ALL_PERMISSIONS.map((p) => {
                     const on = agent.permissions.includes(p);
@@ -590,7 +590,7 @@ export function Agents({
                           display: "flex",
                           alignItems: "center",
                           gap: 6,
-                          padding: "5px 10px",
+                          padding: "6px 10px",
                           borderRadius: 8,
                           background: on ? "var(--accentSoft)" : "var(--surface)",
                           border: `1px solid ${on ? "var(--accentLine)" : "var(--line2)"}`,
@@ -601,8 +601,8 @@ export function Agents({
                       >
                         <span
                           style={{
-                            width: 11,
-                            height: 11,
+                            width: 12,
+                            height: 12,
                             borderRadius: 4,
                             border: `1px solid ${on ? "var(--accent2)" : "var(--line3)"}`,
                             background: on ? "var(--accent2)" : "transparent",
@@ -613,13 +613,13 @@ export function Agents({
                     );
                   })}
                 </div>
-                <div style={{ paddingTop: 7, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+                <div style={{ paddingTop: 8, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
                   Anything outside this list is refused before it runs. Anything inside it still asks
                   you, unless a scoped standing rule covers it.
                 </div>
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 7 }}>SKILLS</Eyebrow>
+                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>SKILLS</Eyebrow>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                   {agent.skills.map((s) => (
                     <span
@@ -632,7 +632,7 @@ export function Agents({
                         background: "var(--surface)",
                         border: "1px solid var(--line2)",
                         ...mono,
-                        fontSize: 11,
+                        fontSize: 11.5,
                         color: "var(--text2)",
                         cursor: "pointer",
                       }}
@@ -656,14 +656,14 @@ export function Agents({
                       border: "1px dashed var(--line3)",
                       background: "transparent",
                       outline: "none",
-                      font: "400 11px var(--sans)",
+                      font: "400 11.5px var(--sans)",
                       color: "var(--text2)",
                     }}
                   />
                 </div>
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 7 }}>WHERE IT SITS</Eyebrow>
+                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>WHERE IT SITS</Eyebrow>
                 <div style={{ display: "flex", gap: 10 }}>
                   {[
                     {
@@ -680,7 +680,7 @@ export function Agents({
                     },
                   ].map((f) => (
                     <div key={f.label} style={{ flex: 1 }}>
-                      <div style={{ ...mono, fontSize: 10, color: "var(--text4)", paddingBottom: 4 }}>
+                      <div style={{ ...mono, fontSize: 10.5, color: "var(--text4)", paddingBottom: 4 }}>
                         {f.label}
                       </div>
                       <select
@@ -688,11 +688,11 @@ export function Agents({
                         onChange={(e) => f.set(e.target.value)}
                         style={{
                           width: "100%",
-                          padding: "7px 9px",
-                          borderRadius: 9,
+                          padding: "8px 10px",
+                          borderRadius: 8,
                           border: "1px solid var(--line2)",
                           background: "var(--surface)",
-                          font: "400 12px var(--sans)",
+                          font: "400 12.5px var(--sans)",
                           color: "var(--text2)",
                           cursor: "pointer",
                         }}
@@ -739,7 +739,7 @@ export function Agents({
                   on={agent.can_delegate}
                   onChange={(v) => patch({ can_delegate: v })}
                 />
-                <div style={{ padding: "11px 13px", font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+                <div style={{ padding: "12px 14px", font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
                   Board changes an agent makes still come to you as a permission request — the same
                   sheet a shell command uses.
                 </div>
@@ -750,7 +750,7 @@ export function Agents({
                   borderRadius: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--line2)",
-                  padding: 13,
+                  padding: 14,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 10 }}>
@@ -758,13 +758,13 @@ export function Agents({
                     What it has done
                   </span>
                   <div style={{ flex: 1 }} />
-                  <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>all time</span>
+                  <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>all time</span>
                 </div>
                 {neverRan ? (
                   <p
                     style={{
                       margin: 0,
-                      font: "400 12px/1.6 var(--sans)",
+                      font: "400 12.5px/1.6 var(--sans)",
                       color: "var(--text3)",
                     }}
                   >
@@ -777,19 +777,19 @@ export function Agents({
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-                        gap: "11px 8px",
+                        gap: "12px 8px",
                       }}
                     >
                       {numbers.map((n) => (
                         <div key={n.k}>
                           <div
                             data-nums
-                            style={{ ...mono, fontSize: 15, fontWeight: 600, color: n.color }}
+                            style={{ ...mono, fontSize: 16, fontWeight: 600, color: n.color }}
                           >
                             {n.v}
                           </div>
                           <div
-                            style={{ marginTop: 1, font: "400 10px var(--sans)", color: "var(--text4)" }}
+                            style={{ marginTop: 1, font: "400 10.5px var(--sans)", color: "var(--text4)" }}
                           >
                             {n.k}
                           </div>
@@ -813,7 +813,7 @@ export function Agents({
                         />
                       ))}
                     </div>
-                    <div style={{ paddingTop: 5, ...mono, fontSize: 10, color: "var(--text4)" }}>
+                    <div style={{ paddingTop: 6, ...mono, fontSize: 10.5, color: "var(--text4)" }}>
                       runs, last 7 days
                     </div>
                   </>
@@ -829,7 +829,7 @@ export function Agents({
                     overflow: "hidden",
                   }}
                 >
-                  <div style={{ padding: "11px 13px 8px", font: "600 11.5px var(--sans)", color: "var(--text1)" }}>
+                  <div style={{ padding: "12px 14px 8px", font: "600 11.5px var(--sans)", color: "var(--text1)" }}>
                     Its cards here
                   </div>
                   {mine.slice(0, 6).map((c) => (
@@ -840,8 +840,8 @@ export function Agents({
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 9,
-                        padding: "8px 13px",
+                        gap: 10,
+                        padding: "8px 14px",
                         borderTop: "1px solid var(--line)",
                         cursor: "pointer",
                       }}
@@ -849,7 +849,7 @@ export function Agents({
                       <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
                         {c.title}
                       </span>
-                      <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>
+                      <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
                         {money(c.cost_usd, 2)}
                       </span>
                     </div>
@@ -857,19 +857,19 @@ export function Agents({
                 </div>
               )}
 
-              <div style={{ padding: "11px 13px", borderRadius: 12, border: "1px solid rgba(255,107,129,.22)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <div style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid rgba(255,107,129,.22)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)" }}>
                     Remove this profile
                   </span>
                   <span
                     onClick={() => agent.id !== "director" && removeAgent(agent.id)}
                     style={{
-                      padding: "5px 11px",
+                      padding: "6px 12px",
                       borderRadius: 8,
                       border: "1px solid rgba(255,107,129,.35)",
                       color: "var(--bad2)",
-                      font: "600 11px var(--sans)",
+                      font: "600 11.5px var(--sans)",
                       cursor: agent.id === "director" ? "not-allowed" : "pointer",
                       opacity: agent.id === "director" ? 0.45 : 1,
                     }}
