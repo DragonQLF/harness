@@ -14,8 +14,8 @@ import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
 function classify(text: string): { bg: string; color: string } {
   if (text.startsWith("+++") || text.startsWith("---"))
     return { bg: "transparent", color: "var(--text4)" };
-  if (text.startsWith("+")) return { bg: "rgba(79,209,165,.08)", color: "#5fdcb1" };
-  if (text.startsWith("-")) return { bg: "rgba(255,107,129,.08)", color: "var(--bad2)" };
+  if (text.startsWith("+")) return { bg: "var(--okSoft)", color: "var(--ok)" };
+  if (text.startsWith("-")) return { bg: "var(--badSoft)", color: "var(--bad2)" };
   if (text.startsWith("@@") || text.startsWith("diff --git") || text.startsWith("index "))
     return { bg: "transparent", color: "var(--text4)" };
   return { bg: "transparent", color: "var(--text3)" };
@@ -507,7 +507,7 @@ export function Review({
                   padding: "8px 16px",
                   borderRadius: 9,
                   background: "var(--ok)",
-                  color: "#08211a",
+                  color: "var(--onAccent)",
                   font: "600 12px var(--sans)",
                   cursor: "pointer",
                 }}

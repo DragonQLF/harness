@@ -892,21 +892,8 @@ export function Projects({ go }: { go: (v: View) => void }) {
   return (
     <div style={{ padding: "22px 26px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Projects</h1>
-        <span
-          style={{
-            padding: "3px 9px",
-            borderRadius: 999,
-            background: "var(--surface)",
-            border: "1px solid var(--line)",
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--text2)",
-            ...tabular,
-          }}
-        >
-          {projects.length}
-        </span>
+        {/* The chrome above already carries "Projects" and the repository
+            count. What it cannot say is what registering one means. */}
         <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
           Every repository Relay is allowed to touch
         </span>

@@ -61,14 +61,6 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
 
   return (
     <div style={{ padding: "22px 26px 28px", maxWidth: 1000 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
-          Overview
-        </h1>
-        <span style={{ color: "var(--text3)", fontSize: 12 }}>›</span>
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>no project yet</span>
-      </div>
-
       <div
         style={{
           position: "relative",
@@ -87,12 +79,12 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
             width: 240,
             height: 240,
             borderRadius: "50%",
-            background: "radial-gradient(circle,rgba(139,125,255,.3),transparent 68%)",
+            background: "var(--bannerGlow)",
             pointerEvents: "none",
           }}
         />
         <div style={{ position: "relative", padding: "26px 26px 24px" }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: "#fff", letterSpacing: "-.02em" }}>
+          <div style={{ fontSize: 21, fontWeight: 800, color: "var(--onBanner)", letterSpacing: "-.02em" }}>
             {greeting()}, {firstName}. Nothing is set up yet.
           </div>
           <div
@@ -150,7 +142,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                   width: 168,
                   border: "none",
                   background: "transparent",
-                  color: "#fff",
+                  color: "var(--onBanner)",
                   fontSize: 12.5,
                   outline: "none",
                   padding: "6px 0",
@@ -166,7 +158,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                   border: "none",
                   borderRadius: 999,
                   background: name.trim() ? "var(--accent2)" : "rgba(255,255,255,.12)",
-                  color: name.trim() ? "#17171f" : "rgba(255,255,255,.5)",
+                  color: name.trim() ? "var(--onAccent)" : "var(--onBanner3)",
                   fontSize: 12.5,
                   fontWeight: 700,
                   cursor: name.trim() ? "pointer" : "not-allowed",
@@ -184,7 +176,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                 border: "1px solid rgba(255,255,255,.2)",
                 borderRadius: 999,
                 background: "rgba(255,255,255,.07)",
-                color: "#fff",
+                color: "var(--onBanner)",
                 fontSize: 12.5,
                 fontWeight: 600,
                 cursor: "pointer",

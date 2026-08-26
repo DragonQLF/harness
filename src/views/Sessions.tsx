@@ -202,8 +202,17 @@ export function Sessions({
         }}
       >
         {!card ? (
-          <div style={{ padding: 26, font: "400 12.5px var(--sans)", color: "var(--text4)" }}>
-            Nothing recorded yet.
+          <div
+            style={{
+              padding: 26,
+              maxWidth: 460,
+              font: "400 12.5px/1.7 var(--sans)",
+              color: "var(--text4)",
+            }}
+          >
+            Nothing recorded yet. Every run writes its transcript to disk as it goes, so
+            once an agent has worked a card you can open it here and read it back turn by
+            turn — including the runs that failed.
           </div>
         ) : (
           <>

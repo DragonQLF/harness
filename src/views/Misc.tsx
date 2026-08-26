@@ -39,9 +39,6 @@ export function Worktrees() {
 
   return (
     <div style={{ padding: "22px 26px 28px" }}>
-      <h1 style={{ margin: "0 0 5px", fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
-        Worktrees
-      </h1>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text2)" }}>
         One branch per card, created under app data. Finished runs commit themselves and leave a
         trailer pointing back at the card.
@@ -355,7 +352,8 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
           <div
             style={{ padding: "22px 18px", textAlign: "center", fontSize: 12.5, color: "var(--text3)" }}
           >
-            Nothing logged yet.
+            Nothing logged yet. Every card created, moved, run or reviewed in this
+            project lands here, newest first.
           </div>
         )}
       </div>
@@ -466,9 +464,6 @@ export function Settings() {
 
   return (
     <div style={{ padding: "22px 26px 28px", maxWidth: 880 }}>
-      <h1 style={{ margin: "0 0 5px", fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
-        Settings
-      </h1>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text2)" }}>
         Applies to new runs. Anything already running keeps the profile it started with.
       </p>
