@@ -154,6 +154,7 @@ export function NavRail({
         </span>
         <div style={{ flex: 1 }} />
         <span
+          className="hv-soft"
           title="Command palette ⌘K"
           onClick={onPalette}
           style={{
@@ -169,6 +170,7 @@ export function NavRail({
           <Icon.search />
         </span>
         <span
+          className="hv-soft"
           title="Waiting on you"
           onClick={onApprovals}
           style={{
@@ -277,6 +279,7 @@ export function NavRail({
           <Eyebrow>CHATS</Eyebrow>
           <div style={{ flex: 1 }} />
           <span
+            className="hv-soft"
             onClick={() => {
               newConversation();
               go("chat");
@@ -386,6 +389,7 @@ export function NavRail({
           <Eyebrow>PROJECTS</Eyebrow>
           <div style={{ flex: 1 }} />
           <span
+            className="hv-soft"
             onClick={() => go("projects")}
             style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
           >
@@ -476,6 +480,7 @@ export function NavRail({
             {name}
           </span>
           <span
+            className="hv-soft"
             title="Settings"
             onClick={() => go("settings")}
             style={{

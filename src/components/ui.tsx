@@ -280,6 +280,7 @@ export function Segmented<T extends string>({
         const on = o.id === value;
         return (
           <button
+            className="hv-soft"
             key={o.id}
             type="button"
             onClick={() => onPick(o.id)}
@@ -309,6 +310,7 @@ export function Segmented<T extends string>({
 export function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <button
+      className="hv-soft"
       type="button"
       aria-label={label}
       aria-pressed={on}

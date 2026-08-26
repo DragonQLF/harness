@@ -35,6 +35,7 @@ function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <span
+      className="hv-soft"
       title={done ? "Copied" : "Copy"}
       onClick={() => {
         navigator.clipboard
@@ -148,6 +149,7 @@ function ApprovalCard({
       </span>
 
       <span
+        className="hv-soft"
         onClick={() => canScope && setAlways((v) => !v)}
         style={{
           display: "flex",
@@ -331,6 +333,7 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
         }}
       >
         <div
+          className="row"
           onClick={msg.detail ? () => setOpen((o) => !o) : undefined}
           style={{
             display: "flex",
@@ -655,6 +658,7 @@ export function Chat() {
         {chatBusy && (
           <div style={{ flex: "none", display: "flex", gap: 12, alignItems: "center" }}>
             <span
+              className="hv-soft"
               onClick={stopTurn}
               title="stop this turn"
               style={{
@@ -740,6 +744,7 @@ export function Chat() {
             >
               {attached.map((file) => (
                 <span
+                  className="hv-soft"
                   key={file}
                   title={file}
                   onClick={() => setAttached((was) => was.filter((f) => f !== file))}

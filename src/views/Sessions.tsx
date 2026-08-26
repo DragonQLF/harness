@@ -385,6 +385,7 @@ export function Sessions({
                   return (
                     <div key={i}>
                       <div
+                        className="row"
                         onClick={expandable ? () => toggleDetail(i) : undefined}
                         style={{
                           display: "flex",

@@ -25,6 +25,7 @@ export function Toasts() {
     >
       {toasts.map((t) => (
         <div
+          className="hv-soft"
           key={t.id}
           onClick={() => dismissToast(t.id)}
           style={{
@@ -184,6 +185,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <button
+            className="hv-soft"
             type="button"
             onClick={() => setAlways((v) => !v)}
             aria-pressed={always}
@@ -412,6 +414,7 @@ export function CommandPalette({
 
   return (
     <div
+      className="hv-soft"
       onClick={close}
       style={{
         position: "absolute",

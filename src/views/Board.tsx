@@ -167,6 +167,7 @@ function NewCard({ close }: { close: () => void }) {
         </span>
       ))}
       <span
+        className="hv-soft"
         onClick={close}
         style={{ font: "500 11.5px var(--sans)", color: "var(--text4)", cursor: "pointer" }}
       >
@@ -403,6 +404,7 @@ export function Board({
                         <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>{meta}</span>
                         {!isRun && (
                           <span
+                            className="hv-soft"
                             title="Delete this card"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -454,6 +456,7 @@ export function Board({
                       {(isRun || isReview || isReady) && (
                         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <span
+                            className="hv-soft"
                             onClick={(e) => {
                               e.stopPropagation();
                               if (isRun) cancelRun(card.id);
@@ -478,6 +481,7 @@ export function Board({
                             {isRun ? "Stop" : isReview ? "Read the diff" : "Start"}
                           </span>
                           <span
+                            className="hv-soft"
                             onClick={(e) => {
                               e.stopPropagation();
                               openRun(card.id);

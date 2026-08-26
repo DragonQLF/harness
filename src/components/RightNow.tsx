@@ -54,6 +54,7 @@ export function RightNowStrip({ open }: { open: () => void }) {
 
   return (
     <div
+      className="row"
       onClick={open}
       title="Right now"
       style={{
@@ -207,6 +208,7 @@ export function RightNow({
           Right now
         </span>
         <span
+          className="hv-soft"
           onClick={close}
           style={{
             display: "grid",
@@ -451,6 +453,7 @@ export function RightNow({
                 Make card in _harness
               </span>
               <span
+                className="hv-soft"
                 onClick={() => dismissProposal(proposal.id)}
                 style={{ font: "500 10.5px var(--sans)", color: "var(--text2)", cursor: "pointer" }}
               >
@@ -524,6 +527,7 @@ export function RightNow({
                   </span>
                 </div>
                 <span
+                  className="hv-soft"
                   onClick={() => openSession(card.id)}
                   style={{
                     font: "400 11.5px var(--sans)",
@@ -558,7 +562,7 @@ export function RightNow({
                 >
                   {plural(card.turns, "turn")} · {money(card.cost_usd, 2)}
                   <span style={{ flex: 1 }} />
-                  <span onClick={() => cancelRun(card.id)} style={{ cursor: "pointer" }}>
+                  <span className="hv-soft" onClick={() => cancelRun(card.id)} style={{ cursor: "pointer" }}>
                     stop
                   </span>
                 </span>

@@ -226,6 +226,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
             const on = filter === f;
             return (
               <button
+                className="hv-soft"
                 key={f}
                 type="button"
                 onClick={() => setFilter(f)}
@@ -440,6 +441,7 @@ export function Settings() {
         const on = value === o;
         return (
           <button
+            className="hv-soft"
             key={o}
             type="button"
             onClick={() => pick(o)}
@@ -475,6 +477,7 @@ export function Settings() {
               const picked = settings.accent === a.value;
               return (
                 <button
+                  className="hv-soft"
                   key={a.value || "theme"}
                   type="button"
                   title={a.name}

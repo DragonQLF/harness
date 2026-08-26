@@ -31,6 +31,7 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
   return (
     <span ref={box} style={{ position: "relative", display: "flex", alignItems: "stretch" }}>
       <span
+        className="hv-soft"
         onClick={() => setOpen((v) => !v)}
         style={{
           display: "grid",
@@ -137,6 +138,7 @@ export function TitleBar({
 
   const chrome = (label: string, icon: React.ReactNode, run: () => void, width: number, dim = false) => (
     <span
+      className="hv-soft"
       title={label}
       onClick={run}
       style={{

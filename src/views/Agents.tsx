@@ -578,6 +578,7 @@ export function Agents({
                     const on = agent.permissions.includes(p);
                     return (
                       <span
+                        className="hv-soft"
                         key={p}
                         onClick={() =>
                           patch({
@@ -623,6 +624,7 @@ export function Agents({
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                   {agent.skills.map((s) => (
                     <span
+                      className="hv-soft"
                       key={s}
                       title="Remove"
                       onClick={() => patch({ skills: agent.skills.filter((x) => x !== s) })}
@@ -863,6 +865,7 @@ export function Agents({
                     Remove this profile
                   </span>
                   <span
+                    className="hv-soft"
                     onClick={() => agent.id !== "director" && removeAgent(agent.id)}
                     style={{
                       padding: "6px 12px",

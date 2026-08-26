@@ -601,6 +601,58 @@ input[type="number"] {
 .hv-row:hover {
   background: var(--hover);
 }
+/* The hover utilities ease. Each of these carried only its `:hover` rule, so
+   the change arrived and left instantly — the difference between an interface
+   that responds and one that flickers. The list is what each class actually
+   changes; a blanket `transition: all` would animate layout too. */
+.hv-hover,
+.hv-soft,
+.hv-row,
+.hv-tile,
+.hv-white,
+.hv-onbanner {
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.hv-link,
+.hv-text {
+  transition: color 0.16s ease;
+}
+.hv-border,
+.hv-pill {
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+.hv-bright,
+.hv-brighter {
+  transition: filter 0.16s ease;
+}
+.hv-rise {
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hv-close,
+.hv-danger {
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+/* A pointer over something clickable should say so. Several of these are
+   spans, which get no cursor from the browser. */
+.hv-hover,
+.hv-soft,
+.hv-row,
+.hv-tile,
+.hv-link,
+.hv-text,
+.hv-border,
+.hv-pill,
+.hv-bright,
+.hv-brighter,
+.hv-rise,
+.hv-close,
+.hv-danger,
+.hv-white,
+.hv-onbanner {
+  cursor: pointer;
+}
+
 .hv-hover:hover {
   background: var(--hover);
 }
@@ -636,7 +688,7 @@ input[type="number"] {
 }
 .hv-close:hover {
   background: var(--bad);
-  color: #fff;
+  color: var(--onAccent);
 }
 .hv-danger:hover {
   background: var(--badSoft);

@@ -54,6 +54,7 @@ function FileSection({ file }: { file: FilePatch }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <div
+        className="row"
         onClick={() => setOpen(!open)}
         style={{
           display: "flex",
@@ -240,6 +241,7 @@ export function Review({
               const r = riskOf(c.id);
               return (
                 <span
+                  className="hv-soft"
                   key={c.id}
                   onClick={() => select(c.id)}
                   title={r >= 0 ? `triage risk ${r}` : undefined}
