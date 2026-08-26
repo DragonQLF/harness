@@ -316,6 +316,9 @@ export function Agents({
 
   const week = stats?.week_runs ?? [0, 0, 0, 0, 0, 0, 0];
   const peak = Math.max(1, ...week);
+  // Six zeros and a flat sparkline are a chart of nothing wearing the clothes
+  // of a chart of something. A profile that has never run says so instead.
+  const neverRan = (stats?.runs ?? 0) === 0;
   const numbers = [
     { k: "runs", v: num(stats?.runs ?? 0), color: "var(--text1)" },
     { k: "cards done", v: num(stats?.cards_done ?? 0), color: "var(--ok)" },
@@ -757,40 +760,64 @@ export function Agents({
                   <div style={{ flex: 1 }} />
                   <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>all time</span>
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-                    gap: "11px 8px",
-                  }}
-                >
-                  {numbers.map((n) => (
-                    <div key={n.k}>
-                      <div style={{ ...mono, fontSize: 15, fontWeight: 600, color: n.color }}>{n.v}</div>
-                      <div style={{ marginTop: 1, font: "400 10px var(--sans)", color: "var(--text4)" }}>
-                        {n.k}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 34, paddingTop: 12 }}>
-                  {week.map((v, i) => (
-                    <span
-                      key={i}
+                {neverRan ? (
+                  <p
+                    style={{
+                      margin: 0,
+                      font: "400 12px/1.6 var(--sans)",
+                      color: "var(--text3)",
+                    }}
+                  >
+                    {agent.name} has not run yet. Give it a card and its runs, spend and
+                    commits are counted here from the event log.
+                  </p>
+                ) : (
+                  <>
+                    <div
                       style={{
-                        flex: 1,
-                        height: `${Math.max(6, Math.round((v / peak) * 100))}%`,
-                        borderRadius: 2,
-                        background: v === peak && v > 0 ? "var(--accent)" : "var(--line3)",
-                        transformOrigin: "bottom",
-                        animation: `grow .55s cubic-bezier(.2,.8,.25,1) ${0.06 + i * 0.05}s both`,
+                        display: "grid",
+                        gridTemplateColumns: "repeat(3,minmax(0,1fr))",
+                        gap: "11px 8px",
                       }}
-                    />
-                  ))}
-                </div>
-                <div style={{ paddingTop: 5, ...mono, fontSize: 10, color: "var(--text4)" }}>
-                  runs, last 7 days
-                </div>
+                    >
+                      {numbers.map((n) => (
+                        <div key={n.k}>
+                          <div
+                            data-nums
+                            style={{ ...mono, fontSize: 15, fontWeight: 600, color: n.color }}
+                          >
+                            {n.v}
+                          </div>
+                          <div
+                            style={{ marginTop: 1, font: "400 10px var(--sans)", color: "var(--text4)" }}
+                          >
+                            {n.k}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 34, paddingTop: 12 }}
+                    >
+                      {week.map((v, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            flex: 1,
+                            height: `${Math.max(6, Math.round((v / peak) * 100))}%`,
+                            borderRadius: 2,
+                            background: v === peak && v > 0 ? "var(--accent)" : "var(--line3)",
+                            transformOrigin: "bottom",
+                            animation: `grow .55s cubic-bezier(.2,.8,.25,1) ${0.06 + i * 0.05}s both`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div style={{ paddingTop: 5, ...mono, fontSize: 10, color: "var(--text4)" }}>
+                      runs, last 7 days
+                    </div>
+                  </>
+                )}
               </div>
 
               {mine.length > 0 && (

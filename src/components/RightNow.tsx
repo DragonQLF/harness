@@ -172,6 +172,14 @@ export function RightNow({
 
   const liveSpend = runningCards.reduce((sum, c) => sum + c.cost_usd, 0);
   const waiting = approvals.length + openProposals.length + reviewing.length;
+  // Four sections each announcing their own emptiness is the same news told
+  // four times, and it makes a calm machine look like a broken one. When
+  // nothing at all is happening, say that once and let the rail go quiet.
+  const allQuiet =
+    waiting === 0 &&
+    openProposals.length === 0 &&
+    runningCards.length === 0 &&
+    doneToday.length === 0;
 
   return (
     <div
@@ -229,16 +237,29 @@ export function RightNow({
           <div
             style={{
               marginBottom: 7,
-              padding: "10px 11px",
+              padding: "12px 13px",
               borderRadius: 12,
               border: "1px solid var(--line2)",
+              background: allQuiet ? "var(--surface)" : "transparent",
               font: "400 11px var(--sans)",
               lineHeight: 1.6,
               color: "var(--text4)",
             }}
           >
-            Nothing needs you. A run that wants a permission, or a diff that is
-            finished, arrives here.
+            {allQuiet ? (
+              <>
+                <span style={{ display: "block", color: "var(--text2)", fontWeight: 600 }}>
+                  All quiet
+                </span>
+                Nothing running, nothing waiting on you, nothing approved yet today. A
+                run that wants a permission, or a diff that is finished, arrives here.
+              </>
+            ) : (
+              <>
+                Nothing needs you. A run that wants a permission, or a diff that is
+                finished, arrives here.
+              </>
+            )}
           </div>
         )}
 
@@ -381,7 +402,7 @@ export function RightNow({
             ) : undefined
           }
         />
-        {openProposals.length === 0 && (
+        {openProposals.length === 0 && !allQuiet && (
           <div style={{ padding: "0 3px 4px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
             No proposals waiting.
           </div>
@@ -447,7 +468,7 @@ export function RightNow({
             <span style={{ ...mono, fontSize: 10, color: "var(--text4)" }}>{money(liveSpend, 2)}</span>
           }
         />
-        {runningCards.length === 0 && (
+        {runningCards.length === 0 && !allQuiet && (
           <div
             style={{
               marginBottom: 7,
@@ -552,7 +573,7 @@ export function RightNow({
             </span>
           }
         />
-        {doneToday.length === 0 && (
+        {doneToday.length === 0 && !allQuiet && (
           <div style={{ padding: "0 3px 4px", font: "400 11px var(--sans)", color: "var(--text4)" }}>
             Nothing approved yet today.
           </div>

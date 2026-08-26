@@ -509,6 +509,10 @@ export function Chat() {
           padding: "18px 20px 10px",
           display: "flex",
           flexDirection: "column",
+          // A short conversation belongs against the composer, not stranded at
+          // the top of the pane with a screen of nothing under it. Once the
+          // transcript is long enough to scroll, this stops having any effect.
+          justifyContent: "flex-end",
           gap: 16,
         }}
       >
