@@ -6,7 +6,7 @@ import { api, events, reason } from "../lib/ipc";
 import { clock, money } from "../lib/format";
 import { ruleIsRevoked, ruleLabel, type Provider, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
-import { Loading, Switch, tabular, truncate } from "../components/ui";
+import { Loading, Switch, mono, tabular, truncate } from "../components/ui";
 
 export function Worktrees() {
   const { projectId, project, snapshot, toast } = useStore();
@@ -446,8 +446,11 @@ const providerInput = (width: number) => ({
 });
 
 export function Settings() {
-  const { settings, status, dataDir, saveSettings, installSidecar, toast } = useStore();
+  const { settings, status, dataDir, saveSettings, installSidecar, toast, projects, refreshProjects } =
+    useStore();
   const [log, setLog] = useState<string[]>([]);
+  const [fetchingRelay, setFetchingRelay] = useState(false);
+  const mirror = projects.find((p) => p.mirror);
 
   const updateProvider = (id: string, patch: Partial<Provider>) =>
     saveSettings({
@@ -548,6 +551,47 @@ export function Settings() {
             })}
             {pillRow(["light", "dark"], settings.theme, (v) => saveSettings({ theme: v }), true)}
           </div>
+        </Row>
+      </div>
+
+      <div style={card}>
+        <Row
+          name="Work on Relay itself"
+          note="Relay can be given cards like anything else it works on. This finds its source on this machine, or fetches it if this machine has not got it."
+          last
+        >
+          {mirror ? (
+            <span style={{ ...mono, fontSize: 11.5, color: "var(--ok)" }}>on · {mirror.path}</span>
+          ) : (
+            <button
+              type="button"
+              className="chip"
+              disabled={fetchingRelay}
+              onClick={async () => {
+                setFetchingRelay(true);
+                try {
+                  await api.mirrorSetup();
+                  await refreshProjects();
+                } catch (e) {
+                  toast("var(--bad)", "Could not set Relay up", reason(e));
+                } finally {
+                  setFetchingRelay(false);
+                }
+              }}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 8,
+                background: "var(--surface2)",
+                border: "1px solid var(--line3)",
+                color: "var(--text2)",
+                font: "500 12.5px var(--sans)",
+                cursor: fetchingRelay ? "default" : "pointer",
+                opacity: fetchingRelay ? 0.6 : 1,
+              }}
+            >
+              {fetchingRelay ? "fetching…" : "Set it up"}
+            </button>
+          )}
         </Row>
       </div>
 

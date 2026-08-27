@@ -476,6 +476,20 @@ pub async fn run(
         // at the operator's permission sheet like a card move does. The
         // operator asked for the Director to be able to do this; they did not
         // ask to stop being told about it.
+        // Asking to work on Relay itself should not mean being told to go and
+        // register a repository first. The Director does what the Projects
+        // screen would have done, and the operator sees the same permission
+        // sheet either way.
+        "work_on_relay" => {
+            match crate::commands::project::ensure_mirror(ws) {
+                Ok(project) => ToolReply::ok(format!(
+                    "{} is now Relay's own source, at {}. Cards for the app go there,                      accepted proposals are born there, and read_docs reads its docs/.",
+                    project.name, project.path
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "create_agent" => {
             let Some(name) = text(&call.input, "name") else {
                 return ToolReply::refused("create_agent needs a name");
@@ -789,6 +803,7 @@ mod tests {
             "delete_card",
             "create_project",
             "create_agent",
+            "work_on_relay",
             "set_agent_model",
             "edit_agent",
             "grant_agent_tools",

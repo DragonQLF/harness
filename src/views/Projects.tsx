@@ -829,29 +829,8 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
 
 /** The list of registered repositories. */
 export function Projects({ go }: { go: (v: View) => void }) {
-  const { projects, selectProject, addProject, removeProject, refreshProjects, toast } =
-    useStore();
-  const [busy, setBusy] = useState(false);
+  const { projects, selectProject, addProject, removeProject } = useStore();
 
-  // Mirror mode is not a property a project can be given: it is Relay's own
-  // source, and asking for it fetches that rather than nominating this one.
-  const held = projects.find((p) => p.mirror);
-  const setUpMirror = async () => {
-    setBusy(true);
-    try {
-      const relay = await api.mirrorSetup();
-      await refreshProjects();
-      toast(
-        "var(--ok)",
-        "Mirror mode is on",
-        `${relay.name} is Relay's own source. Accepted proposals become cards there, and read_docs reads its docs/.`,
-      );
-    } catch (e) {
-      toast("var(--bad)", "Could not set up mirror mode", reason(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div style={{ padding: "22px 26px 28px" }}>
@@ -862,29 +841,6 @@ export function Projects({ go }: { go: (v: View) => void }) {
           Every repository Relay is allowed to touch
         </span>
         <div style={{ flex: 1 }} />
-        {!held && (
-          <button
-            type="button"
-            className="chip"
-            disabled={busy}
-            title={`Registers Relay's own repository and turns on mirror mode. Clones it if this machine does not already have it.`}
-            onClick={setUpMirror}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 999,
-              background: "var(--surface2)",
-              border: "1px solid var(--line3)",
-              color: "var(--text2)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: busy ? "default" : "pointer",
-              opacity: busy ? 0.6 : 1,
-              marginRight: 8,
-            }}
-          >
-            {busy ? "fetching Relay…" : "Work on Relay itself"}
-          </button>
-        )}
         <button
           type="button"
           className="hv-bright"

@@ -329,6 +329,15 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              one with create_project and ask where it should live. The open project is for \
              drafts and for work that continues what is already there.\n\n",
         );
+        // Working on the app itself is a thing to offer, not a setup step to
+        // send them away for.
+        prompt.push_str(
+            "When they say they want to work on Relay itself — a change to the app \
+             rather than to their own code — call `work_on_relay`. It finds this \
+             machine's copy of the source or fetches one, and after that Relay is a \
+             project like any other: cards, runs and diffs. Do not tell them to go \
+             and register a repository first.\n\n",
+        );
         // The crew is configurable from the conversation, but only when asked.
         // A Director that hires on its own initiative turns a chat into a
         // payroll; one that cannot hire when asked sends the operator off to a

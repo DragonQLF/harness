@@ -409,6 +409,7 @@ export function Chat() {
     approvals,
     newConversation,
     pinConversation,
+    refreshProjects,
     toast,
   } = useStore();
   const conversationId = conversation?.id ?? null;
@@ -973,6 +974,37 @@ export function Chat() {
                 </div>
               )}
             </span>
+
+            {/* Working on the app itself is a mode, not a repository the
+                operator has to know to register first. Offered once, here,
+                and gone the moment it is on. */}
+            {!projects.some((p) => p.mirror) && (
+              <span
+                className="chip"
+                title="Sets Relay's own source up so the app can be given cards. Finds it on this machine, or fetches it."
+                onClick={async () => {
+                  try {
+                    await api.mirrorSetup();
+                    await refreshProjects();
+                    toast("var(--ok)", "Relay is set up", "The app can be given cards now.");
+                  } catch (e) {
+                    toast("var(--bad)", "Could not set Relay up", reason(e));
+                  }
+                }}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  background: "var(--surface2)",
+                  ...mono,
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  color: "var(--text3)",
+                  cursor: "pointer",
+                }}
+              >
+                work on Relay
+              </span>
+            )}
 
             {!conversation && project && (
               <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>

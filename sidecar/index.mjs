@@ -83,6 +83,12 @@ function harnessTools(runId) {
         call("create_card"),
       ),
       tool(
+        "work_on_relay",
+        "Set Relay's own source up as a project so the operator can work on the app itself. Finds it if this machine already has it, clones it otherwise. Use when they say they want to work on Relay, or ask for a change to the app rather than to their code.",
+        {},
+        call("work_on_relay"),
+      ),
+      tool(
         "create_agent",
         "Add an agent to the crew, when the operator asks for one. It starts able to read and search only; widening that is theirs to do on the Agents screen.",
         {

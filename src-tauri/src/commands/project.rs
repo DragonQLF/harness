@@ -117,6 +117,15 @@ pub async fn project_create(
 /// open, and a second copy would leave agents editing the one they are not.
 #[tauri::command]
 pub async fn mirror_setup(ws: Shared<'_>) -> Result<Project, String> {
+    let ws = Arc::clone(&ws);
+    ensure_mirror(&ws)
+}
+
+/// The same work, callable from anywhere the operator can ask for it: the
+/// Projects screen, the chat's project picker, or the Director when told to
+/// start working on the app. Registering a project should not be a thing the
+/// operator has to know to do first.
+pub fn ensure_mirror(ws: &Workspace) -> Result<Project, String> {
     use harness_app::mirror::{self, Source};
 
     let remotes: Vec<(String, Option<String>)> = ws
