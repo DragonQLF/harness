@@ -182,9 +182,15 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     // is cancelled like any other, and what it already said stays readable.
     // Proposals are never at risk from the cut: they were written when the
     // tool ran, not at the end.
+    // Why it stopped, when the agent said. Discarding this was how a look
+    // that never reached the model came to read as a look that found nothing:
+    // the reason was in hand and thrown away.
+    let mut failure: Option<String> = None;
     let closing = tokio::select! {
         outcome = &mut run => {
-            let _ = outcome;
+            if let Err(e) = outcome {
+                failure = Some(e);
+            }
             None
         }
         _ = tokio::time::sleep(WALL_CLOCK) => {
@@ -214,10 +220,17 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
             RunLogLine {
                 ts_ms: SystemClock.now_millis(),
                 event: RunEvent::Notice {
-                    text: String::from(
-                        "The end-of-day look never got an answer: the turn ended without a \
-                         single event. Nothing was proposed. It is due again on the next close.",
-                    ),
+                    text: match &failure {
+                        Some(why) => format!(
+                            "The end-of-day look could not run: {why}. Nothing was \
+                             proposed, and it is due again on the next close."
+                        ),
+                        None => String::from(
+                            "The end-of-day look ended without a single event and without \
+                             an error to explain it. Nothing was proposed. It is due again \
+                             on the next close.",
+                        ),
+                    },
                 },
             },
         );
