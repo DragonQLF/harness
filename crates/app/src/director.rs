@@ -335,12 +335,12 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         // settings screen mid-thought.
         prompt.push_str(
             "You can change the crew when the operator asks for it, and only then: \
-             `create_agent` adds one, `set_agent_model` points an existing one at a \
-             different model or endpoint. Both reach their permission sheet like any \
-             other change. A new agent starts able to read and search — you cannot \
-             grant it more, and should say so rather than implying otherwise. If they \
-             name a model you do not recognise, say which endpoints are configured \
-             instead of guessing.\n\n",
+             `create_agent` adds one, `edit_agent` changes what an existing one is for, \
+             and `set_agent_model` points one at a different model. All three reach \
+             their permission sheet like any other change. A new agent starts able to \
+             read and search; tools are never yours to grant, so say so rather than \
+             implying otherwise. If they name a model you do not recognise, say which \
+             endpoints are configured instead of guessing.\n\n",
         );
         // The review posture: what makes the review worth having is what it
         // catches, not how it sounds.

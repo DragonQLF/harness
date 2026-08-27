@@ -103,6 +103,23 @@ function harnessTools(runId) {
         call("create_agent"),
       ),
       tool(
+        "edit_agent",
+        "Change an existing agent's profile when the operator asks: what it is called, what it is for, its brief, its budget, who reviews it, or whether it is paused. Tools and permissions are not editable here.",
+        {
+          agent_id: z.string().describe("Which agent, by id"),
+          name: z.string().optional(),
+          title: z.string().optional().describe("One line on what it is for"),
+          brief: z.string().optional().describe("What it is told before every run"),
+          budget_usd: z.number().optional().describe("Dollar ceiling for one run"),
+          paused: z.boolean().optional().describe("A paused agent starts no runs"),
+          reviewer: z
+            .enum(["director", "human", "nobody"])
+            .optional()
+            .describe("Who reads the diff when a run finishes"),
+        },
+        call("edit_agent"),
+      ),
+      tool(
         "set_agent_model",
         "Point an existing agent at a different model, or a different endpoint, when the operator asks.",
         {

@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harness_domain::{Actor, CardId, Command, Status};
-use harness_ports::{GitPort, ToolCall, ToolReply, WorktreePath};
+use harness_ports::{GitPort, Reviewer, ToolCall, ToolReply, WorktreePath};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -523,6 +523,71 @@ pub async fn run(
             }
         }
 
+        "edit_agent" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("edit_agent needs an agent_id");
+            };
+            let mut crew = ws.agents();
+            let known: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    known.join(", ")
+                ));
+            };
+
+            let mut changed: Vec<String> = Vec::new();
+            if let Some(name) = text(&call.input, "name") {
+                changed.push(format!("name to {name}"));
+                slot.name = name;
+            }
+            if let Some(title) = text(&call.input, "title") {
+                changed.push("title".to_string());
+                slot.title = title;
+            }
+            if let Some(brief) = text(&call.input, "brief") {
+                changed.push("brief".to_string());
+                slot.brief = brief;
+            }
+            if let Some(budget) = call.input.get("budget_usd").and_then(|v| v.as_f64()) {
+                if budget <= 0.0 {
+                    return ToolReply::refused(
+                        "a budget of zero would stop every run before it started;                          leave it out to keep the current one",
+                    );
+                }
+                changed.push(format!("budget to ${budget:.2}"));
+                slot.budget_usd = Some(budget);
+            }
+            if let Some(paused) = call.input.get("paused").and_then(|v| v.as_bool()) {
+                changed.push(if paused { "paused it".into() } else { "resumed it".to_string() });
+                slot.paused = paused;
+            }
+            if let Some(reviewer) = text(&call.input, "reviewer") {
+                slot.reviewer = match reviewer.as_str() {
+                    "director" => Reviewer::Director,
+                    "human" | "you" | "operator" => Reviewer::Human,
+                    "nobody" | "none" => Reviewer::Nobody,
+                    other => {
+                        return ToolReply::refused(format!(
+                            "{other} is not a reviewer. Use director, human or nobody."
+                        ))
+                    }
+                };
+                changed.push(format!("reviewer to {reviewer}"));
+            }
+
+            if changed.is_empty() {
+                return ToolReply::refused(
+                    "edit_agent was given nothing to change. Name the fields to set;                      tools and permissions are not among them.",
+                );
+            }
+            let summary = format!("{}: changed {}", slot.name, changed.join(", "));
+            match ws.set_agents(crew) {
+                Ok(_) => ToolReply::ok(summary),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "set_agent_model" => {
             let Some(agent_id) = text(&call.input, "agent_id") else {
                 return ToolReply::refused("set_agent_model needs an agent_id");
@@ -644,6 +709,7 @@ mod tests {
             "create_project",
             "create_agent",
             "set_agent_model",
+            "edit_agent",
         ] {
             assert!(!is_read_only(guarded), "{guarded} must need delegation");
         }
