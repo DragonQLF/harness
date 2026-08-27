@@ -588,6 +588,87 @@ pub async fn run(
             }
         }
 
+        "grant_agent_tools" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("grant_agent_tools needs an agent_id");
+            };
+            let Some(asked) = call.input.get("tools").and_then(|v| v.as_array()) else {
+                return ToolReply::refused(
+                    "grant_agent_tools needs `tools`: the full list the agent should have                      afterwards, not the ones to add",
+                );
+            };
+            let known = &harness_app::agents::ALL_PERMISSIONS;
+            let mut wanted: Vec<String> = Vec::new();
+            for value in asked {
+                let Some(raw) = value.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                    continue;
+                };
+                // Match the crew's own spelling rather than whatever case the
+                // model used, so "shell" and "Shell" are the same grant.
+                match known.iter().find(|k| k.eq_ignore_ascii_case(raw)) {
+                    Some(canonical) => {
+                        let canonical = canonical.to_string();
+                        if !wanted.contains(&canonical) {
+                            wanted.push(canonical);
+                        }
+                    }
+                    None => {
+                        return ToolReply::refused(format!(
+                            "{raw} is not a tool an agent can hold. They are: {}",
+                            known.join(", ")
+                        ))
+                    }
+                }
+            }
+
+            let mut crew = ws.agents();
+            let known_ids: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    known_ids.join(", ")
+                ));
+            };
+
+            let added: Vec<String> = wanted
+                .iter()
+                .filter(|w| !slot.permissions.contains(w))
+                .cloned()
+                .collect();
+            let removed: Vec<String> = slot
+                .permissions
+                .iter()
+                .filter(|p| !wanted.contains(p))
+                .cloned()
+                .collect();
+            if added.is_empty() && removed.is_empty() {
+                return ToolReply::refused(format!(
+                    "{} already holds exactly that: {}",
+                    slot.name,
+                    slot.permissions.join(", ")
+                ));
+            }
+            slot.permissions = wanted;
+            let name = slot.name.clone();
+            let now = slot.permissions.join(", ");
+            match ws.set_agents(crew) {
+                Ok(_) => ToolReply::ok(format!(
+                    "{name} now holds {now}{}{}",
+                    if added.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" — gained {}", added.join(", "))
+                    },
+                    if removed.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", lost {}", removed.join(", "))
+                    }
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "set_agent_model" => {
             let Some(agent_id) = text(&call.input, "agent_id") else {
                 return ToolReply::refused("set_agent_model needs an agent_id");
@@ -710,6 +791,7 @@ mod tests {
             "create_agent",
             "set_agent_model",
             "edit_agent",
+            "grant_agent_tools",
         ] {
             assert!(!is_read_only(guarded), "{guarded} must need delegation");
         }

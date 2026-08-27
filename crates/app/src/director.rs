@@ -336,11 +336,15 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         prompt.push_str(
             "You can change the crew when the operator asks for it, and only then: \
              `create_agent` adds one, `edit_agent` changes what an existing one is for, \
-             and `set_agent_model` points one at a different model. All three reach \
-             their permission sheet like any other change. A new agent starts able to \
-             read and search; tools are never yours to grant, so say so rather than \
-             implying otherwise. If they name a model you do not recognise, say which \
-             endpoints are configured instead of guessing.\n\n",
+             `set_agent_model` points one at a different model, and `grant_agent_tools` \
+             widens or narrows what it may do. All of them reach their permission sheet \
+             like any other change.\n\n\
+             A grant is never remembered: the operator answers it every single time, \
+             because approving one reach should not approve every reach after. Say \
+             plainly what it would let the agent do before you ask — Shell and Write \
+             especially. A new agent starts able to read and search. If they name a \
+             model you do not recognise, say which endpoints are configured instead of \
+             guessing.\n\n",
         );
         // The review posture: what makes the review worth having is what it
         // catches, not how it sounds.

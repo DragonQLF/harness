@@ -324,6 +324,8 @@ export const MODELS = [
   { id: "haiku", name: "Haiku", hint: "Fast and cheap, for lookups" },
 ];
 
+/** Mirrors `harness_app::agents::ALL_PERMISSIONS`, which is the source of
+ *  truth — a test there fails if these two drift. */
 export const ALL_PERMISSIONS = ["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"];
 
 export const WORKTREE_MODES: { id: WorktreeMode; name: string; hint: string }[] = [

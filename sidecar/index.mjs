@@ -120,6 +120,17 @@ function harnessTools(runId) {
         call("edit_agent"),
       ),
       tool(
+        "grant_agent_tools",
+        "Change what an agent may do — read, search, edit, write, git, web, shell — when the operator asks. Send the full list it should hold afterwards, not the ones to add. This one is never remembered: the operator is asked every single time.",
+        {
+          agent_id: z.string().describe("Which agent, by id"),
+          tools: z
+            .array(z.enum(["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"]))
+            .describe("The complete set it should hold afterwards"),
+        },
+        call("grant_agent_tools"),
+      ),
+      tool(
         "set_agent_model",
         "Point an existing agent at a different model, or a different endpoint, when the operator asks.",
         {

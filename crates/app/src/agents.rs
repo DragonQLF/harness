@@ -94,6 +94,17 @@ impl Default for AgentProfile {
     }
 }
 
+/// Every reach an agent can be given, in the crew's own spelling.
+///
+/// `allowed_tools` below is what each one actually means to a run. This list is
+/// the vocabulary: something not in it is not a permission, it is a typo, and a
+/// typo silently becomes a tool name the SDK has never heard of.
+///
+/// `src/lib/types.ts` carries the same list for the Agents screen. There is a
+/// test here that fails if they drift.
+pub const ALL_PERMISSIONS: [&str; 7] =
+    ["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"];
+
 impl AgentProfile {
     /// Capabilities the operator ticks map onto concrete tool allowances.
     pub fn allowed_tools(&self) -> Vec<String> {
@@ -584,6 +595,32 @@ pub fn find<'a>(agents: &'a [AgentProfile], id: &str) -> Option<&'a AgentProfile
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_permission_vocabulary_matches_the_screen() {
+        // The Agents screen offers these as checkboxes; the Director's
+        // grant_agent_tools validates against them. Two lists that disagree
+        // means one of them silently accepts a word the other rejects.
+        let ts = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/types.ts"),
+        )
+        .expect("the frontend's copy is where the screen reads it from");
+        let line = ts
+            .lines()
+            .find(|l| l.contains("export const ALL_PERMISSIONS"))
+            .expect("the frontend still declares the list");
+        for permission in ALL_PERMISSIONS {
+            assert!(
+                line.contains(&format!("\"{permission}\"")),
+                "{permission} is a permission here but not on the screen"
+            );
+        }
+        assert_eq!(
+            line.matches('"').count() / 2,
+            ALL_PERMISSIONS.len(),
+            "the screen offers a permission this crate does not know: {line}"
+        );
+    }
 
     #[test]
     fn a_drafted_agent_cannot_arrive_holding_tools() {

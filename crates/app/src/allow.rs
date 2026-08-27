@@ -104,6 +104,24 @@ pub fn command_of(input: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Calls that can be approved but never *pre*-approved.
+///
+/// A standing allowance is the operator saying "stop asking me about this".
+/// That is reasonable for reading a file and unreasonable for widening what an
+/// agent may do: one careless "always allow" would turn every future grant into
+/// a silent one, and the whole point of the gate is that the operator sees each
+/// one. Approving a grant is a decision about a specific agent and a specific
+/// reach; there is no version of it that is safe to answer in advance.
+pub const NEVER_STANDING: &[&str] = &["grant_agent_tools", "mcp__harness__grant_agent_tools"];
+
+/// Is this a call no standing rule may ever cover?
+pub fn never_standing(tool: &str) -> bool {
+    let tool = tool.trim();
+    NEVER_STANDING
+        .iter()
+        .any(|guarded| guarded.eq_ignore_ascii_case(tool))
+}
+
 impl AllowRule {
     pub fn tool_only(tool: impl Into<String>) -> Self {
         Self {
@@ -178,7 +196,10 @@ impl AllowRule {
     /// Does this rule cover the call? `summary` is the fallback for adapters
     /// that hand us prose instead of the input object.
     pub fn covers(&self, tool: &str, input: &serde_json::Value, summary: &str) -> bool {
-        if self.is_inert() || !self.tool.trim().eq_ignore_ascii_case(tool.trim()) {
+        if self.is_inert()
+            || never_standing(tool)
+            || !self.tool.trim().eq_ignore_ascii_case(tool.trim())
+        {
             return false;
         }
         let command = command_of(input).or_else(|| Self::command_from_summary(summary));
@@ -254,6 +275,21 @@ mod tests {
         }
         // Nor another tool entirely.
         assert!(!rule.covers("Write", &bash("git push"), ""));
+    }
+
+    #[test]
+    fn widening_an_agents_reach_can_never_become_standing() {
+        // Even a rule that names it exactly, with nothing else to disqualify it.
+        let rule = AllowRule {
+            tool: "grant_agent_tools".to_string(),
+            command: None,
+        };
+        assert!(
+            !rule.covers("grant_agent_tools", &serde_json::json!({}), ""),
+            "one careless 'always allow' would make every future grant silent"
+        );
+        assert!(never_standing("mcp__harness__grant_agent_tools"));
+        assert!(!never_standing("create_card"), "ordinary calls still allow standing rules");
     }
 
     #[test]
