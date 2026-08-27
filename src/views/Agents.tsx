@@ -13,6 +13,8 @@ import {
   tone,
   type AgentProfile,
   type CatalogModel,
+  type Reviewer,
+  type WorktreeMode,
   type Provider,
 } from "../lib/types";
 import { useStore } from "../state/store";
@@ -501,13 +503,22 @@ export function Agents({
           : agent.reviewer === "human"
             ? "Every run lands in your queue"
             : "Finished runs go straight to Done",
-      onCycle: () => patch({ reviewer: cycle(REVIEWERS.map((r) => r.id), agent.reviewer) }),
+      onCycle: () =>
+        patch({
+          // The generated vocabulary types ids as strings; the profile wants
+          // the narrowed enum. The cast is safe because the list is written
+          // from the Rust enum itself.
+          reviewer: cycle(REVIEWERS.map((r) => r.id), agent.reviewer) as Reviewer,
+        }),
     },
     {
       label: "WORKTREE",
       value: WORKTREE_MODES.find((w) => w.id === agent.worktree)!.name,
       hint: WORKTREE_MODES.find((w) => w.id === agent.worktree)!.hint,
-      onCycle: () => patch({ worktree: cycle(WORKTREE_MODES.map((w) => w.id), agent.worktree) }),
+      onCycle: () =>
+        patch({
+          worktree: cycle(WORKTREE_MODES.map((w) => w.id), agent.worktree) as WorktreeMode,
+        }),
     },
     {
       label: "AT ONCE",

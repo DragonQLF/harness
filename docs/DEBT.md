@@ -28,6 +28,7 @@ registarem como feitos).
 | `self_report` relê transcrições inteiras por chamada | OK com semanas de dados; se crescer, filtrar por `ts_ms` ao ler em vez de depois | #78 |
 | Caixa de entrada sem notificação fora do rail | Propostas só aparecem no RightNow; nenhum badge na nav nem toast quando chegam | #79 |
 | Publicar uma versão exige um tag à mão | `git tag vX.Y.Z` dispara o workflow; o rascunho é publicado à mão de propósito. O número da versão vive em três ficheiros que têm de concordar (`tauri.conf.json`, `src-tauri/Cargo.toml`, `package.json`) e nada verifica que concordam | #79 |
+| Cores continuam só no frontend | `TONE` e `STATUS_TONE` mapeiam para variáveis CSS e ficam em `types.ts` de propósito — o Rust não tem que saber o que `var(--accent)` resolve. É a única parte do vocabulário que não vem do backend | #51 |
 | Codegen de um crate só corrompe os tipos | `cargo test -p <crate> --test export_types` regenera tudo com `bigint` em vez de `number`: a feature do ts-rs só unifica ao construir o workspace inteiro. Usar sempre `pnpm codegen`; nada impede o contrário | #51 |
 | Endpoints alternativos por testar com um modelo real | Ollama e OpenRouter estão ligados (três variáveis de ambiente por run) e o caminho compila, mas nenhum agente correu ainda contra um modelo que não seja da Anthropic. Falta saber como se portam as chamadas de ferramentas em modelos pequenos | #79 |
 | Versão nunca sobe sozinha | Em 0.2.0 desde 2026-08-26; sobe à mão. O updater compara versões, logo um release novo com a mesma versão não é oferecido a ninguém | #79 |

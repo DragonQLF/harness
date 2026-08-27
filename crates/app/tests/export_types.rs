@@ -30,4 +30,13 @@ fn export_types() {
     harness_app::insights::AgentStats::export().unwrap();
     harness_app::checks::CheckRow::export().unwrap();
     harness_app::insights::ReviewCandidate::export().unwrap();
+
+    // The vocabulary the screens read from: statuses, checkout modes,
+    // reviewers, models and permissions. Written rather than mirrored, so the
+    // ids in the frontend are the ids the backend serialises.
+    std::fs::write(
+        dir.join("vocabulary.ts"),
+        harness_app::vocabulary::typescript(),
+    )
+    .unwrap();
 }

@@ -19,5 +19,6 @@ pub mod paths;
 pub mod projects;
 pub mod catalog;
 pub mod providers;
+pub mod vocabulary;
 pub mod selfreport;
 pub mod settings;

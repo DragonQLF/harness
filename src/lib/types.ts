@@ -42,6 +42,14 @@ import type { Settings } from "./generated/Settings";
 import type { Snapshot } from "./generated/Snapshot";
 import type { CatalogModel } from "./generated/CatalogModel";
 import type { Status } from "./generated/Status";
+import {
+  ALL_PERMISSIONS,
+  MODELS,
+  REVIEWERS,
+  STATUSES,
+  WORKTREE_MODES,
+  type Choice,
+} from "./generated/vocabulary";
 import type { WorktreeMode } from "./generated/WorktreeMode";
 import type { WorktreeRow } from "./generated/WorktreeRow";
 
@@ -275,15 +283,13 @@ export interface ClosingPhase {
 // ---- constants and helpers -------------------------------------------------
 
 /** Column order and the words the UI uses for each status. */
-export const STATUS_ORDER: Status[] = ["backlog", "ready", "running", "review", "done"];
+// STATUS_ORDER and STATUS_NAME are the backend's vocabulary now: see
+// generated/vocabulary.ts, written by crates/app/src/vocabulary.rs.
+export const STATUS_ORDER: Status[] = STATUSES.map((s) => s.id as Status);
 
-export const STATUS_NAME: Record<Status, string> = {
-  backlog: "Later",
-  ready: "Ready",
-  running: "Working",
-  review: "Review",
-  done: "Done",
-};
+export const STATUS_NAME: Record<Status, string> = Object.fromEntries(
+  STATUSES.map((s) => [s.id, s.name]),
+) as Record<Status, string>;
 
 /** CSS variable pairs per status, so colour lives in one place. */
 export const STATUS_TONE: Record<Status, { color: string; soft: string }> = {
@@ -318,28 +324,12 @@ export function tone(name: string | undefined) {
   return TONE[name ?? "accent"] ?? TONE.accent;
 }
 
-export const MODELS = [
-  { id: "opus", name: "Opus", hint: "Deepest reasoning, highest cost" },
-  { id: "sonnet", name: "Sonnet", hint: "The everyday worker" },
-  { id: "haiku", name: "Haiku", hint: "Fast and cheap, for lookups" },
-];
 
-/** Mirrors `harness_app::agents::ALL_PERMISSIONS`, which is the source of
- *  truth — a test there fails if these two drift. */
-export const ALL_PERMISSIONS = ["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"];
 
-export const WORKTREE_MODES: { id: WorktreeMode; name: string; hint: string }[] = [
-  { id: "per_card", name: "Per card", hint: "A fresh branch and checkout for every card" },
-  { id: "shared", name: "Shared", hint: "One long-lived branch for the project" },
-  { id: "none", name: "None", hint: "Reads the main checkout, never writes" },
-];
 
-export const REVIEWERS: { id: Reviewer; name: string; hint: string }[] = [
-  {
-    id: "director",
-    name: "Director",
-    hint: "The Director reads the diff first and only sends you what passes.",
-  },
-  { id: "human", name: "You", hint: "Every finished run lands in your review queue." },
-  { id: "nobody", name: "Nobody", hint: "Finished runs go straight to Done." },
-];
+
+
+// The backend's own vocabulary, passed through so a screen imports every
+// list from one place whether it is generated or drawn here.
+export { ALL_PERMISSIONS, MODELS, REVIEWERS, STATUSES, WORKTREE_MODES };
+export type { Choice };
