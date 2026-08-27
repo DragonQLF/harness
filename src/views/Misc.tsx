@@ -418,6 +418,13 @@ const PROVIDER_TEMPLATES: { id: string; name: string; base_url: string; token: s
     hint: "Runs on this machine. No cost, nothing leaves the box. Give it a model with 64k+ context or it cannot hold a repository.",
   },
   {
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    base_url: "https://ollama.com",
+    token: "",
+    hint: "Ollama's hosted models, no local daemon. Needs a key from ollama.com/settings/keys. Every model it offers can call tools and holds at least 64k.",
+  },
+  {
     id: "openrouter",
     name: "OpenRouter",
     base_url: "https://openrouter.ai/api",

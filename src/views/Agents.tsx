@@ -271,11 +271,35 @@ function ModelPicker({
         })}
       </div>
 
-      {chosen && !shown.some((m) => m.id === chosen) && (
-        <p style={{ margin: "8px 0 0", ...mono, fontSize: 11, color: "var(--text3)" }}>
-          set to {chosen}
-        </p>
-      )}
+      {/* The list is a convenience, never the only way in. A catalogue can be
+          empty, stale, or unreachable, and an endpoint can serve a model nobody
+          has published — none of which should leave the operator unable to name
+          the model they meant. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", flex: "none" }}>set to</span>
+        <input
+          key={chosen}
+          defaultValue={chosen}
+          placeholder="type a name the endpoint knows"
+          spellCheck={false}
+          onBlur={(e) => {
+            const next = e.target.value.trim();
+            if (next !== chosen) onPick(next);
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "var(--surface)",
+            border: "1px solid var(--line2)",
+            color: "var(--text)",
+            fontFamily: "var(--mono)",
+            fontSize: 11.5,
+            outline: "none",
+          }}
+        />
+      </div>
     </div>
   );
 }

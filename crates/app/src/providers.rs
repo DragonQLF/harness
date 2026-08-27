@@ -5,11 +5,14 @@
 //! line. Both read the same three environment variables, so pointing an agent
 //! at a different model is not an integration: it is an endpoint and a token.
 //!
-//! Two of those endpoints are worth naming, because they are the reason anyone
-//! wants this:
+//! Three of those endpoints are worth naming, because they are the reason
+//! anyone wants this:
 //!
 //! - **Ollama** serves an Anthropic-compatible endpoint on localhost, so a run
 //!   costs nothing and nothing leaves the machine.
+//! - **Ollama Cloud** serves the same protocol at ollama.com — verified, not
+//!   assumed: `/v1/messages` there answers 401 rather than 404, so the endpoint
+//!   exists and only wants a key. No local daemon in the way.
 //! - **OpenRouter** serves one over the wire and forwards to whichever provider
 //!   actually holds the model, passing tool calls and thinking through intact —
 //!   which matters here, because an agent that cannot call tools cannot work a
@@ -84,6 +87,15 @@ pub fn templates() -> Vec<Provider> {
             name: "Ollama (local)".into(),
             base_url: "http://localhost:11434".into(),
             token: "ollama".into(),
+        },
+        Provider {
+            // models.dev keys this endpoint's catalogue under exactly this id,
+            // and the picker looks it up by it — renaming it silently empties
+            // the model list.
+            id: "ollama-cloud".into(),
+            name: "Ollama Cloud".into(),
+            base_url: "https://ollama.com".into(),
+            token: String::new(),
         },
         Provider {
             id: "openrouter".into(),
