@@ -17,9 +17,9 @@
 # The tag is the trigger; the draft it produces is published by hand, so a bad
 # build is never something every install picks up on its own.
 #
-# Publishing the draft is what makes a version real: the manifest job runs off
-# the tag and writes the `updates` branch, but installs only see the assets
-# once the release itself is out of draft.
+# Publishing the draft is what makes a version real: tauri-action attaches
+# latest.json to the release, and installs read it from the `latest` alias, so
+# nothing is on offer until the release itself is out of draft.
 
 name: release
 
@@ -93,60 +93,3 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
-
-  # The manifest the installed copies actually read.
-  #
-  # A private repository answers 404 to an unauthenticated request, so the
-  # browser download URLs tauri-action writes into latest.json are unreachable
-  # by definition. The API's asset endpoint is not: it serves the bytes to a
-  # token that can read the repo. This job rewrites every URL to that form and
-  # commits the result to the `updates` branch, which raw.githubusercontent
-  # serves to the same token — one Authorization header covers both halves.
-  manifest:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Rewrite the manifest for private access
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          gh release download "$TAG" -p latest.json -D . --clobber
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > release.json
-          python3 - <<'PY'
-          import json, os
-          manifest = json.load(open('latest.json'))
-          release = json.load(open('release.json'))
-          # asset name -> the API url that serves its bytes to a bearer token
-          by_name = {a['name']: a['url'] for a in release['assets']}
-          missing = []
-          for key, platform in manifest['platforms'].items():
-              name = platform['url'].rsplit('/', 1)[-1]
-              if name in by_name:
-                  platform['url'] = by_name[name]
-              else:
-                  missing.append((key, name))
-          if missing:
-              raise SystemExit(f"no asset for {missing}; refusing to publish a manifest that points nowhere")
-          json.dump(manifest, open('latest.json', 'w'), indent=2)
-          print(f"rewrote {len(manifest['platforms'])} platform urls to the api form")
-          PY
-
-      - name: Publish it to the updates branch
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # An orphan branch: it carries the manifest and nothing else, so the
-          # source is never served from a URL meant for one small file.
-          git checkout --orphan updates
-          git rm -rf --cached . >/dev/null
-          find . -maxdepth 1 ! -name . ! -name .git ! -name latest.json -exec rm -rf {} +
-          git add latest.json
-          git commit -m "manifest for $TAG"
-          git push --force origin updates

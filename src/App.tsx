@@ -150,8 +150,7 @@ function ClosingOverlay() {
  *  approved build sits uninstalled. Installing swaps the binary and relaunches
  *  — the rollback machinery decides whether the next start keeps it. */
 function UpdateBanner() {
-  const { toast, settings } = useStore();
-  const token = settings?.update_token?.trim() ?? "";
+  const { toast } = useStore();
   const [pending, setPending] = useState<PendingUpdate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -166,23 +165,8 @@ function UpdateBanner() {
   useEffect(() => {
     let alive = true;
     const look = async () => {
-      // Relay's own repository is private, so its releases are too: without a
-      // token the feed answers 404 to everyone, this app included.
-      if (!token) {
-        setFeedError(null);
-        setRelease(null);
-        return;
-      }
       try {
-        const found = await check({
-          headers: {
-            Authorization: `Bearer ${token}`,
-            // Serves both halves: raw.githubusercontent ignores it for the
-            // manifest, and the release-asset API needs exactly this to hand
-            // back bytes instead of JSON about the bytes.
-            Accept: "application/octet-stream",
-          },
-        });
+        const found = await check();
         if (alive) {
           setRelease(found);
           setFeedError(null);
@@ -204,7 +188,7 @@ function UpdateBanner() {
       window.removeEventListener("focus", look);
       clearInterval(every);
     };
-  }, [token]);
+  }, []);
 
   // Checked at mount, again whenever the window regains focus, and on a slow
   // timer. The original read once and never again, so a build finishing while
