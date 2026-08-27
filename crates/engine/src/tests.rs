@@ -455,6 +455,7 @@ fn test_config() -> EngineConfig {
 
 fn profile() -> RunProfile {
     RunProfile {
+        provider: None,
         agent_id: "builder".into(),
         model: None,
         allowed_tools: None,

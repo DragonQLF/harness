@@ -31,6 +31,9 @@ pub struct AgentProfile {
     pub permissions: Vec<String>,
     pub budget_usd: Option<f64>,
     pub worktree: WorktreeMode,
+    /// Which configured model endpoint this agent runs on. Empty means the
+    /// Anthropic login the machine already has.
+    pub provider: String,
     pub reviewer: Reviewer,
     /// A paused agent picks up no new work.
     pub paused: bool,
@@ -71,6 +74,7 @@ impl Default for AgentProfile {
             permissions: vec!["Read".into(), "Search".into()],
             budget_usd: None,
             worktree: WorktreeMode::PerCard,
+            provider: crate::providers::ANTHROPIC.to_string(),
             reviewer: Reviewer::Director,
             paused: false,
             permission_mode: None,
@@ -120,6 +124,8 @@ impl AgentProfile {
     pub fn run_profile(&self, settings: &Settings) -> RunProfile {
         RunProfile {
             agent_id: self.id.clone(),
+            provider: crate::providers::find(&settings.providers, &self.provider)
+                .and_then(|p| p.resolve()),
             model: self.model.clone(),
             allowed_tools: Some(self.allowed_tools()),
             permission_mode: Some(

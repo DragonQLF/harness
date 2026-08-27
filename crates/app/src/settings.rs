@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::allow::AllowRule;
+use crate::providers::Provider;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
@@ -33,6 +34,9 @@ pub struct Settings {
     /// Project shown when the app opens.
     pub last_project: Option<String>,
     pub user_name: String,
+    /// Model endpoints the operator has configured. Empty is the ordinary
+    /// case: everything runs on whatever this machine is logged into.
+    pub providers: Vec<Provider>,
 }
 
 impl Default for Settings {
@@ -48,6 +52,7 @@ impl Default for Settings {
             always_allow: Vec::new(),
             last_project: None,
             user_name: "Operator".to_string(),
+            providers: Vec::new(),
         }
     }
 }

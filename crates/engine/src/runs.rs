@@ -367,6 +367,10 @@ impl Engine {
 
         let mut spec = RunSpec {            prompt,
             cwd: worktree.0.clone(),
+            // Where this agent's model lives travels with the profile, so one
+            // crew can mix a local model for the work and a hosted one for the
+            // review without the engine knowing the difference.
+            provider: profile.provider.clone(),
             model: profile.model.clone(),
             allowed_tools: Some(
                 profile

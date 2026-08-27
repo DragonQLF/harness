@@ -32,6 +32,7 @@ impl Engine {
         let base = self.config.base_branch.clone();
         let director = Arc::clone(&self.director);
         let model = self.config.director_model.clone();
+        let provider = self.config.director_provider.clone();
         let allowed_tools = self.config.director_allowed_tools.clone();
 
         let self_tx = self.self_tx.clone();
@@ -73,6 +74,7 @@ impl Engine {
             let spec = RunSpec {
                 prompt,
                 cwd: worktree,
+                provider,
                 model,
                 allowed_tools: Some(allowed_tools),
                 max_budget_usd: None,

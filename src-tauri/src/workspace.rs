@@ -896,6 +896,12 @@ impl Workspace {
         config.director_model = self
             .agent(agents::DIRECTOR_ID)
             .and_then(|d| d.model.clone());
+        config.director_provider = self
+            .agent(agents::DIRECTOR_ID)
+            .and_then(|d| {
+                harness_app::providers::find(&settings.providers, &d.provider).cloned()
+            })
+            .and_then(|p| p.resolve());
         // Mirror mode: this project is the orchestrator itself, so a finished
         // run is followed by an engine-owned build. The artefact waits in
         // appdata; installing it is nobody's decision but the operator's.

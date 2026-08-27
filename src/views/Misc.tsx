@@ -4,7 +4,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { clock, money } from "../lib/format";
-import { ruleIsRevoked, ruleLabel, type WorktreeRow } from "../lib/types";
+import { ruleIsRevoked, ruleLabel, type Provider, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
 import { Loading, Switch, tabular, truncate } from "../components/ui";
 
@@ -404,9 +404,48 @@ const ACCENTS: { name: string; value: string; swatch: string }[] = [
   { name: "Rose", value: "#ff6b81", swatch: "#ff6b81" },
 ];
 
+/** Starting points for a model endpoint. Both speak the Anthropic Messages
+ *  protocol, which is the only reason this works without a translation proxy:
+ *  Ollama serves one on localhost, OpenRouter serves one over the wire and
+ *  forwards to whoever actually holds the model. Choosing one fills the form;
+ *  it installs nothing. */
+const PROVIDER_TEMPLATES: { id: string; name: string; base_url: string; token: string; hint: string }[] = [
+  {
+    id: "ollama",
+    name: "Ollama (local)",
+    base_url: "http://localhost:11434",
+    token: "ollama",
+    hint: "Runs on this machine. No cost, nothing leaves the box. Give it a model with 64k+ context or it cannot hold a repository.",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    base_url: "https://openrouter.ai/api",
+    token: "",
+    hint: "One key, most models. Tool calls and thinking pass through, which an agent needs to work a card.",
+  },
+];
+
+const providerInput = (width: number) => ({
+  width,
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "var(--surface2)",
+  border: "1px solid var(--line3)",
+  color: "var(--text)",
+  fontFamily: "var(--mono)",
+  fontSize: 11.5,
+  outline: "none",
+});
+
 export function Settings() {
   const { settings, status, dataDir, saveSettings, installSidecar, toast } = useStore();
   const [log, setLog] = useState<string[]>([]);
+
+  const updateProvider = (id: string, patch: Partial<Provider>) =>
+    saveSettings({
+      providers: (settings?.providers ?? []).map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    });
 
   useEffect(() => {
     let un: (() => void) | null = null;
@@ -503,6 +542,94 @@ export function Settings() {
             {pillRow(["light", "dark"], settings.theme, (v) => saveSettings({ theme: v }), true)}
           </div>
         </Row>
+      </div>
+
+      <div style={card}>
+        <Row
+          name="Model endpoints"
+          note="Where agents run. Anything speaking the Anthropic Messages protocol works — an agent profile picks one, so a local model can do the work while a hosted one reviews it."
+          last={(settings.providers ?? []).length === 0}
+        >
+          <div style={{ display: "flex", gap: 6 }}>
+            {PROVIDER_TEMPLATES.filter(
+              (t) => !(settings.providers ?? []).some((p) => p.id === t.id),
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="chip"
+                title={t.hint}
+                onClick={() =>
+                  saveSettings({
+                    providers: [
+                      ...(settings.providers ?? []),
+                      { id: t.id, name: t.name, base_url: t.base_url, token: t.token },
+                    ],
+                  })
+                }
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  background: "var(--surface2)",
+                  border: "1px solid var(--line3)",
+                  color: "var(--text2)",
+                  font: "500 11.5px var(--sans)",
+                  cursor: "pointer",
+                }}
+              >
+                + {t.name}
+              </button>
+            ))}
+          </div>
+        </Row>
+
+        {(settings.providers ?? []).map((provider, i, all) => (
+          <Row
+            key={provider.id}
+            name={provider.name}
+            note={provider.id === "ollama" ? "Nothing leaves this machine." : "Sent over the wire."}
+            last={i === all.length - 1}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                defaultValue={provider.base_url}
+                placeholder="http://localhost:11434"
+                spellCheck={false}
+                onBlur={(e) => updateProvider(provider.id, { base_url: e.target.value.trim() })}
+                style={providerInput(180)}
+              />
+              <input
+                type="password"
+                defaultValue={provider.token}
+                placeholder="key"
+                spellCheck={false}
+                onBlur={(e) => updateProvider(provider.id, { token: e.target.value.trim() })}
+                style={providerInput(120)}
+              />
+              <button
+                type="button"
+                className="hv-danger"
+                title={`Remove ${provider.name}`}
+                onClick={() =>
+                  saveSettings({
+                    providers: (settings.providers ?? []).filter((p) => p.id !== provider.id),
+                  })
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  background: "transparent",
+                  border: "1px solid var(--line3)",
+                  color: "var(--text4)",
+                  font: "500 11.5px var(--sans)",
+                  cursor: "pointer",
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          </Row>
+        ))}
       </div>
 
       <div style={card}>

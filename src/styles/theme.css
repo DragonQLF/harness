@@ -610,6 +610,7 @@ input[type="number"] {
 .hv-row,
 .hv-tile,
 .hv-white,
+.hv-win,
 .hv-onbanner {
   transition: background 0.16s ease, color 0.16s ease;
 }
@@ -686,6 +687,17 @@ input[type="number"] {
   color: var(--text);
   border-color: var(--accentLine);
 }
+/* Window controls sit on --recess, where --hover is a step so small it reads as
+   nothing on a 42px target, and the icon stayed --text4 throughout. The platform
+   convention is a plain background plus the glyph coming up to full strength. */
+.hv-win:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.hv-win:active {
+  background: var(--active);
+}
+
 .hv-close:hover {
   background: var(--bad);
   color: var(--onAccent);

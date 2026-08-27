@@ -422,8 +422,17 @@ impl harness_ports::AgentPort for SidecarAgent {
     ) -> Pin<Box<dyn std::future::Future<Output = Result<RunOutcome, String>> + Send>> {
         let program = self.program.clone();
         let script = self.script.clone();
+        let provider = spec.provider.clone();
         Box::pin(async move {
             let mut cmd = Command::new(&program);
+            // Set per run, not per process: two agents in the same Relay can be
+            // pointed at different endpoints, and one of them being local must
+            // not decide where the other one runs.
+            if let Some(provider) = &provider {
+                for (key, value) in provider.env() {
+                    cmd.env(key, value);
+                }
+            }
             cmd.arg(&script)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())

@@ -179,12 +179,42 @@ impl Default for WorktreeMode {
     }
 }
 
+/// An endpoint that speaks the Anthropic Messages protocol, and the token it
+/// wants. Ollama serves one on localhost and OpenRouter serves one over the
+/// wire, so "run this agent on a local model" and "run it on someone else's
+/// model" are the same three environment variables to whatever we spawn — the
+/// agent SDK and the CLI both read them.
+///
+/// The empty `api_key` is not an oversight. A key left in the environment wins
+/// over the base URL, so a machine that has ever exported ANTHROPIC_API_KEY
+/// would silently keep talking to Anthropic while the operator believed they
+/// were running locally.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct ModelProvider {
+    pub base_url: String,
+    pub auth_token: String,
+}
+
+impl ModelProvider {
+    /// The environment a spawned agent needs to reach this provider.
+    pub fn env(&self) -> [(&'static str, String); 3] {
+        [
+            ("ANTHROPIC_BASE_URL", self.base_url.clone()),
+            ("ANTHROPIC_AUTH_TOKEN", self.auth_token.clone()),
+            ("ANTHROPIC_API_KEY", String::new()),
+        ]
+    }
+}
+
 /// Everything the engine needs to know about the agent it is about to run.
 /// Resolved from the stored agent profile before the run starts, so the engine
 /// itself carries no policy.
 #[derive(Debug, Clone)]
 pub struct RunProfile {
     pub agent_id: String,
+    /// Where this agent's model actually lives. `None` is the ordinary case:
+    /// the Claude subscription or API key already in the environment.
+    pub provider: Option<ModelProvider>,
     pub model: Option<String>,
     pub allowed_tools: Option<Vec<String>>,
     pub permission_mode: Option<String>,
@@ -217,6 +247,8 @@ impl Default for Reviewer {
 #[derive(Clone)]
 pub struct RunSpec {
     pub prompt: String,
+    /// Set when this run should talk to something other than Anthropic.
+    pub provider: Option<ModelProvider>,
     pub cwd: PathBuf,
     pub model: Option<String>,
     pub allowed_tools: Option<Vec<String>>,
@@ -246,6 +278,7 @@ impl RunSpec {
         Self {
             prompt: prompt.into(),
             cwd,
+            provider: None,
             model: None,
             allowed_tools: None,
             max_budget_usd: None,

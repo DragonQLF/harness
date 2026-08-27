@@ -26,7 +26,12 @@ model: string | null,
 /**
  * Capability names, translated into allowed tools for the run.
  */
-permissions: Array<string>, budget_usd: number | null, worktree: WorktreeMode, reviewer: Reviewer, 
+permissions: Array<string>, budget_usd: number | null, worktree: WorktreeMode, 
+/**
+ * Which configured model endpoint this agent runs on. Empty means the
+ * Anthropic login the machine already has.
+ */
+provider: string, reviewer: Reviewer, 
 /**
  * A paused agent picks up no new work.
  */

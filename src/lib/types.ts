@@ -31,6 +31,7 @@ import type { LanguageRow } from "./generated/LanguageRow";
 import type { PendingApproval } from "./generated/PendingApproval";
 import type { Proposal } from "./generated/Proposal";
 import type { Project } from "./generated/Project";
+import type { Provider } from "./generated/Provider";
 import type { ProjectStats } from "./generated/ProjectStats";
 import type { Review } from "./generated/Review";
 import type { Reviewer } from "./generated/Reviewer";
@@ -62,6 +63,7 @@ export type {
   PendingApproval,
   Proposal,
   Project,
+  Provider,
   ProjectStats,
   Review,
   Reviewer,

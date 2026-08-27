@@ -191,6 +191,13 @@ impl AgentPort for ClaudeCliAgent {
         let program = self.program.clone();
         Box::pin(async move {
             let mut cmd = tokio::process::Command::new(&program);
+            // The command line reads the same variables the SDK does, so the
+            // fallback adapter reaches the same endpoints.
+            if let Some(provider) = &spec.provider {
+                for (key, value) in provider.env() {
+                    cmd.env(key, value);
+                }
+            }
             cmd.arg("-p")
                 .arg(&spec.prompt)
                 .arg("--output-format")

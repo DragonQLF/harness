@@ -56,6 +56,7 @@ function Templates() {
         permissions: ["Read", "Search"],
         budget_usd: 0.5,
         worktree: "none",
+        provider: "",
         reviewer: "human",
         paused: false,
         permission_mode: null,
@@ -135,13 +136,19 @@ function Knob({
   label: string;
   value: string;
   hint: string;
-  onCycle: () => void;
+  /** Absent when the value is not a cycle — a model name typed by hand, say.
+   *  A tile that looks clickable and does nothing is worse than a still one. */
+  onCycle?: () => void;
 }) {
   return (
     <div
-      className="row"
+      className={onCycle ? "row" : undefined}
       onClick={onCycle}
-      style={{ padding: "12px 14px", background: "var(--surface)", cursor: "pointer" }}
+      style={{
+        padding: "12px 14px",
+        background: "var(--surface)",
+        cursor: onCycle ? "pointer" : "default",
+      }}
     >
       <div style={{ font: "400 10.5px var(--sans)", color: "var(--text4)", letterSpacing: ".08em" }}>
         {label}
@@ -276,12 +283,37 @@ export function Agents({
   };
   const budgets = [0.25, 0.5, 1, 2, 5, null];
 
+  // An endpoint that is not Anthropic's names its models differently — qwen3.5
+  // on Ollama, anthropic/claude-opus-5 on OpenRouter — so the fixed three stop
+  // being a menu and the field has to be typed.
+  const providers = settings?.providers ?? [];
+  const endpoint = providers.find((p) => p.id === agent.provider);
   const knobs = [
     {
+      label: "RUNS ON",
+      value: endpoint?.name ?? "Anthropic",
+      hint: endpoint
+        ? endpoint.base_url
+        : "The Claude login this machine already has",
+      onCycle: () =>
+        patch({
+          provider: cycle(
+            ["", ...providers.map((p) => p.id)],
+            agent.provider ?? "",
+          ),
+        }),
+    },
+    {
       label: "MODEL",
-      value: MODELS.find((m) => m.id === agent.model)?.name ?? "auto",
-      hint: MODELS.find((m) => m.id === agent.model)?.hint ?? "Claude picks one",
-      onCycle: () => patch({ model: cycle(MODELS.map((m) => m.id), agent.model ?? "sonnet") }),
+      value: endpoint
+        ? agent.model || "not set"
+        : MODELS.find((m) => m.id === agent.model)?.name ?? "auto",
+      hint: endpoint
+        ? "Typed below — this endpoint has its own names"
+        : MODELS.find((m) => m.id === agent.model)?.hint ?? "Claude picks one",
+      onCycle: endpoint
+        ? undefined
+        : () => patch({ model: cycle(MODELS.map((m) => m.id), agent.model ?? "sonnet") }),
     },
     {
       label: "REVIEWER",
@@ -571,6 +603,45 @@ export function Agents({
                   }}
                 />
               </div>
+              {endpoint && (
+                <div>
+                  <Eyebrow style={{ display: "block", paddingBottom: 8 }}>MODEL NAME</Eyebrow>
+                  <input
+                    defaultValue={agent.model ?? ""}
+                    placeholder={
+                      endpoint.id === "ollama" ? "qwen3.5" : "anthropic/claude-opus-5"
+                    }
+                    spellCheck={false}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim();
+                      if (next !== (agent.model ?? "")) patch({ model: next || null });
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      background: "var(--surface)",
+                      border: "1px solid var(--line2)",
+                      color: "var(--text)",
+                      fontFamily: "var(--mono)",
+                      fontSize: 12.5,
+                      outline: "none",
+                    }}
+                  />
+                  <p
+                    style={{
+                      margin: "8px 0 0",
+                      font: "400 11.5px/1.6 var(--sans)",
+                      color: "var(--text4)",
+                    }}
+                  >
+                    {endpoint.base_url} names its own models. A coding agent needs room to
+                    hold the repository — below about 64k of context it can chat, but it
+                    cannot work a card.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <Eyebrow style={{ display: "block", paddingBottom: 8 }}>TOOLS IT MAY USE</Eyebrow>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

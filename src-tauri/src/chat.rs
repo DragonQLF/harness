@@ -170,6 +170,8 @@ pub async fn send(
     allowed_tools.dedup();
 
     let spec = RunSpec {
+        provider: harness_app::providers::find(&settings.providers, &profile.provider)
+            .and_then(|p| p.resolve()),
         prompt,
         cwd,
         model: profile.model.clone(),

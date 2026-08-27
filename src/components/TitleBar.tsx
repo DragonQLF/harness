@@ -250,7 +250,7 @@ export function TitleBar({
             key={b.label}
             type="button"
             aria-label={b.label}
-            className={b.label === "close" ? "hv-close" : "hv-hover"}
+            className={b.label === "close" ? "hv-close" : "hv-win"}
             onClick={b.run}
             style={{
               width: b.w,

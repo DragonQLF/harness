@@ -100,6 +100,8 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     );
 
     let spec = RunSpec {
+        provider: harness_app::providers::find(&ws.settings().providers, &profile.provider)
+            .and_then(|p| p.resolve()),
         prompt: asked,
         cwd: ws.paths.root().to_path_buf(),
         model: profile.model.clone(),

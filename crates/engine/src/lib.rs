@@ -87,6 +87,8 @@ pub struct EngineConfig {
     pub worker_allowed_tools: Vec<String>,
     pub director_allowed_tools: Vec<String>,
     pub director_model: Option<String>,
+    /// Where the Director's own model lives, when it is not Anthropic's.
+    pub director_provider: Option<harness_ports::ModelProvider>,
     /// When the stored log reaches this many events, startup folds it into a
     /// single `BoardSnapshot` so the *next* startup replays one event instead
     /// of thousands. Zero disables compaction.
@@ -126,6 +128,7 @@ impl EngineConfig {
             ],
             director_allowed_tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
             director_model: None,
+            director_provider: None,
             compact_at: 1000,
             post_build: None,
         }
