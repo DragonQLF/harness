@@ -141,6 +141,7 @@ pub fn run() {
             commands::project::project_inspect,
             commands::project::project_add,
             commands::project::project_create,
+            commands::project::mirror_setup,
             commands::project::project_update,
             commands::project::project_remove,
             commands::project::project_detail,

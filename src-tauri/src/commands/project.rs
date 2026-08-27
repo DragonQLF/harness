@@ -103,6 +103,67 @@ pub async fn project_create(
     Ok(project)
 }
 
+/// Point mirror mode at Relay's own source, fetching it if it is not here.
+///
+/// Not a toggle on a project the operator picked. Everything the mode does is
+/// specific to this repository — `read_docs` reads these decisions, an accepted
+/// proposal becomes a card in this code, the post-run build compiles this app —
+/// so aiming it anywhere else is not a preference, it is a mistake with no
+/// symptom until the Director cites a stranger's DEBT.md.
+///
+/// Order matters: an already-registered clone, then the checkout this binary
+/// was built from, then a fresh clone. The middle one is the whole reason to
+/// look before cloning — a developer running `tauri dev` already has the source
+/// open, and a second copy would leave agents editing the one they are not.
+#[tauri::command]
+pub async fn mirror_setup(ws: Shared<'_>) -> Result<Project, String> {
+    use harness_app::mirror::{self, Source};
+
+    let remotes: Vec<(String, Option<String>)> = ws
+        .projects()
+        .into_iter()
+        .map(|p| {
+            let remote = harness_git_cli::CliGit::new(
+                std::path::Path::new(&p.path),
+                ws.paths.project_worktrees(&p.id),
+            )
+            .remote();
+            (p.id, remote)
+        })
+        .collect();
+
+    let project = match mirror::locate(&remotes, ws.paths.root()) {
+        Source::Registered(id) => ws
+            .project(&id)
+            .ok_or_else(|| format!("project {id} went away while we looked at it"))?,
+        Source::OnDisk(path) => ws.add_project(&path.to_string_lossy(), Some("Relay".into()), false)?,
+        Source::Clone(into) => {
+            if into.exists() {
+                // A previous attempt that got as far as the disk. Adopt it
+                // rather than refusing, or the operator can never retry.
+                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)?
+            } else {
+                let out = std::process::Command::new("git")
+                    .args(["clone", mirror::REPO_URL])
+                    .arg(&into)
+                    .output()
+                    .map_err(|e| format!("could not run git: {e}"))?;
+                if !out.status.success() {
+                    let why = String::from_utf8_lossy(&out.stderr);
+                    let why = why.trim();
+                    // Leave nothing half-cloned behind to confuse the retry.
+                    let _ = std::fs::remove_dir_all(&into);
+                    return Err(format!("could not clone Relay's source: {why}"));
+                }
+                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)?
+            }
+        }
+    };
+
+    let mirrored = Project { mirror: true, ..project };
+    ws.update_project(mirrored)
+}
+
 #[tauri::command]
 pub async fn project_update(project: Project, ws: Shared<'_>) -> Result<Project, String> {
     ws.update_project(project)

@@ -39,7 +39,7 @@ function clipTop(d: string): string {
 }
 
 export function ProjectPage({ go }: { go: (v: View) => void }) {
-  const { projectId, project, projects, snapshot, agents, toast, refreshProjects } = useStore();
+  const { projectId, project, snapshot, agents, toast } = useStore();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -83,30 +83,6 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         : { label: "not run", fg: "var(--text3)", soft: "var(--surface2)" };
   const agentNames = new Set(detail.commits.map((c) => c.agent).filter(Boolean));
 
-  /** Mirror mode: the project Relay treats as its own home — where the
-   *  Director's accepted proposals become cards (#72, #79) and where read_docs
-   *  looks for DEBT.md and DECISIONS.md (#78). Exactly one project holds it;
-   *  the backend takes it from whoever had it before. */
-  const held = projects.find((p) => p.mirror);
-  const toggleMirror = async () => {
-    if (!project) return;
-    setBusy(true);
-    try {
-      await api.projectUpdate({ ...project, mirror: !project.mirror });
-      await refreshProjects();
-      toast(
-        "var(--ok)",
-        project.mirror ? "Mirror mode off" : "Mirror mode on",
-        project.mirror
-          ? "The Director has nowhere to file accepted proposals until another project takes it."
-          : `Accepted proposals become cards in ${project.name}, and read_docs reads its docs/.`,
-      );
-    } catch (e) {
-      toast("var(--bad)", "Could not change mirror mode", reason(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const runChecks = async () => {
     if (!projectId) return;
@@ -332,58 +308,24 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   : "never"}
               </span>
               <span style={{ flex: 1 }} />
-              <button
-                type="button"
-                className="hv-link"
-                disabled={busy}
-                onClick={toggleMirror}
-                title={
-                  project.mirror
-                    ? "Relay's own home: accepted proposals are born here and read_docs reads this repository's docs/"
-                    : held
-                      ? `Mirror mode is on ${held.name}. Turning it on here takes it from there.`
-                      : "Make this the project Relay improves itself in"
-                }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "4px 10px 4px 8px",
-                  borderRadius: 999,
-                  background: project.mirror ? "var(--okSoft)" : "var(--surface2)",
-                  border: `1px solid ${project.mirror ? "var(--ok)" : "var(--line)"}`,
-                  color: project.mirror ? "var(--ok)" : "var(--text3)",
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  cursor: busy ? "default" : "pointer",
-                  opacity: busy ? 0.6 : 1,
-                }}
-              >
+              {project.mirror ? (
                 <span
+                  title="Relay's own source: accepted proposals are born here and read_docs reads this repository's docs/"
                   style={{
-                    width: 22,
-                    height: 12,
+                    padding: "4px 10px",
                     borderRadius: 999,
-                    background: project.mirror ? "var(--ok)" : "var(--line3)",
-                    position: "relative",
-                    transition: "background .16s ease",
+                    background: "var(--okSoft)",
+                    border: "1px solid var(--ok)",
+                    color: "var(--ok)",
+                    fontSize: 11.5,
+                    fontWeight: 700,
                   }}
                 >
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: 2,
-                      left: project.mirror ? 12 : 2,
-                      width: 8,
-                      height: 8,
-                      borderRadius: 999,
-                      background: "var(--surface)",
-                      transition: "left .16s ease",
-                    }}
-                  />
+                  mirror mode
                 </span>
-                mirror mode
-              </button>
+              ) : (
+                <span />
+              )}
               <span style={{ opacity: 0.5 }}>·</span>
               <button
                 type="button"
@@ -887,7 +829,29 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
 
 /** The list of registered repositories. */
 export function Projects({ go }: { go: (v: View) => void }) {
-  const { projects, selectProject, addProject, removeProject } = useStore();
+  const { projects, selectProject, addProject, removeProject, refreshProjects, toast } =
+    useStore();
+  const [busy, setBusy] = useState(false);
+
+  // Mirror mode is not a property a project can be given: it is Relay's own
+  // source, and asking for it fetches that rather than nominating this one.
+  const held = projects.find((p) => p.mirror);
+  const setUpMirror = async () => {
+    setBusy(true);
+    try {
+      const relay = await api.mirrorSetup();
+      await refreshProjects();
+      toast(
+        "var(--ok)",
+        "Mirror mode is on",
+        `${relay.name} is Relay's own source. Accepted proposals become cards there, and read_docs reads its docs/.`,
+      );
+    } catch (e) {
+      toast("var(--bad)", "Could not set up mirror mode", reason(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={{ padding: "22px 26px 28px" }}>
@@ -898,6 +862,29 @@ export function Projects({ go }: { go: (v: View) => void }) {
           Every repository Relay is allowed to touch
         </span>
         <div style={{ flex: 1 }} />
+        {!held && (
+          <button
+            type="button"
+            className="chip"
+            disabled={busy}
+            title={`Registers Relay's own repository and turns on mirror mode. Clones it if this machine does not already have it.`}
+            onClick={setUpMirror}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 999,
+              background: "var(--surface2)",
+              border: "1px solid var(--line3)",
+              color: "var(--text2)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: busy ? "default" : "pointer",
+              opacity: busy ? 0.6 : 1,
+              marginRight: 8,
+            }}
+          >
+            {busy ? "fetching Relay…" : "Work on Relay itself"}
+          </button>
+        )}
         <button
           type="button"
           className="hv-bright"

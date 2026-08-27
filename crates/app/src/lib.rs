@@ -18,6 +18,7 @@ pub mod memory;
 pub mod paths;
 pub mod projects;
 pub mod catalog;
+pub mod mirror;
 pub mod providers;
 pub mod vocabulary;
 pub mod selfreport;

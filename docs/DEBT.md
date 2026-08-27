@@ -13,7 +13,7 @@ registarem como feitos).
 | Curador + árvore `areas/` | Promocão mecânica feita (`curator_run`); falta o passe de julgamento com modelo | #58–#60, #77 |
 | Triador: ficheiros protegidos no risco | Por fazer (operador ainda não os nomeia) | #55 |
 | Analista semanal | Hoje é sob pedido; agendador é infraestrutura nova | #55 |
-| Toggle `mirror` na UI | Feito — interruptor na página do projecto, badge na lista; a exclusividade vive no `update_project`, não no botão | #65 |
+| Modo Espelho aponta-se sozinho | Não é um interruptor: "Work on Relay itself" procura o repositório do Relay entre os projectos (pelo remote), depois o checkout de onde este binário foi compilado, e só então clona. Um projecto qualquer já não pode reclamar o papel | #65 |
 | Hooks de telemetria estruturada | Parciais: expirações de aprovação registadas (#78); o resto não | #24–#31, #78 |
 | Grafo de commits com curvas | Hoje é lista classificada, não as pistas do design | #18b |
 | Sandbox / confinamento de shell | Adiado conscientemente; pathguard cobre caminhos estruturados, Bash fica na allowlist | #2, #62 |

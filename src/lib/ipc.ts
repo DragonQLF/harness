@@ -60,6 +60,8 @@ export const api = {
   projectCreate: (parent: string, name: string) =>
     invoke<Project>("project_create", { parent, name }),
   projectUpdate: (project: Project) => invoke<Project>("project_update", { project }),
+  /** Point mirror mode at Relay's own source, cloning it if it is not here. */
+  mirrorSetup: () => invoke<Project>("mirror_setup"),
   projectRemove: (projectId: string, deleteData: boolean) =>
     invoke<void>("project_remove", { projectId, deleteData }),
   projectDetail: (projectId: string, commitLimit = 14) =>
