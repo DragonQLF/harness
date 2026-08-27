@@ -41,6 +41,28 @@ fn column(raw: &str) -> Option<Status> {
     })
 }
 
+/// The endpoints an agent could be pointed at, for a refusal that tells the
+/// model what to send instead of only what was wrong.
+fn endpoint_names(providers: &[harness_app::providers::Provider]) -> String {
+    let mut names: Vec<String> = vec!["anthropic".to_string()];
+    names.extend(providers.iter().map(|p| p.id.clone()));
+    names.join(", ")
+}
+
+/// " on qwen3.5 via Ollama Cloud", or " on the Claude login".
+fn describe_model(
+    agent: &harness_app::agents::AgentProfile,
+    providers: &[harness_app::providers::Provider],
+) -> String {
+    let where_ = harness_app::providers::find(providers, &agent.provider)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "the Claude login".to_string());
+    match agent.model.as_deref() {
+        Some(model) if !model.is_empty() => format!(" on {model} via {where_}"),
+        _ => format!(" on {where_}"),
+    }
+}
+
 fn text(input: &serde_json::Value, key: &str) -> Option<String> {
     input
         .get(key)
@@ -450,6 +472,101 @@ pub async fn run(
             }
         }
 
+        // Both of these change the crew, so neither is read-only: they arrive
+        // at the operator's permission sheet like a card move does. The
+        // operator asked for the Director to be able to do this; they did not
+        // ask to stop being told about it.
+        "create_agent" => {
+            let Some(name) = text(&call.input, "name") else {
+                return ToolReply::refused("create_agent needs a name");
+            };
+            let taken: Vec<String> = ws.agents().into_iter().map(|a| a.id).collect();
+            if ws.agents().iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
+                return ToolReply::refused(format!(
+                    "there is already an agent called {name}; use set_agent_model to change                      the one that exists, or pick another name"
+                ));
+            }
+            let mut made = harness_app::agents::drafted(
+                &name,
+                &text(&call.input, "title").unwrap_or_default(),
+                &text(&call.input, "brief").unwrap_or_default(),
+                &taken,
+            );
+            // The model is the point of asking, so it is set here rather than
+            // left for a second round trip.
+            if let Some(model) = text(&call.input, "model") {
+                made.model = Some(model);
+            }
+            if let Some(provider) = text(&call.input, "provider") {
+                let settings = ws.settings();
+                if harness_app::providers::find(&settings.providers, &provider).is_none() {
+                    return ToolReply::refused(format!(
+                        "there is no model endpoint called {provider}. The ones configured are: {}",
+                        endpoint_names(&settings.providers)
+                    ));
+                }
+                made.provider = provider;
+            }
+            let summary = format!(
+                "created {} ({}){}",
+                made.name,
+                made.id,
+                describe_model(&made, &ws.settings().providers)
+            );
+            let mut crew = ws.agents();
+            crew.push(made);
+            match ws.set_agents(crew) {
+                Ok(_) => ToolReply::ok(format!(
+                    "{summary}. It can read and search; anything more is yours to grant on                      the Agents screen."
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
+        "set_agent_model" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("set_agent_model needs an agent_id");
+            };
+            let settings = ws.settings();
+            let mut crew = ws.agents();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    ws.agents()
+                        .iter()
+                        .map(|a| a.id.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            };
+            if let Some(provider) = text(&call.input, "provider") {
+                // The empty string is the Anthropic login, and is spelled
+                // "anthropic" here so the model never has to send a blank.
+                if provider.eq_ignore_ascii_case("anthropic") {
+                    slot.provider = harness_app::providers::ANTHROPIC.to_string();
+                } else if harness_app::providers::find(&settings.providers, &provider).is_none() {
+                    return ToolReply::refused(format!(
+                        "there is no model endpoint called {provider}. The ones configured are: {}",
+                        endpoint_names(&settings.providers)
+                    ));
+                } else {
+                    slot.provider = provider;
+                }
+            }
+            if let Some(model) = text(&call.input, "model") {
+                slot.model = Some(model);
+            }
+            let summary = format!(
+                "{} now runs{}",
+                slot.name,
+                describe_model(slot, &settings.providers)
+            );
+            match ws.set_agents(crew) {
+                Ok(_) => ToolReply::ok(summary),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "read_diff" => {
             let Some(card_id) = text(&call.input, "card_id") else {
                 return ToolReply::refused("read_diff needs a card_id");
@@ -525,6 +642,8 @@ mod tests {
             "reject_card",
             "delete_card",
             "create_project",
+            "create_agent",
+            "set_agent_model",
         ] {
             assert!(!is_read_only(guarded), "{guarded} must need delegation");
         }

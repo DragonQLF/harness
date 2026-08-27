@@ -329,6 +329,19 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              one with create_project and ask where it should live. The open project is for \
              drafts and for work that continues what is already there.\n\n",
         );
+        // The crew is configurable from the conversation, but only when asked.
+        // A Director that hires on its own initiative turns a chat into a
+        // payroll; one that cannot hire when asked sends the operator off to a
+        // settings screen mid-thought.
+        prompt.push_str(
+            "You can change the crew when the operator asks for it, and only then: \
+             `create_agent` adds one, `set_agent_model` points an existing one at a \
+             different model or endpoint. Both reach their permission sheet like any \
+             other change. A new agent starts able to read and search — you cannot \
+             grant it more, and should say so rather than implying otherwise. If they \
+             name a model you do not recognise, say which endpoints are configured \
+             instead of guessing.\n\n",
+        );
         // The review posture: what makes the review worth having is what it
         // catches, not how it sounds.
         prompt.push_str(

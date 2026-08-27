@@ -463,6 +463,34 @@ pub fn from_template(template_id: &str, taken: &[String]) -> Option<AgentProfile
     Some(with_free_id(found, taken))
 }
 
+/// A new profile the Director asked for, with the crew's conservative defaults.
+///
+/// Deliberately narrow: a name, what it is for, and where it runs. It cannot
+/// grant itself tools — a new agent starts able to read and search, and
+/// widening that is the operator's move on the Agents screen. The Director
+/// asking for a helper is a reasonable thing to approve; the Director writing
+/// itself a shell-capable one is not the same question, and should not arrive
+/// wearing the same clothes.
+pub fn drafted(
+    name: &str,
+    title: &str,
+    brief: &str,
+    taken: &[String],
+) -> AgentProfile {
+    let name = name.trim();
+    with_free_id(
+        AgentProfile {
+            name: name.to_string(),
+            title: title.trim().to_string(),
+            brief: brief.trim().to_string(),
+            // Everything else is Default: Read and Search only, its own
+            // worktree per card, and the Director reading the diff after.
+            ..Default::default()
+        },
+        taken,
+    )
+}
+
 /// A copy of an existing profile, under its own id.
 pub fn duplicate(profile: &AgentProfile, taken: &[String]) -> AgentProfile {
     let mut copy = profile.clone();
@@ -555,6 +583,26 @@ pub fn find<'a>(agents: &'a [AgentProfile], id: &str) -> Option<&'a AgentProfile
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn a_drafted_agent_cannot_arrive_holding_tools() {
+        let made = drafted("Scribe", "Note taker", "Writes things down", &[]);
+        assert_eq!(made.id, "scribe");
+        assert_eq!(made.initial, "S");
+        assert_eq!(
+            made.permissions,
+            vec!["Read".to_string(), "Search".to_string()],
+            "a new agent reads and searches; widening that is the operator's move"
+        );
+        assert_eq!(made.worktree, WorktreeMode::PerCard, "it works in its own checkout");
+        assert_eq!(made.reviewer, Reviewer::Director, "and something reads the diff after");
+        assert!(!made.paused);
+
+        let second = drafted("Scribe", "", "", &[made.id.clone()]);
+        assert_eq!(second.id, "scribe-2", "two of the same name do not collide");
+    }
+
     use super::*;
 
     #[test]

@@ -83,6 +83,39 @@ function harnessTools(runId) {
         call("create_card"),
       ),
       tool(
+        "create_agent",
+        "Add an agent to the crew, when the operator asks for one. It starts able to read and search only; widening that is theirs to do on the Agents screen.",
+        {
+          name: z.string().describe("What to call it, for example Scout"),
+          title: z.string().optional().describe("One line on what it is for"),
+          brief: z.string().optional().describe("What it is told before every run"),
+          model: z
+            .string()
+            .optional()
+            .describe("Model name the endpoint knows, for example qwen3.5 or anthropic/claude-opus-5"),
+          provider: z
+            .string()
+            .optional()
+            .describe(
+              "Which configured model endpoint it runs on, by id. Omit for the Claude login this machine already has.",
+            ),
+        },
+        call("create_agent"),
+      ),
+      tool(
+        "set_agent_model",
+        "Point an existing agent at a different model, or a different endpoint, when the operator asks.",
+        {
+          agent_id: z.string().describe("Which agent, by id"),
+          model: z.string().optional().describe("Model name the endpoint knows"),
+          provider: z
+            .string()
+            .optional()
+            .describe("Endpoint id, or 'anthropic' for the Claude login this machine already has"),
+        },
+        call("set_agent_model"),
+      ),
+      tool(
         "approve_card",
         "Approve a card that is waiting for review, sending it to done.",
         {
