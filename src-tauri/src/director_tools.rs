@@ -514,6 +514,68 @@ pub async fn run(
             }
         }
 
+        // Adding the row, but never the key. A conversation is written to disk
+        // as a transcript, so a tool that accepted a key would be a tool that
+        // wrote it there — and the operator pasting it into chat "because the
+        // Director asked" is a habit worth not teaching. The row lands empty
+        // and the key is typed once, into a password field, on the screen the
+        // Director can open for them.
+        "add_endpoint" => {
+            let named = text(&call.input, "name").unwrap_or_default();
+            let template = harness_app::providers::templates()
+                .into_iter()
+                .find(|t| {
+                    t.id.eq_ignore_ascii_case(&named) || t.name.eq_ignore_ascii_case(&named)
+                });
+            let url = text(&call.input, "base_url");
+            let (name, base_url) = match (&template, url) {
+                (Some(t), url) => (t.name.clone(), url.unwrap_or_else(|| t.base_url.clone())),
+                (None, Some(url)) if !named.is_empty() => (named.clone(), url),
+                (None, _) => {
+                    return ToolReply::refused(
+                        "add_endpoint needs a known name — ollama, ollama-cloud or openrouter —                          or a name and a base_url for something else that speaks the Anthropic                          Messages protocol",
+                    )
+                }
+            };
+
+            let mut settings = ws.settings();
+            if let Some(existing) = settings
+                .providers
+                .iter()
+                .find(|p| p.base_url.trim_end_matches('/') == base_url.trim_end_matches('/'))
+            {
+                return ToolReply::refused(format!(
+                    "{} already points at {base_url}{}",
+                    existing.name,
+                    if existing.needs_key() {
+                        " — it just has no key yet"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+
+            let taken: Vec<harness_app::providers::Provider> = settings.providers.clone();
+            let id = template
+                .as_ref()
+                .map(|t| t.id.clone())
+                .filter(|id| !taken.iter().any(|p| &p.id == id))
+                .unwrap_or_else(|| harness_app::providers::unique_id(&name, &taken));
+
+            settings.providers.push(harness_app::providers::Provider {
+                id: id.clone(),
+                name: name.clone(),
+                base_url: base_url.clone(),
+                token: String::new(),
+            });
+            match ws.set_settings(settings) {
+                Ok(_) => ToolReply::ok(format!(
+                    "added {name} ({id}) at {base_url}. It has no key yet, and every run on it                      is refused until it does — open the settings screen for them and ask them                      to paste one into its key field. Do not ask them to send it to you here:                      this conversation is written to disk."
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "create_agent" => {
             let Some(name) = text(&call.input, "name") else {
                 return ToolReply::refused("create_agent needs a name");
@@ -828,6 +890,7 @@ mod tests {
             "delete_card",
             "create_project",
             "create_agent",
+            "add_endpoint",
             "work_on_relay",
             "set_agent_model",
             "edit_agent",

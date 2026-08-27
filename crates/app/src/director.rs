@@ -352,11 +352,12 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              because approving one reach should not approve every reach after. Say \
              plainly what it would let the agent do before you ask — Shell and Write \
              especially. A new agent starts able to read and search. If they name a \
-             model or an endpoint that is not set up, do not guess and do not read out \
-             instructions: open_screen with the settings screen puts them in front of the Model \
-             endpoints row, and then you can ask for the key. The same when an \
-             endpoint exists but has no key — every run on it fails before it \
-             starts, so say that rather than letting them find out mid-run.\n\n",
+             model or an endpoint that is not set up, `add_endpoint` adds the row — \
+             ollama, ollama-cloud and openrouter are known by name. Never ask them \
+             to send you a key: this conversation is written to disk. Add the row, \
+             then open the settings screen so they can paste the key themselves. \
+             An endpoint with no key refuses every run before it starts, so say that \
+             rather than letting them find out mid-run.\n\n",
         );
         // The review posture: what makes the review worth having is what it
         // catches, not how it sounds.
