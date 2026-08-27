@@ -400,6 +400,75 @@ pub async fn inbox_dismiss(
 
 
 
+/// What models an endpoint offers, so the operator picks a name instead of
+/// remembering one.
+///
+/// Fetched here rather than in the window: the CSP that keeps the webview off
+/// the network is not something to punch a hole in for a convenience. The
+/// answer is cached in app data — the catalogue is four megabytes and changes
+/// about as often as models are released, so re-fetching it on every visit to
+/// the Agents screen would be rude to both ends.
+#[tauri::command]
+pub async fn model_catalog(
+    provider_id: String,
+    base_url: String,
+    refresh: Option<bool>,
+    ws: Shared<'_>,
+) -> Result<Vec<harness_app::catalog::CatalogModel>, String> {
+    // A local endpoint is nobody's published list: ask the machine what it has.
+    if is_local(&base_url) {
+        let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+        let body = reqwest::Client::new()
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map_err(|e| format!("could not reach {url}: {e}"))?
+            .text()
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(harness_app::catalog::parse_ollama_tags(&body));
+    }
+
+    let cache = ws.paths.root().join("models.dev.json");
+    let fresh_enough = !refresh.unwrap_or(false)
+        && std::fs::metadata(&cache)
+            .and_then(|m| m.modified())
+            .map(|t| t.elapsed().map(|age| age.as_secs() < 24 * 60 * 60).unwrap_or(false))
+            .unwrap_or(false);
+
+    let body = if fresh_enough {
+        std::fs::read_to_string(&cache).map_err(|e| e.to_string())?
+    } else {
+        let fetched = reqwest::Client::new()
+            .get("https://models.dev/api.json")
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("could not reach models.dev: {e}"))?
+            .text()
+            .await
+            .map_err(|e| e.to_string())?;
+        // A cache write that fails is not worth failing the call over; the
+        // catalogue is in hand either way.
+        let _ = std::fs::write(&cache, &fetched);
+        fetched
+    };
+    Ok(harness_app::catalog::parse(&body, &provider_id))
+}
+
+/// Does this endpoint live on the machine? Only a local one is asked directly;
+/// pointing the tag request at a stranger's host would leak that we run Relay.
+fn is_local(base_url: &str) -> bool {
+    let host = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    host.starts_with("localhost")
+        || host.starts_with("127.0.0.1")
+        || host.starts_with("0.0.0.0")
+        || host.starts_with("[::1]")
+}
+
 /// Mirror builds that finished and are waiting for a decision. Newest first;
 /// a manifest without its binary is a broken promise and is not shown.
 #[tauri::command]

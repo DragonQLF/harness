@@ -10,6 +10,7 @@ import type {
   AgentStats,
   Bootstrap,
   CardDiff,
+  CatalogModel,
   ClosingBegan,
   ClosingPhase,
   CheckRow,
@@ -104,6 +105,9 @@ export const api = {
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
   /** Stop waiting for the close sequence; the window goes as soon as it can. */
   closeNow: () => invoke<void>("close_now"),
+  /** What models an endpoint offers. Cached a day behind the scenes. */
+  modelCatalog: (providerId: string, baseUrl: string, refresh = false) =>
+    invoke<CatalogModel[]>("model_catalog", { providerId, baseUrl, refresh }),
   updatesList: () => invoke<PendingUpdate[]>("updates_list"),
   updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),
   chatStop: (conversationId: string) => invoke<void>("chat_stop", { conversationId }),

@@ -15,6 +15,7 @@ fn export_types() {
     harness_app::settings::Settings::export().unwrap();
     harness_app::projects::Project::export().unwrap();
     harness_app::providers::Provider::export().unwrap();
+    harness_app::catalog::CatalogModel::export().unwrap();
     harness_app::projects::FolderInfo::export().unwrap();
     harness_app::conversations::Conversation::export().unwrap();
     harness_app::approvals::PendingApproval::export().unwrap();

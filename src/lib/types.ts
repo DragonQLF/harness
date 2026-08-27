@@ -40,12 +40,14 @@ import type { RunOutcome } from "./generated/RunOutcome";
 import type { SessionView } from "./generated/SessionView";
 import type { Settings } from "./generated/Settings";
 import type { Snapshot } from "./generated/Snapshot";
+import type { CatalogModel } from "./generated/CatalogModel";
 import type { Status } from "./generated/Status";
 import type { WorktreeMode } from "./generated/WorktreeMode";
 import type { WorktreeRow } from "./generated/WorktreeRow";
 
 export type {
   Actor,
+  CatalogModel,
   ActiveRun,
   ActivityRow,
   AgentProfile,

@@ -39,4 +39,7 @@ tokio-util = { version = "0.7.19", features = ["rt"] }
 futures-util = { version = "0.3", default-features = false }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+# The model catalogue is fetched here rather than in the webview: the CSP that
+# keeps the window off the network does not exempt a fetch we happen to want.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 

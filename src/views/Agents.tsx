@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { money, num, plural } from "../lib/format";
+import { api, reason } from "../lib/ipc";
 import {
   ALL_PERMISSIONS,
   MODELS,
@@ -11,6 +12,8 @@ import {
   WORKTREE_MODES,
   tone,
   type AgentProfile,
+  type CatalogModel,
+  type Provider,
 } from "../lib/types";
 import { useStore } from "../state/store";
 import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
@@ -127,6 +130,156 @@ function Templates() {
 }
 
 /** One of the five knobs across the top of a profile. Clicking cycles it. */
+/** Why a model is listed but not offered first. The same two failures the
+ *  catalogue itself names: an agent that cannot call tools cannot act, and one
+ *  without room cannot hold the repository. */
+function caveatOf(m: CatalogModel): string | null {
+  if (!m.tool_call) return "cannot call tools";
+  if (m.context > 0 && m.context < 64000) return `${Math.round(m.context / 1000)}k context`;
+  return null;
+}
+
+/** The models an endpoint actually offers, from models.dev for the hosted ones
+ *  and from the machine itself for a local Ollama.
+ *
+ *  A name typed from memory fails twenty minutes into a run, and the two ways
+ *  it fails are invisible until then: a model that cannot call tools produces
+ *  prose about the work instead of doing it, and one with a small context
+ *  cannot hold the repository. Both look like Relay being broken. So the ones
+ *  that can do the job are listed first and the rest say why not. */
+function ModelPicker({
+  endpoint,
+  chosen,
+  onPick,
+}: {
+  endpoint: Provider;
+  chosen: string;
+  onPick: (id: string) => void;
+}) {
+  const [models, setModels] = useState<CatalogModel[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [find, setFind] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setModels(null);
+    setError(null);
+    api
+      .modelCatalog(endpoint.id, endpoint.base_url)
+      .then((rows) => alive && setModels(rows))
+      .catch((e) => alive && setError(reason(e)));
+    return () => {
+      alive = false;
+    };
+  }, [endpoint.id, endpoint.base_url]);
+
+  const needle = find.trim().toLowerCase();
+  const shown = (models ?? []).filter(
+    (m) => !needle || m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle),
+  );
+
+  return (
+    <div>
+      <Eyebrow style={{ display: "block", paddingBottom: 8 }}>MODEL</Eyebrow>
+
+      <input
+        value={find}
+        onChange={(e) => setFind(e.target.value)}
+        placeholder={
+          models === null ? "reading what this endpoint offers…" : `search ${models.length} models`
+        }
+        spellCheck={false}
+        style={{
+          width: "100%",
+          padding: "10px 12px",
+          borderRadius: 8,
+          background: "var(--surface)",
+          border: "1px solid var(--line2)",
+          color: "var(--text)",
+          fontFamily: "var(--mono)",
+          fontSize: 12,
+          outline: "none",
+        }}
+      />
+
+      {error && (
+        <p style={{ margin: "8px 0 0", font: "400 11.5px/1.6 var(--sans)", color: "var(--warn)" }}>
+          {error} — the name can still be typed, it just is not being checked.
+        </p>
+      )}
+
+      {models !== null && models.length === 0 && !error && (
+        <p style={{ margin: "8px 0 0", font: "400 11.5px/1.6 var(--sans)", color: "var(--text4)" }}>
+          Nothing to list for this endpoint. A local Ollama reports only what has been
+          pulled onto this machine — `ollama pull qwen3.5` and it appears here.
+        </p>
+      )}
+
+      <div
+        style={{
+          marginTop: 8,
+          maxHeight: 260,
+          overflowY: "auto",
+          border: models?.length ? "1px solid var(--line2)" : "none",
+          borderRadius: 12,
+        }}
+      >
+        {shown.map((m) => {
+          const picked = m.id === chosen;
+          return (
+            <div
+              key={m.id}
+              className="row"
+              onClick={() => onPick(m.id)}
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 10,
+                padding: "10px 12px",
+                borderBottom: "1px solid var(--line2)",
+                background: picked ? "var(--accentSoft)" : "transparent",
+                cursor: "pointer",
+                opacity: m.usable ? 1 : 0.55,
+              }}
+            >
+              <span
+                style={{
+                  ...mono,
+                  fontSize: 11.5,
+                  color: picked ? "var(--accent)" : "var(--text1)",
+                  ...truncate,
+                  flex: 1,
+                }}
+              >
+                {m.id}
+              </span>
+              {caveatOf(m) ? (
+                <span style={{ font: "400 10.5px var(--sans)", color: "var(--warn)", flex: "none" }}>
+                  {caveatOf(m)}
+                </span>
+              ) : (
+                <span
+                  style={{ ...mono, fontSize: 10.5, color: "var(--text4)", flex: "none" }}
+                  data-nums
+                >
+                  {Math.round(m.context / 1000)}k
+                  {m.input_cost ? ` · $${m.input_cost}/M` : " · free"}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {chosen && !shown.some((m) => m.id === chosen) && (
+        <p style={{ margin: "8px 0 0", ...mono, fontSize: 11, color: "var(--text3)" }}>
+          set to {chosen}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Knob({
   label,
   value,
@@ -604,42 +757,11 @@ export function Agents({
                 />
               </div>
               {endpoint && (
-                <div>
-                  <Eyebrow style={{ display: "block", paddingBottom: 8 }}>MODEL NAME</Eyebrow>
-                  <input
-                    defaultValue={agent.model ?? ""}
-                    placeholder={
-                      endpoint.id === "ollama" ? "qwen3.5" : "anthropic/claude-opus-5"
-                    }
-                    spellCheck={false}
-                    onBlur={(e) => {
-                      const next = e.target.value.trim();
-                      if (next !== (agent.model ?? "")) patch({ model: next || null });
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "12px 14px",
-                      borderRadius: 12,
-                      background: "var(--surface)",
-                      border: "1px solid var(--line2)",
-                      color: "var(--text)",
-                      fontFamily: "var(--mono)",
-                      fontSize: 12.5,
-                      outline: "none",
-                    }}
-                  />
-                  <p
-                    style={{
-                      margin: "8px 0 0",
-                      font: "400 11.5px/1.6 var(--sans)",
-                      color: "var(--text4)",
-                    }}
-                  >
-                    {endpoint.base_url} names its own models. A coding agent needs room to
-                    hold the repository — below about 64k of context it can chat, but it
-                    cannot work a card.
-                  </p>
-                </div>
+                <ModelPicker
+                  endpoint={endpoint}
+                  chosen={agent.model ?? ""}
+                  onPick={(id) => patch({ model: id || null })}
+                />
               )}
 
               <div>
