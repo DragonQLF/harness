@@ -49,6 +49,30 @@ fn endpoint_names(providers: &[harness_app::providers::Provider]) -> String {
     names.join(", ")
 }
 
+/// What to say when the endpoint the operator named is not set up, or is set up
+/// without a key. Both end the same way: somebody has to open Settings, and
+/// pointing at it beats describing it.
+fn missing_endpoint(asked: &str, providers: &[harness_app::providers::Provider]) -> String {
+    format!(
+        "there is no model endpoint called {asked}. Configured: {}. Adding one is a \
+         click in Settings under Model endpoints — take them there with \
+         open_screen(\"settings\") rather than describing it, then ask for the key.",
+        endpoint_names(providers)
+    )
+}
+
+/// Appended when the endpoint exists but has nothing to authenticate with.
+fn key_warning(provider: &harness_app::providers::Provider) -> String {
+    if !provider.needs_key() {
+        return String::new();
+    }
+    format!(
+        " — but {} has no key, so every run on it is refused before it starts. Take \
+         them to Settings with open_screen(\"settings\") and ask them to paste one.",
+        provider.name
+    )
+}
+
 /// " on qwen3.5 via Ollama Cloud", or " on the Claude login".
 fn describe_model(
     agent: &harness_app::agents::AgentProfile,
@@ -514,24 +538,25 @@ pub async fn run(
             if let Some(provider) = text(&call.input, "provider") {
                 let settings = ws.settings();
                 if harness_app::providers::find(&settings.providers, &provider).is_none() {
-                    return ToolReply::refused(format!(
-                        "there is no model endpoint called {provider}. The ones configured are: {}",
-                        endpoint_names(&settings.providers)
-                    ));
+                    return ToolReply::refused(missing_endpoint(&provider, &settings.providers));
                 }
                 made.provider = provider;
             }
+            let providers = ws.settings().providers;
+            let warning = harness_app::providers::find(&providers, &made.provider)
+                .map(key_warning)
+                .unwrap_or_default();
             let summary = format!(
                 "created {} ({}){}",
                 made.name,
                 made.id,
-                describe_model(&made, &ws.settings().providers)
+                describe_model(&made, &providers)
             );
             let mut crew = ws.agents();
             crew.push(made);
             match ws.set_agents(crew) {
                 Ok(_) => ToolReply::ok(format!(
-                    "{summary}. It can read and search; anything more is yours to grant on                      the Agents screen."
+                    "{summary}{warning}. It can read and search; anything more is yours to                      grant on the Agents screen."
                 )),
                 Err(e) => ToolReply::refused(e),
             }
@@ -705,10 +730,7 @@ pub async fn run(
                 if provider.eq_ignore_ascii_case("anthropic") {
                     slot.provider = harness_app::providers::ANTHROPIC.to_string();
                 } else if harness_app::providers::find(&settings.providers, &provider).is_none() {
-                    return ToolReply::refused(format!(
-                        "there is no model endpoint called {provider}. The ones configured are: {}",
-                        endpoint_names(&settings.providers)
-                    ));
+                    return ToolReply::refused(missing_endpoint(&provider, &settings.providers));
                 } else {
                     slot.provider = provider;
                 }
@@ -717,9 +739,12 @@ pub async fn run(
                 slot.model = Some(model);
             }
             let summary = format!(
-                "{} now runs{}",
+                "{} now runs{}{}",
                 slot.name,
-                describe_model(slot, &settings.providers)
+                describe_model(slot, &settings.providers),
+                harness_app::providers::find(&settings.providers, &slot.provider)
+                    .map(key_warning)
+                    .unwrap_or_default()
             );
             match ws.set_agents(crew) {
                 Ok(_) => ToolReply::ok(summary),

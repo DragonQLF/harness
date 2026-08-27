@@ -77,6 +77,29 @@ impl Provider {
     }
 }
 
+impl Provider {
+    /// Is this endpoint going to refuse every run for want of a key?
+    ///
+    /// A local Ollama does not care what the token says; anything over the wire
+    /// does. Without this the failure is a 401 in the middle of a run, which
+    /// reads as the model being broken rather than as a field left blank in a
+    /// settings screen the operator has not opened.
+    pub fn needs_key(&self) -> bool {
+        if !self.token.trim().is_empty() {
+            return false;
+        }
+        let host = self
+            .base_url
+            .trim()
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
+        !(host.starts_with("localhost")
+            || host.starts_with("127.0.0.1")
+            || host.starts_with("0.0.0.0")
+            || host.starts_with("[::1]"))
+    }
+}
+
 /// Starting points offered in the UI, so the two endpoints worth naming are one
 /// click rather than a URL the operator has to go and look up. Neither is
 /// installed by choosing it: a template is a filled-in form, not a commitment.
@@ -183,6 +206,24 @@ mod tests {
         assert!(find(&providers, "ollama").is_some());
         assert!(find(&providers, ANTHROPIC).is_none(), "the default is the absence of one");
         assert!(find(&providers, "gone").is_none(), "a stale reference must not fail the run");
+    }
+
+    #[test]
+    fn an_endpoint_over_the_wire_says_when_its_key_is_missing() {
+        let local = Provider {
+            base_url: "http://localhost:11434".into(),
+            token: String::new(),
+            ..Default::default()
+        };
+        assert!(!local.needs_key(), "a local Ollama does not care what the token says");
+
+        let cloud = Provider {
+            base_url: "https://ollama.com".into(),
+            token: String::new(),
+            ..Default::default()
+        };
+        assert!(cloud.needs_key(), "otherwise this is a 401 in the middle of a run");
+        assert!(!Provider { token: "sk-or-x".into(), ..cloud }.needs_key());
     }
 
     #[test]
