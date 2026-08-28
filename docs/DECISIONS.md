@@ -27,6 +27,8 @@ o texto refere-se a eles constantemente.
 | 2026-08-28 | 80 | Tailwind v3: os tokens deixam de ser custom properties e o inline sai das vistas |
 | 2026-08-28 | 87 | O estado da shell sai de trás dos mutexes: dois actores novos, mensagens em vez de locks |
 | 2026-08-28 | 88–89 | O aviso de trabalho fora do quadro ganha ecrã; a derivação do RightNow auditada |
+| 2026-08-28 | 90–92 | O aviso leva os factos, sobrevive ao arranque, e a máquina de estados deixa de estar em duplicado |
+| 2026-08-28 | 93–96 | Skills e MCP por agente em runtime: plugin do Relay, declaração em vez de comando, auto-elevação recusada |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -1690,3 +1692,255 @@ Nada disto é derivação a divergir do snapshot: os contadores que o rail e o
 quadro fazem com `filter(...).length` recalculam-se do `snapshot` a cada render
 e não podem ficar velhos. São, quando muito, aritmética que o backend também
 sabe — e essa é uma escolha de latência, não de verdade.
+
+### 93. Skills e MCP por agente: a via é um plugin do Relay
+Acrescentar uma skill ou um MCP a um agente exigia recompilar. O `mcpServers` já
+era opção directa do SDK e o sidecar já a usava — para MCP faltava só um campo no
+perfil. Para skills não havia caminho: o `settingSources: []` do #26 não descobre
+nada, e a opção `skills` do SDK é um **filtro sobre o que foi descoberto**, com a
+própria documentação a avisar que é *"a context filter, not a sandbox"*.
+
+Foram avaliadas três vias, e as três foram **medidas** contra o SDK instalado
+(0.3.239) em vez de deduzidas:
+
+1. **`settingSources: ['project']`** — descobre, e traz atrás o
+   `.claude/settings.json`, os hooks e o `.mcp.json` **do repositório alvo**.
+   Configuração injectada sem aprovação nenhuma. Recusada sem experimentar.
+2. **`CLAUDE_CONFIG_DIR` a apontar para uma pasta nossa, com
+   `settingSources: ['user']`** — **funciona**: uma sonda com o SDK real
+   descobriu `gadget-maker` a partir de um directório sintético, e o `intruder`
+   plantado no `.claude` do repositório ficou de fora. Foi rejeitada por duas
+   razões, nenhuma delas "não funciona":
+   - é uma **variável de ambiente**, portanto vale para todo o processo e para
+     tudo o que ele lançar, quando o que se quer é um valor por run;
+   - move o sítio onde a CLI procura as **credenciais**. O nosso próprio
+     `sidecar.rs::claude_status` diz onde elas vivem
+     (`$CLAUDE_CONFIG_DIR/.credentials.json`), e apontar a variável para uma
+     pasta do Relay deixa lá de as haver. Nesta máquina não se vê — o macOS
+     guarda o token no Keychain —, mas no Windows e no Linux seria cada run a
+     arrancar deslogado. Não se constrói em cima de uma via que só não parte
+     no sistema operativo em que se testou.
+3. **`plugins: [{ type: 'local', path, skipMcpDiscovery: true }]`** — a
+   escolhida. É opção do SDK, é passada **por run**, nomeia **um** directório,
+   e o `skipMcpDiscovery` impede esse directório de declarar servidores MCP por
+   sua conta. O `settingSources: []` fica **exactamente como estava**: a
+   isolação não se afrouxa, acrescenta-se uma lista explícita por cima dela.
+
+Medido, com o SDK a correr: sem plugin, um run vê 51 comandos; com o plugin, vê
+52, e o que entra é `relay:figma-export`. Nada mais. O `.claude/skills` do
+repositório não entra em nenhuma das configurações.
+
+**A isolação é o directório, não o filtro.** Cada agente tem
+`<appdata>/skills/<agente>/`, e lá dentro está exactamente o que lhe foi
+concedido. O filtro `skills` do SDK não separa dois agentes — ele próprio diz
+que os ficheiros continuam em disco e alcançáveis por `Read`/`Bash` —, portanto
+o que separa é o caminho não conter o que não foi concedido. Passa-se
+`skills: 'all'`, que aqui lê-se "tudo o que foi concedido a este", e é também o
+que liga a ferramenta `Skill` sem a pôr no `allowed_tools`.
+
+**O disco é uma projecção do `agents.json`.** O `materialise` reescreve o
+directório inteiro a partir do perfil, no `save_agents` do `registry.rs` — o
+único sítio que escreve o ficheiro. Uma skill revogada no ecrã sai do disco
+antes de a resposta voltar, e não há uma segunda contabilidade para divergir.
+Como o arranque também chama `save_agents`, um `agents.json` editado à mão
+passa a valer no run seguinte: **é isto que faz "sem recompilar" ser verdade**.
+
+**O campo não se chama `skills`, e não podia.** O `AgentProfile` já tinha
+`skills: Vec<String>` desde o #40, e é prosa que entra no brief ("planning",
+"scoping"). Uma chave JSON não pode ter dois significados: ler
+`["planning","scoping"]` como nomes de pacotes seria o Relay a procurar skills
+que o operador nunca pediu. Os concedidos vivem em `granted_skills`, e o antigo
+fica o que sempre foi.
+
+**Onde isto não chega, e é fronteira e não esquecimento.** As concessões
+penduram-se no **porto**, não no `RunSpec`: uma conversa constrói o seu porto e
+serve um perfil só. O engine tem um `Arc<dyn AgentPort>` partilhado por todos os
+runs de cartões, portanto os runs de trabalho não as levam sem o engine as
+passar. Acrescentar campos ao `RunSpec` obriga a tocar nos dois literais de
+`crates/engine` (`runs.rs:368`, `director.rs:74`), e esse directório estava
+fechado nesta passagem. Fica no `DEBT.md`, com os dois sítios nomeados.
+
+### 94. O modelo declara, o código instala
+O operador diz "instala esta skill no Designer". O Director procura, lê a
+documentação, e produz **uma declaração** — nome, fonte, agente, e o que traz.
+Nunca um comando, nunca um script. A instalação é do Relay, a partir dos campos.
+
+É o padrão que este código já usa três vezes: o `report_work` diz e o engine
+commita (#58); o Analista interpreta e o código calcula (#55); o Curador promove
+mecanicamente e o modelo julga (#60).
+
+**A razão é concreta e não cerimonial.** Ele vai ler páginas web para descobrir
+como se instala aquilo. Uma página que diga "acrescenta também este servidor"
+torna-se uma instrução no momento em que o que sai dele é executado. Sendo uma
+declaração revista pelo operador, a injecção aparece como uma **segunda folha de
+aprovação**; sendo um comando, não aparece como nada.
+
+Três ferramentas novas, todas fora do `allowed_tools` e portanto todas pelo
+painel: `install_skill`, `add_mcp_server`, `revoke_grant`.
+
+Decisões dentro da decisão:
+
+- **A folha mostra a declaração, não a intenção.** O `summary` do pedido de
+  aprovação passou a ser cunhado pelo **sidecar** (`summarizeUse`), que conhece
+  a ferramenta pelo nome, em vez de pela renderização genérica chave-a-chave do
+  adapter — que continua a existir como recurso para tudo o resto. O que o
+  operador lê é *"add the MCP server "figma" to designer — npx -y figma-mcp;
+  grants get_file, export_frame"*, e não *"o Director quer instalar algo"*. Uma
+  declaração sem ferramentas nomeadas diz-o (`no tools declared`) em vez de
+  parecer inofensiva.
+- **A lista de ferramentas é declarada, não descoberta.** O Relay não consegue
+  saber o que um servidor concede sem se ligar a ele, e ligar-se é executar o
+  código que a aprovação existe para travar. Portanto a lista vem da
+  documentação que o modelo leu, o operador aprova **essa** lista, e a
+  confrontação com a realidade (`mcpServerStatus()` devolve as ferramentas
+  verdadeiras) só é possível depois de o run já ter sido autorizado. Está no
+  `DEBT.md` como o passo que falta.
+- **O modelo nunca pede uma chave.** O `add_mcp_server` aceita **nomes** de
+  variáveis de ambiente e nunca valores, pela mesma razão que o `add_endpoint`
+  já não aceitava: a conversa é escrita para disco. O ecrã dos agentes é que
+  tem os campos, e o Relay diz ao modelo quais faltam para ele mandar o
+  operador lá.
+- **O Relay escreve o frontmatter.** O `SKILL.md` nasce do `name` e da
+  `description` declarados; um corpo que traga frontmatter próprio vê-o
+  removido. Sem isto, o texto podia renomear-se para uma skill que o operador
+  não aprovou. Há teste.
+- **Um nome mau é recusado, não reparado.** O `paths::sanitize` conserta; aqui
+  não se conserta, porque um nome consertado é um nome que o operador não viu.
+  `../etc` é recusado pelo nome.
+- **`harness` é reservado.** Um servidor concedido com esse nome substituiria as
+  ferramentas de quadro com que o Director responde. Recusado na app, filtrado
+  no adapter, e sobrescrito no sidecar — três fechaduras na mesma porta, porque
+  uma configuração que perde silenciosamente o `move_card` é pior do que uma que
+  perde um conector.
+
+### 95. Auto-elevação não é uma aprovação difícil, é uma recusa
+Dos três pedidos, dois são aprovação e um não é. Uma skill é markdown que entra
+no prompt de outro agente: aprova-se, e **mostra-se a fonte**. Um MCP é código
+arbitrário com as permissões desse agente: aprova-se, e **listam-se as
+ferramentas**. Uma ferramenta é elevação de privilégio, e um agente que se
+concede `Bash` a si próprio deixou de ter limites — não há resposta que o
+operador possa dar que torne isso seguro, porque dá-la uma vez remove o que
+voltaria a perguntar.
+
+`grants::self_elevation_guard(tool, caller, target)`: recusa `grant_agent_tools`
+e `add_mcp_server` apontados a quem os chama. Duas notas:
+
+- **O MCP entra na regra.** O lote nomeava só as ferramentas, mas um servidor MCP
+  é código com as permissões daquele agente: conceder-se um servidor é
+  conceder-se ferramentas com um passo extra. Deixar essa metade aberta fecharia
+  a porta e deixaria a janela.
+- **Não é a regra do Director, é a de toda a gente.** Um especialista com
+  `can_delegate` está exactamente na mesma linha; o `caller` é o perfil da
+  conversa, não um id fixo. As skills ficam de fora: prosa no próprio prompt é a
+  classe do `record_decision`, que os agentes já escrevem para si.
+
+A regra vive no `grants.rs` e não no handler, para ser **uma lista que se lê e se
+testa** em vez de um guardo lembrado em cada sítio — uma ferramenta acrescentada
+depois sem o guardo é precisamente a falha que esta forma evita.
+
+**E nenhuma das três se pode tornar permanente.** O `NEVER_STANDING` do #38 já
+tinha o `grant_agent_tools`; ganhou o `install_skill` e o `add_mcp_server`, com
+uma razão mais afiada do que a original: um "sim permanente" a estes instala a
+próxima página sem ninguém a ler, que é exactamente a injecção que a declaração
+foi desenhada para tornar visível.
+
+**Um defeito ao lado, encontrado ao duplicar a superfície.** O `never_standing`
+só era consultado no `covers`, não no `derive`. Ou seja: o operador marcava
+"stop asking me about this", a regra aparecia nas Settings, e continuava a ser
+perguntado — uma promessa no ecrã que nada cumpria. Já era assim para o
+`grant_agent_tools`; com mais duas ferramentas na lista passava a ser três vezes
+mais visível. O `derive` passa a devolver `None`, portanto não se escreve regra
+nenhuma e o `respond_approval` não reporta nenhuma. Há teste dos dois lados.
+
+### 96. O chão de 17 skills que ninguém concedeu
+Ao correr a prova ponta a ponta com modelo, os dois agentes listaram as skills
+concedidas **e mais dezassete** (`run`, `code-review`, `simplify`, `dataviz`,
+`init`, …). A primeira leitura foi que o `skills: 'all'` tinha alargado o que um
+run vê. Mediu-se, com `getContextUsage()`, em vez de se assumir:
+
+| configuração | skills | tokens |
+|---|---|---|
+| como o Relay estava (sem `plugins`, sem `skills`) | 17, todas `source: "built-in"` | 2631 |
+| com o plugin e `skills: 'all'` | 18 — a que entra é `relay:figma-export`, `source: "plugin"` | 2650 |
+| `skills: []`, sem plugin | nenhuma | 0 |
+
+Ou seja: o `skills: 'all'` **não alargou nada**. As dezassete são da própria CLI,
+estavam em todos os runs antes disto existir, e o `settingSources: []` nunca as
+tirou — o que ele tira, e continua a tirar, são as do `~/.claude` do operador
+(nenhuma das duas que esta máquina tem apareceu).
+
+**Não se desligou.** `skills: []` desligaria as dezassete e poupava 2631 tokens
+por run, mas é uma mudança de comportamento que ninguém pediu, num sítio onde
+não se sabe se alguma delas está a ser útil a um worker. Fica medido no
+`DEBT.md` com os números, para ser uma decisão do operador e não um efeito
+secundário desta passagem.
+
+A prova está em `src-tauri/examples/grants_e2e.rs` e corre-se de propósito, como
+o `e2e_sidecar` do #56, porque custa dinheiro:
+
+```
+designer loads …/skills/designer   → relay:figma-export (+ as 17 da CLI)
+builder  loads …/skills/builder    → relay:rustfmt-house-style (+ as 17)
+analyst  (servidor weather)        → mcp__weather__get_forecast, mcp__weather__wipe_disk
+scribe   (sem concessões)          → NONE
+GRANTS PASS: each agent saw exactly its own skill and its own server,
+             and the repository's neither.
+```
+
+O `.claude/skills/intruder` e o `.mcp.json` plantados na worktree não apareceram
+em run nenhum, e as skills do próprio operador — lidas do `~/.claude/skills`
+real, não escritas à mão no teste — também não.
+
+### 97. O teste que esperava por uma janela que já tinha fechado (bug)
+
+Um teste do engine falhou seis vezes ao longo de semanas — as quatro últimas
+sempre o mesmo, `a_failed_run_leaves_work_and_the_next_run_finds_it`, sempre
+aos 30,0s, sempre a passar em 0,03s isolado. A leitura foi mudando: primeiro
+"é flaky sob carga", depois "o `wait_for` de 30s é curto de mais para uma
+máquina cheia", e por fim (`f56eeb3`) "há duas worker threads presas em
+trabalho bloqueante e falta uma terceira para haver progresso", com
+`worker_threads = 2` como reprodutor determinista.
+
+As três estavam erradas, e a terceira refutava-se com o código que já lá
+estava. O `wait_for` só entra em `panic` **depois** de `check().await`
+**voltar**. Se o actor estivesse bloqueado, a sondagem não voltava e o teste
+pendurava para sempre — nunca estouraria num prazo. Estourar exactamente aos
+30,0s prova o contrário do que se concluiu: o actor estava vivo e a responder o
+tempo todo. Instrumentado, respondeu a 93 sondagens em 2s enquanto "não
+progredia", e o log mostrava o segundo run já com `RunStarted` **e**
+`RunFinished`.
+
+O que havia era o teste a esperar por `active_runs()` não vazio — um estado
+**transitório**. O `WritesThenFailsAgent` morre no primeiro turno: com poucas
+worker threads o segundo run nascia e acabava antes de a primeira sondagem
+chegar, e a partir daí a lista de activos nunca mais enchia. Mais threads não
+curavam nada; só faziam a sondagem apanhar a janela a tempo. É por isso que o
+limiar parecia exacto — não era um recurso a faltar, era uma corrida a ganhar
+ou a perder.
+
+A correcção é esperar por um facto que **só acumula**: o `RunStarted` daquele
+run no log de eventos. Um `wait_for` é um ciclo de sondagem, e um ciclo de
+sondagem só pode observar estados monótonos; qualquer condição que se desligue
+sozinha é uma corrida à espera de acontecer. Os outros `wait_for` do ficheiro
+foram revistos um a um e estão bem — os que esperam por `active_runs()` usam
+agentes que só morrem cancelados, portanto o estado cola.
+
+Subir o `WAIT_BUDGET` continuaria a ser a correcção errada, agora por uma razão
+mais forte do que antes: o que se esperava nunca mais ia acontecer.
+
+**Um sítio bloqueante a sério, encontrado pelo caminho.** A auditoria que isto
+obrigou a fazer não confirmou nenhum `std::sync::Mutex` com o guard a
+atravessar um `await` — os quatro `.lock().unwrap()` do engine
+(`director.rs:102` e `:125`, `runs.rs:486`, `lib.rs:791`) são todos temporários
+que morrem no fim da própria instrução. Mas o `build_done` estacionava o
+artefacto com `std::fs::create_dir_all`, `std::fs::copy` e `std::fs::write`
+crus **dentro do loop do actor**: com o binário do orquestrador a pesar dezenas
+de MB, a worker thread ficava presa na cópia. É a doença do #46 no caminho do
+build. Foi para `spawn_blocking`. O actor continua a esperar por ele de
+propósito — o manifesto tem de existir antes de o cartão ser anunciado — mas o
+runtime deixa de parar com ele.
+
+**Fica em aberto.** As duas falhas antigas (`a_shared_worktree_is_adopted_after_a_restart_not_rebuilt`
+e `the_loser_of_the_agent_limit_never_builds`, uma vez cada) não são desta
+forma: ambos esperam por estados que colam. Não têm reprodutor nem mensagem
+guardada, e esta passagem não os explica.

@@ -89,6 +89,9 @@ operator. Treat as unproven, not as working:
   event. No `inbox.json` has ever been written.
 - **The proposal inbox.** No proposal has ever been filed.
 - **The Curator** pass over `report_work` notes.
+- **Skills and MCP servers granted to an agent.** The whole chain — declaration,
+  approval sheet, install, per-agent isolation — has been exercised headless
+  with a real model, and never once by the operator through the app.
 
 ### Technical constraints
 
@@ -96,15 +99,51 @@ operator. Treat as unproven, not as working:
   the Agent SDK, with the `claude` CLI as fallback.
 - The frontend holds no truth: it sends intents and renders backend snapshots
   rather than replaying domain rules in TypeScript.
-- Agent profiles are policy — model, budget, capabilities, checkout mode and
-  reviewer resolve into a `RunProfile` when a run starts. The engine carries no
-  policy of its own.
+- Agent profiles are policy — model, budget, capabilities, checkout mode,
+  reviewer, granted skills and granted MCP servers resolve when a run starts.
+  The engine carries no policy of its own.
+- Runs are isolated from the machine they run on: no filesystem settings, and
+  only the MCP servers Relay passes. Adding a skill or a server adds an explicit
+  per-agent list on top of that isolation; it never relaxes it.
 - Commits carry `Harness-Card` / `Harness-Run` / `Harness-Agent` trailers, which
   is how per-card history and per-agent line counts are read back out of git.
   They keep the old name deliberately: a persisted format inside commits that
   already exist.
 - The identifier stays `com.harness.app` after the rename to Relay, because it
   picks the app-data folder and changing it would hide the operator's data.
+
+### Runtime extensibility
+
+What an agent can reach — its skills and its MCP servers — is **operator
+configuration, not a build artefact**. Both live in the agent profile, are
+installed from a declaration the operator approves one by one, and take effect
+on the next run without recompiling Relay.
+
+The shape is deliberate and is the same one used for `report_work` and the
+Curator: **the model declares, the code installs**. A model asked to install
+something reads web pages to find out how, and a page that says "also add this
+server" becomes an instruction the moment the model's output is executed. What
+comes out of it is fields — a name, a source, a target agent, the tools it
+brings — and Relay writes the file itself. The approval sheet shows those
+fields, so an injected extra grant is a second sheet rather than a second line
+in a script.
+
+Each agent loads only its own. There is no inheritance: not from the operator's
+`~/.claude`, not from the repository being worked on. Skills live one directory
+per agent under app data, because the SDK's own skill filter is documented as a
+context filter and not a sandbox — so what separates two agents is the path, not
+a list.
+
+Three grants, three treatments: a skill is approved **with its source shown**; an
+MCP server is approved **with the tools it grants listed**; a tool grant is
+approved for another agent and **refused outright when aimed at the caller** —
+an agent that hands itself `Bash` has stopped having limits, and there is no
+answer to that question the operator can usefully give. None of the three can
+become a standing "always allow".
+
+*Built this pass and exercised headless with a real model
+(`src-tauri/examples/grants_e2e.rs`); never used by the operator. Card runs do
+not carry grants yet — see `docs/DEBT.md`.*
 
 ### Intended, not built
 
