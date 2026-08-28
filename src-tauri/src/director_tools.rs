@@ -41,6 +41,34 @@ fn column(raw: &str) -> Option<Status> {
     })
 }
 
+/// Where a new card is born, as the two flags `create_card_inner` takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Birth {
+    start: bool,
+    ready: bool,
+}
+
+/// Read the column a card was asked for. The Director asked for `later` and
+/// got `ready`, then had to call `move_card` — two permission sheets for one
+/// action, twice in one session. `None` for a column that cannot hold a new
+/// card; an absent column keeps the old default, which was `ready`.
+fn birth(asked: Option<&str>, start_flag: bool) -> Option<Birth> {
+    let landing = match asked {
+        None => Status::Ready,
+        Some(raw) => match column(raw) {
+            Some(s @ (Status::Backlog | Status::Ready | Status::Running)) => s,
+            // Review and Done are where a run leaves a card, never where one
+            // starts: a card born there has no run and no diff behind it.
+            _ => return None,
+        },
+    };
+    let start = start_flag || landing == Status::Running;
+    Some(Birth {
+        start,
+        ready: start || landing == Status::Ready,
+    })
+}
+
 /// The endpoints an agent could be pointed at, for a refusal that tells the
 /// model what to send instead of only what was wrong.
 fn endpoint_names(providers: &[harness_app::providers::Provider]) -> String {
@@ -382,13 +410,21 @@ pub async fn run(
                     }
                 ));
             }
-            let start = call
+            let flag = call
                 .input
                 .get("start")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let Some(Birth { start, ready }) =
+                birth(text(&call.input, "column").as_deref(), flag)
+            else {
+                return ToolReply::refused(
+                    "create_card takes column as later, ready or running. A card cannot be born \
+                     in review or done — those are where a run leaves it.",
+                );
+            };
             match crate::commands::board::create_card_inner(
-                ws, &project_id, &title, &agent, start, true,
+                ws, &project_id, &title, &agent, start, ready,
             )
             .await
             {
@@ -397,8 +433,10 @@ pub async fn run(
                     created.card_id,
                     if created.run_id.is_some() {
                         " and started it"
-                    } else {
+                    } else if ready {
                         ", ready to start"
+                    } else {
+                        ", in later"
                     }
                 )),
                 Err(e) => ToolReply::refused(e),
@@ -858,6 +896,25 @@ mod tests {
         assert_eq!(column("working"), Some(Status::Running));
         assert_eq!(column("done"), Some(Status::Done));
         assert_eq!(column("sideways"), None);
+    }
+
+    /// The two-approvals bug: a card asked for in `later` must be born there,
+    /// with no `move_card` behind it.
+    #[test]
+    fn a_card_is_born_in_the_column_that_was_asked_for() {
+        assert_eq!(birth(Some("later"), false), Some(Birth { start: false, ready: false }));
+        assert_eq!(birth(Some("backlog"), false), Some(Birth { start: false, ready: false }));
+        assert_eq!(birth(Some("ready"), false), Some(Birth { start: false, ready: true }));
+        // `running` is a run starting, not a label.
+        assert_eq!(birth(Some("running"), false), Some(Birth { start: true, ready: true }));
+        // No column at all keeps what every caller got before this existed.
+        assert_eq!(birth(None, false), Some(Birth { start: false, ready: true }));
+        // The old `start` flag still wins over any column that is not running.
+        assert_eq!(birth(Some("later"), true), Some(Birth { start: true, ready: true }));
+        // Review and Done are where a run leaves a card, not where one starts.
+        assert_eq!(birth(Some("review"), false), None);
+        assert_eq!(birth(Some("done"), false), None);
+        assert_eq!(birth(Some("sideways"), false), None);
     }
 
     #[test]

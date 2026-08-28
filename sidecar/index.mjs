@@ -70,10 +70,16 @@ function harnessTools(runId) {
       ),
       tool(
         "create_card",
-        "Add a card to the board. Keep it small enough for one agent run.",
+        "Add a card to the board. Keep it small enough for one agent run. Say which column " +
+          "it belongs in — asking for `later` and then moving it costs the operator two " +
+          "approvals for one action.",
         {
           title: z.string().describe("What should happen, in one line"),
           agent_id: z.string().optional().describe("Which agent takes it, default builder"),
+          column: z
+            .enum(["later", "ready", "running"])
+            .optional()
+            .describe("Which column it is born in. Default ready; `running` starts it."),
           start: z.boolean().optional().describe("Hand it to the agent immediately"),
           project_id: z
             .string()
