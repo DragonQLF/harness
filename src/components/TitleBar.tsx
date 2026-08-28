@@ -8,6 +8,14 @@ import type { View } from "../views/views";
 
 const appWindow = getCurrentWindow();
 
+/** macOS draws its own close/minimise/zoom buttons over the top-left of the
+ *  window, so we neither draw ours nor sit where they land. */
+const IS_MAC = navigator.userAgent.includes("Macintosh");
+
+/** How much room the system's three buttons take, with the margin it leaves
+ *  around them, measured from the window edge. */
+const TRAFFIC_LIGHTS = 78;
+
 /** One entry in a title-bar menu: a word and what it does. */
 interface MenuItem {
   label: string;
@@ -136,6 +144,21 @@ export function TitleBar({
     .filter(Boolean)
     .join(" · ");
 
+  // Fullscreen takes the traffic lights away, so the gap we hold open for them
+  // has to go with it, or the row starts with 78px of nothing.
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    if (!IS_MAC) return;
+    const read = () => {
+      appWindow.isFullscreen().then(setFullscreen).catch(() => {});
+    };
+    read();
+    const stop = appWindow.onResized(read);
+    return () => {
+      stop.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
   const chrome = (label: string, icon: React.ReactNode, run: () => void, width: number, dim = false) => (
     <span
       className="hv-soft"
@@ -169,7 +192,14 @@ export function TitleBar({
         zIndex: 100,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 1, paddingLeft: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          paddingLeft: IS_MAC && !fullscreen ? TRAFFIC_LIGHTS : 8,
+        }}
+      >
         {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, 24)}
         {chrome("Back", <Icon.back />, () => canBack && back(), 22, !canBack)}
         {chrome("Forward", <Icon.forward />, () => canForward && forward(), 22, !canForward)}
@@ -234,39 +264,41 @@ export function TitleBar({
         )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "stretch" }}>
-        {[
-          { label: "minimize", icon: <Icon.minimize />, run: () => appWindow.minimize(), w: 42 },
-          {
-            label: "maximize",
-            icon: <Icon.maximize />,
-            run: () =>
-              appWindow.isMaximized().then((m) => (m ? appWindow.unmaximize() : appWindow.maximize())),
-            w: 42,
-          },
-          { label: "close", icon: <Icon.close />, run: () => appWindow.close(), w: 44 },
-        ].map((b) => (
-          <button
-            key={b.label}
-            type="button"
-            aria-label={b.label}
-            className={b.label === "close" ? "hv-close" : "hv-win"}
-            onClick={b.run}
-            style={{
-              width: b.w,
-              border: "none",
-              background: "transparent",
-              color: "var(--text4)",
-              display: "grid",
-              placeItems: "center",
-              cursor: "pointer",
-              transition: "all .16s ease",
-            }}
-          >
-            {b.icon}
-          </button>
-        ))}
-      </div>
+      {!IS_MAC && (
+        <div style={{ display: "flex", alignItems: "stretch" }}>
+          {[
+            { label: "minimize", icon: <Icon.minimize />, run: () => appWindow.minimize(), w: 42 },
+            {
+              label: "maximize",
+              icon: <Icon.maximize />,
+              run: () =>
+                appWindow.isMaximized().then((m) => (m ? appWindow.unmaximize() : appWindow.maximize())),
+              w: 42,
+            },
+            { label: "close", icon: <Icon.close />, run: () => appWindow.close(), w: 44 },
+          ].map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              aria-label={b.label}
+              className={b.label === "close" ? "hv-close" : "hv-win"}
+              onClick={b.run}
+              style={{
+                width: b.w,
+                border: "none",
+                background: "transparent",
+                color: "var(--text4)",
+                display: "grid",
+                placeItems: "center",
+                cursor: "pointer",
+                transition: "all .16s ease",
+              }}
+            >
+              {b.icon}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
