@@ -287,6 +287,18 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
          refusals by editing files directly; work that never became a card has no review, no \
          history and no cost attached.\n\n",
     );
+    // The stop rule, tied to the event rather than to the end of the turn.
+    // "Before you continue" is what makes it happen at all — without it the
+    // filing waits for a wrap-up that never comes. "Say whether the refusal
+    // was right" is the distinction that keeps the inbox worth reading: in one
+    // real session AskUserQuestion was refused correctly (no surface for it in
+    // the UI) and the Bash guard was refusing reads it had no business
+    // refusing. Filed together and undistinguished, both read as noise.
+    prompt.push_str(
+        "When a tool is refused, that is a finding about the app, not a condition of your turn. \
+         Before you continue: file it with propose_improvement, and say whether the refusal was \
+         right or is a defect.\n\n",
+    );
 
     if ctx.speaker.is_director {
         prompt.push_str(
@@ -589,6 +601,29 @@ mod tests {
         let prompt = chat_prompt(&ctx(&[]), "what is a worktree?");
         assert!(prompt.contains("Answer the question that was asked"));
         assert!(prompt.contains("Only put work on a board when"));
+    }
+
+    /// The stop rule (#81). Two halves, and both have to be there: filing
+    /// *before continuing* is what makes it happen at all, and saying whether
+    /// the refusal was right is what keeps the inbox worth reading.
+    #[test]
+    fn a_refused_tool_is_archived_before_the_turn_carries_on() {
+        let prompt = chat_prompt(&ctx(&[]), "read the run log");
+        assert!(prompt.contains("that is a finding about the app"), "{prompt}");
+        assert!(prompt.contains("Before you continue"), "{prompt}");
+        assert!(prompt.contains("propose_improvement"));
+        assert!(prompt.contains("whether the refusal was right or is a defect"));
+    }
+
+    /// One rule was added, not a posture rewrite: the two the operator ruled
+    /// out stay out. A prompt that grows loses adherence to what is already in
+    /// it (#75).
+    #[test]
+    fn no_rule_arrived_beside_the_stop_rule() {
+        let prompt = chat_prompt(&ctx(&[]), "hello");
+        for absent in ["over-explor", "how long it will take", "time estimate"] {
+            assert!(!prompt.contains(absent), "a rule crept in: {absent}");
+        }
     }
 
     #[test]
