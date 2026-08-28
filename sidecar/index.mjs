@@ -305,15 +305,21 @@ function harnessTools(runId) {
       ),
       tool(
         "propose_improvement",
-        "File an improvement proposal in the operator's inbox when you can see a pattern that " +
-          "repeats and has an obvious correction. A proposal is not a card: they decide whether " +
-          "it becomes work, so NEVER create the card yourself and never act on your own " +
-          "suggestion. Cite counts from self_report as the observation.",
+        "File an improvement proposal in the operator's inbox whenever you find a gap in what " +
+          "Relay can do. A single occurrence is reason enough: one tool refused, one thing you " +
+          "could not see, one step that took two approvals instead of one — each is a real hole, " +
+          "and waiting for it to happen again only means it goes unrecorded. Counts from " +
+          "self_report strengthen a proposal; they are not a requirement for opening one. " +
+          "A proposal is not a card: they decide whether it becomes work, so NEVER create the " +
+          "card yourself and never act on your own suggestion.",
         {
           title: z.string().describe("One line naming the problem"),
           observation: z
             .string()
-            .describe("The evidence: which counts repeat, from self_report"),
+            .describe(
+              "What you saw: the single occurrence — which tool, what you were trying to do, " +
+                "what it said — or the counts from self_report when it repeats",
+            ),
           proposal: z.string().describe("The correction you suggest"),
         },
         call("propose_improvement"),

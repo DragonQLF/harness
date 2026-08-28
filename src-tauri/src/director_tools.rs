@@ -279,8 +279,8 @@ pub async fn run(
         let suggestion = text(&call.input, "proposal").unwrap_or_default();
         if title.is_empty() || observation.is_empty() || suggestion.is_empty() {
             return ToolReply::refused(
-                "propose_improvement needs title, observation (the counts that show the \
-                 pattern) and proposal (the correction)",
+                "propose_improvement needs title, observation (what you saw — one occurrence is \
+                 enough) and proposal (the correction)",
             );
         }
         return match ws.propose_improvement(&title, &observation, &suggestion) {
