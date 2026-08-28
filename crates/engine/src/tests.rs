@@ -932,6 +932,106 @@ async fn director_approval_moves_card_to_done() {
     assert_eq!(review.reason, "fine");
 }
 
+/// The whole cycle, in one test, because the pieces of it were only ever
+/// checked apart: the commit here, the cost there, the verdict somewhere else.
+///
+/// Three failures have been found by looking at the screen rather than by a
+/// test — work that evaporates, cost that does not add up, state that does not
+/// transition — and each one is a step of this cycle. Asserting the steps
+/// separately cannot catch them, because each was a seam between two steps that
+/// were individually fine. So this walks one card the whole way and checks what
+/// it left behind at every stage.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_card_goes_from_ready_to_done_and_leaves_its_work_behind() {
+    let r = rig(FakeMode::Complete, FakeMode::DirectApprove);
+    let id = CardId::new("c_cycle");
+    card_ready(&r.handle, &id).await;
+
+    let run_id = r
+        .handle
+        .start_run(id.clone(), "build the thing".into(), profile())
+        .await
+        .unwrap();
+
+    wait_for("card reaches done", async || {
+        status_of(&r.handle, &id).await == Some(Status::Done)
+    })
+    .await;
+
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+
+    // The state transitioned, and through the right places. Asserting only that
+    // it ended in Done would pass on a card that teleported there.
+    //
+    // Most of the walk is not a `CardMoved`: after Ready the status is implied
+    // by what happened — a run started, a run finished, a verdict landed — and
+    // the board is derived from those. So the chain to check is the events the
+    // status is read from, in the order they were written.
+    let walk: Vec<&str> = r
+        .store
+        .events()
+        .iter()
+        .filter_map(|e| match e {
+            Event::CardMoved { card_id, .. } if *card_id == id => Some("moved"),
+            Event::RunStarted { card_id, .. } if *card_id == id => Some("run started"),
+            Event::RunFinished { card_id, .. } if *card_id == id => Some("run finished"),
+            Event::CardApproved { card_id, .. } if *card_id == id => Some("approved"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        walk,
+        vec!["moved", "run started", "run finished", "approved"],
+        "the card did not walk the board in order"
+    );
+    assert_eq!(card.status, Status::Done);
+
+    // The work exists somewhere it can be found: a checkout was made for this
+    // card, and the run was committed into it under the trailers that are how
+    // per-card history is read back out of git.
+    let calls = r.git.calls();
+    assert!(
+        calls.iter().any(|c| c == "create:c_cycle"),
+        "no checkout was made; calls: {calls:?}"
+    );
+    let commit = calls
+        .iter()
+        .find(|c| c.starts_with("commit:"))
+        .unwrap_or_else(|| panic!("the run was never committed; calls: {calls:?}"));
+    assert!(commit.contains("Harness-Card=c_cycle"), "commit was {commit}");
+    assert!(commit.contains("Harness-Run="), "commit was {commit}");
+    assert!(commit.contains("Harness-Agent=builder"), "commit was {commit}");
+
+    // The cost landed on the card. A run that bills and does not add up is how
+    // a budget ceiling gets passed without anyone being able to see it coming.
+    assert_eq!(card.cost_usd, 0.01, "the run's cost never reached the card");
+    assert_eq!(card.turns, 7, "the run's turns never reached the card");
+    assert_eq!(card.runs, 1);
+
+    // The verdict is on the card, attributed and reasoned — the approval is
+    // the point of the cycle, not a status change that happens to be last.
+    let review = card.last_review.expect("an approved card carries its verdict");
+    assert_eq!(review.by, Actor::Director);
+    assert!(review.approved);
+    assert_eq!(review.reason, "fine");
+
+    // The transcript survives the run that produced it, which is what makes an
+    // unattended run believable afterwards.
+    let logged = r.log.read(&run_id.0).unwrap();
+    assert!(
+        logged.iter().any(|l| matches!(l.event, RunEvent::Text { .. })),
+        "the run log kept nothing of what the agent said"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn director_rejection_sends_card_back_to_ready_with_a_reason() {
     let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::DirectReject).await;
