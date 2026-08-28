@@ -199,6 +199,13 @@ export default {
         // canto do olho sem estar a olhar para o cartão.
         tookOne: {
           "0%": { boxShadow: "inset 0 2px 0 -1px transparent" },
+          "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #0d74b8)" },
+          "100%": { boxShadow: "inset 0 2px 0 -1px transparent" },
+        },
+        // O mesmo no escuro: um keyframe não tem variante `dark:`, por isso
+        // são dois.
+        tookOneDark: {
+          "0%": { boxShadow: "inset 0 2px 0 -1px transparent" },
           "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #38adee)" },
           "100%": { boxShadow: "inset 0 2px 0 -1px transparent" },
         },
@@ -221,7 +228,8 @@ export default {
         "riseBar-fast": "riseBar .6s cubic-bezier(.2,.8,.2,1) both",
         barGrow: "barGrow .8s cubic-bezier(.2,.8,.2,1) both",
         barIn: "barIn .4s cubic-bezier(.2,.8,.25,1) both",
-        tookOne: "tookOne 1.4s ease-out 1",
+        tookOne: "tookOne .9s ease both",
+        tookOneDark: "tookOneDark .9s ease both",
       },
 
       transitionTimingFunction: {
