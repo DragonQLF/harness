@@ -26,6 +26,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-26 | 78–79 | O Director vê o próprio histórico: self_report, read_docs, caixa de entrada e fecho do dia |
 | 2026-08-28 | 80 | Tailwind v3: os tokens deixam de ser custom properties e o inline sai das vistas |
 | 2026-08-28 | 87 | O estado da shell sai de trás dos mutexes: dois actores novos, mensagens em vez de locks |
+| 2026-08-28 | 88–89 | O aviso de trabalho fora do quadro ganha ecrã; a derivação do RightNow auditada |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -1428,3 +1429,103 @@ passam de oito (`settings`, `agents`, `projects`, `runtimes`, `conversations`,
 `chat_turns`, `inbox`, `outside_work`) para quatro (`settings`, `runtimes`,
 `inbox`, `outside_work`). `grep -c "Mutex"` desce de 18 para 11 — onze e não dez
 porque uma das linhas é o comentário que explica porque é que o `settings` fica.
+
+### 88. O aviso de trabalho fora do quadro ganha ecrã
+O #86 detecta, escreve o aviso e entrega-o ao Director. Ao operador não
+entregava nada: o `mirror://outside-work` era emitido e o frontend não tinha
+escutador nenhum, portanto a única forma de o ver era ler o `stderr` ou reparar
+que o Director estava a falar de commits que ninguém tinha pedido. É o
+*"nothing is silently lost"* do `PRODUCT.md` a falhar pelo lado mais simples:
+o aviso existia e não tinha superfície.
+
+`events.onOutsideWork` no `ipc.ts`, secção **"Outside the board"** no RightNow,
+ao lado das propostas e com a mesma postura — o backend descobriu, disse, e a
+decisão é do operador.
+
+Quatro decisões dentro disto:
+
+1. **Não expira, e não exige que o operador estivesse a olhar.** O aviso entra
+   na lista e fica; nada o tira dali senão o botão *Dismiss*. Entra também na
+   contagem de "Waiting on you", que é o mesmo número que o strip de 44px mostra
+   quando o rail está fechado — um aviso que o rail conta e o strip não seria um
+   aviso que ninguém vê. E é uma **lista**, não um campo: um segundo aviso não
+   apaga o primeiro, ainda que o backend só guarde o último.
+2. **Só a metade que é para o operador.** O evento leva **uma string** — o
+   parágrafo do `mirror::describe()` —, e esse parágrafo tem dois leitores: os
+   factos (quantos commits, que ficheiros, desde quando) e, a seguir, o que o
+   Director deve fazer, na segunda pessoa ("say which open cards…, do not close
+   a card"). Pôr a segunda metade à frente do operador lê-se como uma ordem dada
+   a ele, e o #86 é explícito no contrário. O rail mostra os factos e põe o resto
+   atrás de *"what the Director was told"* — visível a pedido, porque saber o que
+   ele recebeu é a auditabilidade, não ruído.
+3. **O corte é de prosa, e assume-se.** `outsideWorkParts` procura uma marca
+   literal; se a redacção do backend mudar, o corte não acontece e vê-se o aviso
+   inteiro — **nunca menos do que hoje**. Não se conta nada a partir do texto:
+   não há chips de `3 commits · 12 ficheiros` porque isso seria reler prosa para
+   fabricar números que o backend já tinha e não mandou. O que fecha isto é o
+   evento trazer o `OutsideWork` a par da frase, e é backend.
+4. **A hora é de chegada, e diz-se assim.** O evento não traz id nem carimbo, só
+   texto. O rail escreve *"seen HH:MM"* — a hora a que **este ecrã** recebeu —
+   e não "detected", que seria inventar um facto sobre o repositório a partir de
+   uma coisa que só se sabe sobre a janela.
+
+**O que ficou por fazer, e é backend.** O emit do arranque é lançado no
+`setup()` do `lib.rs`, antes de o webview existir: se o git responder depressa e
+a janela demorar, o aviso é emitido para ninguém. O backend guarda-o
+(`ws.outside_work()`, que o `chat.rs` já lê para o prompt) mas **não há comando
+que o leia nem campo no `bootstrap`** — logo, nem o arranque nem um recarregar
+da janela se recuperam. Um campo `outside_work` no `Bootstrap` fecha os dois e é
+uma linha; não se construiu porque o âmbito desta passagem era `src/`. Está no
+`DEBT.md`.
+
+Nos ecrãs `board` e `agents` o rail está escondido de propósito, e lá o único
+sinal é o toast de chegada — que passa. Junta-se à dívida que as propostas já
+tinham pelo mesmo motivo.
+
+### 89. A derivação do RightNow: auditada, e está correcta
+O #73/3 mandava auditar a derivação interna do RightNow **só se** a divergência
+persistisse depois da defesa por sequência de eventos e do #87. Auditou-se, e o
+veredicto é que a derivação está certa — pela razão mais aborrecida possível:
+
+- **O RightNow não tem um único `useMemo`.** Tudo o que mostra — `reviewing`,
+  `runningCards`, `openProposals`, `doneToday`, `liveSpend`, `waiting`,
+  `allQuiet` — é calculado inline a cada render, a partir do `snapshot`, do
+  `activity` e das listas que o backend empurra. Não há array de dependências
+  para estar errado.
+- **O valor do contexto é um objecto novo a cada render** (`store.tsx` monta-o
+  sem `useMemo`), portanto qualquer mudança de estado do provider chega a todos
+  os consumidores. Não há aqui o caso clássico de um memo a segurar um valor
+  velho.
+- O `useEffect` das worktrees já depende de `snapshot?.last_seq`, ou seja
+  re-lê a cada evento do motor.
+- A contagem "Done today" bate com a fonte: `stats.done_today` conta
+  `CardApproved` do dia no backend, e a lista filtra `kind === "review"` com
+  rótulo a começar por "Approved" — que é o que o `insights.rs` escreve nos dois
+  casos (Director e operador).
+
+**Dois defeitos encontrados, e nenhum deles é derivação — são cache e relógio.**
+
+1. **O diff em cache nunca era invalidado.** O rail lia o diff de um cartão em
+   revisão com `if (!diffs[c.id]) loadCardDiff(c.id)`. O store diz na própria
+   documentação que chamar outra vez é barato e que *"a re-run shows the new
+   patch"* — e aquela guarda era exactamente o que impedia isso de acontecer. Um
+   cartão devolvido, corrido outra vez e de volta a Review mostrava os `+/−` do
+   run **anterior**, com a mesma confiança com que mostra os certos: números
+   errados apresentados como certos, que é pior do que não os mostrar. Passa a
+   ser chaveado por `card.runs` — que sobe quando um run *arranca* (#82) —, com
+   um ref do par `(id, runs)` já lido para não re-ler o que não mudou. O
+   `diffs` fica fora das dependências como estava, e por isso é que o efeito
+   corria em ciclo se lá entrasse.
+2. **O tick de um segundo estava no componente errado.** O `RightNowStrip` — a
+   tira de 44px do rail fechado — tinha um intervalo de 1s com o comentário
+   *"elapsed timers must breathe: a frozen number reads as 'frozen app'"*, e não
+   mostra tempo nenhum: mostra uma contagem e as iniciais de quem está a
+   trabalhar. O `duration(Date.now() - session.started_ms)` vive no rail
+   **aberto**, que não tinha tick nenhum — só se mexia quando um token do stream
+   fazia o store mudar, ou seja parava parada durante cada chamada de ferramenta
+   longa, que é precisamente quando o operador olha para ele. O tick mudou-se
+   para onde o número está.
+
+Nada mais foi tocado. Um relatório que diz "auditei, está bem, e eis porquê"
+vale mais do que uma alteração inventada — e as duas que se fizeram descrevem-se
+sem recorrer a "por segurança".
