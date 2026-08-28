@@ -211,6 +211,11 @@ export interface Bootstrap {
   last_conversation: string | null;
   /** Unscoped shell allowances from an older build. They authorise nothing. */
   revoked_allowances: string[];
+  /** The last warning that Relay's own source moved without a card behind it,
+   *  or null. Here because the `mirror://outside-work` event is emitted from
+   *  `setup()`, before this window exists: a warning that arrived while nobody
+   *  was listening — or before a reload — is only recoverable through this. */
+  outside_work: MirrorWarning | null;
 }
 
 export interface CreatedCard {

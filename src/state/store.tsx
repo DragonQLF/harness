@@ -68,11 +68,12 @@ export interface OutsideWorkSeen {
 
 /** A identidade de um aviso são os factos, não a frase.
  *
- *  O olhar corre duas vezes por sessão e o operador não pode ver o mesmo aviso
- *  duas vezes. A chave é o achado em si: quantos commits, desde quando, e que
- *  ficheiros — o que o backend descobriu **sobre o repositório**. A prosa não
+ *  O mesmo achado chega por dois caminhos — o evento e o `bootstrap` —, e o
+ *  operador não pode ver o mesmo aviso duas vezes. A chave é o achado em si:
+ *  quantos commits, desde quando, e que ficheiros. É o que o backend
+ *  descobriu sobre o repositório, e é igual venha por onde vier; a prosa não
  *  serve, porque a idade que ela cita ("3 hours ago") é relativa ao instante
- *  em que foi escrita, e a mesma descoberta descrita duas vezes daria duas
+ *  em que foi escrita e a mesma descoberta descrita duas vezes daria duas
  *  frases diferentes. */
 const outsideWorkKey = (w: MirrorWarning) =>
   [w.work.commits, w.work.since_ms, w.work.files_total, w.work.files.join(">")].join("|");
@@ -270,16 +271,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Put a warning about work that skipped the board on the rail.
    *
-   *  A finding already on the rail is dropped by `outsideWorkKey`, and the
-   *  toast rides on the append rather than on the arrival: it fires exactly
-   *  once per warning per window, which is the same claim the rail's
-   *  "seen HH:MM" makes — this window has just learned about this. */
+   *  Two callers, on purpose: the `mirror://outside-work` event, and the
+   *  `bootstrap` field that carries whatever the backend already had. The
+   *  startup look is spawned before this window exists, so the event may have
+   *  been emitted to nobody, and a reload loses it the same way — the two
+   *  paths together are what makes the warning survive both.
+   *
+   *  Whichever arrives first wins, and the second is dropped by
+   *  `outsideWorkKey`. The toast rides on the append rather than on the event,
+   *  so it fires exactly once per warning per window — which is the same claim
+   *  the rail's "seen HH:MM" makes: this window has just learned about this. */
   const noteOutsideWork = useCallback(
     (warning: MirrorWarning) => {
       // The ledger is a ref and not the list itself because the decision has
       // to be made now, in this call: a state updater runs during the next
       // render, too late to say whether the toast is owed. Dismissing takes
-      // the entry off the rail without forgetting the key.
+      // the entry off the rail without forgetting the key, so the copy that
+      // arrives by the other path cannot put it back.
       const key = outsideWorkKey(warning);
       if (outsideKeys.current.has(key)) return;
       outsideKeys.current.add(key);
@@ -362,6 +370,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setApprovals(boot.approvals);
         setProposals(boot.inbox);
         setDataDir(boot.data_dir);
+        // Whatever the look already found, whether or not this window was
+        // there to hear it announced. On a reload this is the only path.
+        if (boot.outside_work) noteOutsideWork(boot.outside_work);
         chat.hydrate(boot.conversations, boot.last_conversation);
         if (boot.revoked_allowances.length > 0) {
           // Said once, because it changes what the app will do without asking.

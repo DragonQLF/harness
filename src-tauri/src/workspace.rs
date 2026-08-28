@@ -123,7 +123,8 @@ pub struct Workspace {
     inbox: Mutex<InboxState>,
     /// What the last look at Relay's own repository found: commits that never
     /// went through a card. Held here so the Director's next turn receives it
-    /// rather than having to know to ask.
+    /// rather than having to know to ask — and so the window can come and get
+    /// it, which the startup emit cannot promise (see [`Finding`]).
     outside_work: Mutex<Option<Finding>>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
@@ -976,6 +977,16 @@ impl Workspace {
         self.outside_work.lock().unwrap().as_ref().map(|f| f.said.clone())
     }
 
+    /// The same finding as the window wants it: numbers, not prose.
+    ///
+    /// This is what closes the hole the emit could not: `look_for_outside_work`
+    /// is spawned in `setup()`, before the webview exists, so a fast git and a
+    /// slow window mean the event is emitted to nobody — and a reload loses it
+    /// the same way. The `bootstrap` call the window opens with reads this, so
+    /// a warning that already existed is on screen either way.
+    pub fn outside_work_warning(&self) -> Option<harness_app::mirror::MirrorWarning> {
+        self.outside_work.lock().unwrap().as_ref().map(|f| f.warning.clone())
+    }
 
     /// Has Relay's own source moved without a card behind it?
     ///

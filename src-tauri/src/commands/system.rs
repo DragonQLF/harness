@@ -73,6 +73,16 @@ pub struct Bootstrap {
     pub revoked_allowances: Vec<String>,
     /// Improvement proposals waiting on the operator, newest first.
     pub inbox: Vec<harness_app::inbox::Proposal>,
+    /// The last finding of the look at Relay's own repository, if it found
+    /// anything this session.
+    ///
+    /// It is here because the event cannot be trusted to have been heard: the
+    /// startup look is spawned before the webview exists, so it may be
+    /// emitted to nobody, and reloading the window loses it the same way. This
+    /// is the one call the UI always makes, so a warning that already exists
+    /// is on screen on open and on reload — `"nothing is silently lost"`.
+    /// The window drops the duplicate when both arrive.
+    pub outside_work: Option<harness_app::mirror::MirrorWarning>,
 }
 
 #[tauri::command]
@@ -93,6 +103,7 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
             .map(|r| r.label())
             .collect(),
         inbox: ws.inbox().proposals,
+        outside_work: ws.outside_work_warning(),
     })
 }
 
