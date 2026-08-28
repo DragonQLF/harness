@@ -27,6 +27,9 @@ fn export_types() {
 
     harness_ports::WorktreeMode::export().unwrap();
     harness_ports::Reviewer::export().unwrap();
+    harness_ports::SkillGrant::export().unwrap();
+    harness_ports::McpTransport::export().unwrap();
+    harness_ports::McpGrant::export().unwrap();
 
     numbers_not_bigints(&dir);
 }

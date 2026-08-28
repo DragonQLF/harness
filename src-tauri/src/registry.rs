@@ -75,7 +75,42 @@ struct Registry {
 
 impl Registry {
     fn save_agents(&self) -> Result<(), String> {
-        paths::write_json(&self.paths.agents_file(), &self.agents)
+        paths::write_json(&self.paths.agents_file(), &self.agents)?;
+        self.materialise_skills();
+        Ok(())
+    }
+
+    /// Write each agent's granted skills to its own directory, and sweep away
+    /// what no agent claims any more.
+    ///
+    /// It happens here, in the one place that writes `agents.json`, for the
+    /// reason this whole file exists: whoever changes the list is whoever
+    /// writes it, in the same step. A skill revoked on the Agents screen is off
+    /// disk before the reply comes back, so there is no window in which the
+    /// profile says one thing and the directory a run loads says another.
+    ///
+    /// A failure here is not fatal and does not undo the save: the profile is
+    /// the truth, and the next save writes the directory again. Losing the
+    /// profile because a file could not be written would be the worse trade.
+    fn materialise_skills(&self) {
+        let root = self.paths.root();
+        for profile in &self.agents {
+            if let Err(e) = harness_app::grants::materialise(root, profile) {
+                eprintln!("could not write {}'s skills: {e}", profile.id);
+            }
+        }
+        let live: Vec<std::path::PathBuf> = self
+            .agents
+            .iter()
+            .map(|a| harness_app::grants::agent_skills_dir(root, &a.id))
+            .collect();
+        if let Ok(entries) = std::fs::read_dir(root.join("skills")) {
+            for entry in entries.flatten() {
+                if !live.contains(&entry.path()) {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+        }
     }
 
     fn save_projects(&self) -> Result<(), String> {

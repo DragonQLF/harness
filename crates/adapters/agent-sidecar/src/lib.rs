@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::process::Stdio;
 
-use harness_ports::{ApprovalRequest, RunEvent, RunOutcome, RunSpec, ToolCall};
+use harness_ports::{
+    ApprovalRequest, Grants, McpTransport, RunEvent, RunOutcome, RunSpec, ToolCall,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
@@ -11,6 +13,14 @@ use tokio_util::sync::CancellationToken;
 pub struct SidecarAgent {
     program: String,
     script: PathBuf,
+    /// What this port's runs may load beyond Relay's own wiring.
+    ///
+    /// It hangs off the port, not off the `RunSpec`, and that is the shape and
+    /// not an accident: grants belong to one agent, and an agent port built for
+    /// one conversation serves exactly one agent. A port shared by every run —
+    /// which is what a project engine holds — cannot carry them, and that is
+    /// the boundary recorded in `DEBT.md`.
+    grants: Grants,
 }
 
 impl SidecarAgent {
@@ -18,8 +28,40 @@ impl SidecarAgent {
         Self {
             program: program.into(),
             script: script.into(),
+            grants: Grants::default(),
         }
     }
+
+    pub fn with_grants(mut self, grants: Grants) -> Self {
+        self.grants = grants;
+        self
+    }
+}
+
+/// The MCP servers, in the shape the Agent SDK takes them.
+///
+/// `harness` is never emitted here: a granted server by that name would shadow
+/// Relay's own in-process tools, and `crates/app/src/grants.rs` refuses the
+/// name before it can ever be stored. This is the second lock on the same door.
+fn mcp_json(grants: &Grants) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for server in &grants.mcp_servers {
+        if server.name == "harness" {
+            continue;
+        }
+        let config = match &server.transport {
+            McpTransport::Stdio { command, args } => serde_json::json!({
+                "type": "stdio",
+                "command": command,
+                "args": args,
+                "env": server.env,
+            }),
+            McpTransport::Http { url } => serde_json::json!({ "type": "http", "url": url }),
+            McpTransport::Sse { url } => serde_json::json!({ "type": "sse", "url": url }),
+        };
+        map.insert(server.name.clone(), config);
+    }
+    serde_json::Value::Object(map)
 }
 
 /// Why a `done` event is really a failure, if it is. The sidecar puts the
@@ -69,6 +111,7 @@ impl LineSink<'_> {
 async fn drive(
     child: &mut Child,
     spec: RunSpec,
+    grants: Grants,
     tx: mpsc::Sender<RunEvent>,
     cancel: CancellationToken,
 ) -> Result<RunOutcome, String> {
@@ -100,6 +143,12 @@ async fn drive(
             "thinking_tokens": spec.thinking_tokens,
             // Whether this run may spawn subagents of its own.
             "subagents": spec.subagents,
+            // The explicit list on top of the isolation: a directory of skills
+            // that belongs to this agent alone, and the MCP servers it was
+            // granted. Absent for an agent that was granted nothing, which is
+            // every agent until an operator approves one.
+            "skills_dir": grants.skills_dir.as_ref().map(|p| p.to_string_lossy()),
+            "mcp_servers": mcp_json(&grants),
         }
     });
     LineSink { stdin: &mut stdin }.send(run_msg).await?;
@@ -348,7 +397,18 @@ async fn drive(
                             .unwrap_or("tool")
                             .to_string();
                         let input = msg.get("input").cloned().unwrap_or_default();
-                        let summary = summarize(&input);
+                        // The sidecar knows the tool by name and can say what
+                        // the call would actually do; the generic key-value
+                        // rendering below is the fallback for anything it has
+                        // no line for. A sheet that says "the Director wants to
+                        // install something" is not a sheet anyone can answer.
+                        let summary = msg
+                            .get("summary")
+                            .and_then(|s| s.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .unwrap_or_else(|| summarize(&input));
 
                         let _ = tx
                             .send(RunEvent::ApprovalRequested {
@@ -422,6 +482,7 @@ impl harness_ports::AgentPort for SidecarAgent {
     ) -> Pin<Box<dyn std::future::Future<Output = Result<RunOutcome, String>> + Send>> {
         let program = self.program.clone();
         let script = self.script.clone();
+        let grants = self.grants.clone();
         let provider = spec.provider.clone();
         Box::pin(async move {
             let mut cmd = Command::new(&program);
@@ -448,15 +509,63 @@ impl harness_ports::AgentPort for SidecarAgent {
             let mut child = cmd
                 .spawn()
                 .map_err(|e| format!("failed to spawn sidecar ({program} {}): {e}", script.display()))?;
-            drive(&mut child, spec, tx, cancel).await
+            drive(&mut child, spec, grants, tx, cancel).await
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::done_error;
+    use super::{done_error, mcp_json};
+    use harness_ports::{Grants, McpGrant, McpTransport};
     use serde_json::json;
+
+    #[test]
+    fn granted_servers_travel_and_harness_is_never_one_of_them() {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("FIGMA_TOKEN".to_string(), "abc".to_string());
+        let grants = Grants {
+            skills_dir: Some(std::path::PathBuf::from("/tmp/relay/skills/designer")),
+            mcp_servers: vec![
+                McpGrant {
+                    name: "figma".into(),
+                    transport: McpTransport::Stdio {
+                        command: "npx".into(),
+                        args: vec!["-y".into(), "figma-mcp".into()],
+                    },
+                    env,
+                    ..Default::default()
+                },
+                McpGrant {
+                    name: "docs".into(),
+                    transport: McpTransport::Http { url: "https://example.invalid/mcp".into() },
+                    ..Default::default()
+                },
+                // Stored by a hand-edited agents.json, past the app-layer
+                // refusal. The wire must not carry it either.
+                McpGrant {
+                    name: "harness".into(),
+                    transport: McpTransport::Stdio { command: "node".into(), args: vec![] },
+                    ..Default::default()
+                },
+            ],
+        };
+        let wire = mcp_json(&grants);
+        let map = wire.as_object().unwrap();
+        assert_eq!(map.len(), 2, "harness was dropped");
+        assert!(!map.contains_key("harness"));
+        assert_eq!(map["figma"]["command"], json!("npx"));
+        assert_eq!(map["figma"]["args"], json!(["-y", "figma-mcp"]));
+        assert_eq!(map["figma"]["env"]["FIGMA_TOKEN"], json!("abc"));
+        assert_eq!(map["docs"]["type"], json!("http"));
+    }
+
+    #[test]
+    fn an_agent_granted_nothing_sends_nothing() {
+        let wire = mcp_json(&Grants::default());
+        assert_eq!(wire, json!({}));
+        assert!(Grants::default().is_empty());
+    }
 
     #[test]
     fn a_done_event_carries_its_failure_or_nothing() {

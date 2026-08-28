@@ -2,7 +2,7 @@
 //! A profile is turned into a `RunProfile` at the moment a run starts, which is
 //! the only place policy meets the engine.
 
-use harness_ports::{Reviewer, RunProfile, WorktreeMode};
+use harness_ports::{McpGrant, Reviewer, RunProfile, SkillGrant, WorktreeMode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -48,8 +48,21 @@ pub struct AgentProfile {
     pub tasks_enabled: bool,
     /// How many cards it may work on at once.
     pub max_concurrent: u32,
-    /// Named abilities, handed to it as part of the brief.
+    /// Named abilities, handed to it as part of the brief. Prose, not
+    /// packages: "planning", "typography". Nothing is loaded from these.
+    ///
+    /// The real thing shares the word and could not share the key: an
+    /// `agents.json` in the wild already has `skills: ["planning", "scoping"]`,
+    /// and reading that as a list of installed skill packages would have Relay
+    /// look for packages the operator never asked for. So the loaded ones live
+    /// in `granted_skills` and this stays what it always was.
     pub skills: Vec<String>,
+    /// Skills installed for this agent: markdown that enters its prompt,
+    /// approved one by one and written to a directory of its own.
+    pub granted_skills: Vec<SkillGrant>,
+    /// MCP servers this agent may reach. Nothing is inherited: what is not
+    /// listed here does not exist for its runs.
+    pub mcp_servers: Vec<McpGrant>,
     /// Which profile it answers to.
     pub reports_to: Option<String>,
     /// May it put work on a board and hand it to other agents?
@@ -86,6 +99,8 @@ impl Default for AgentProfile {
             tasks_enabled: true,
             max_concurrent: 1,
             skills: Vec::new(),
+            granted_skills: Vec::new(),
+            mcp_servers: Vec::new(),
             reports_to: None,
             can_delegate: false,
             expected_output: String::new(),

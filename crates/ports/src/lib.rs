@@ -161,6 +161,126 @@ impl ToolReply {
 pub type ToolRunner =
     Arc<dyn Fn(ToolCall) -> Pin<Box<dyn Future<Output = ToolReply> + Send>> + Send + Sync>;
 
+/// A skill granted to one agent: the markdown that enters its prompt, kept
+/// whole so the operator can read exactly what they are approving.
+///
+/// Two fields exist only to be shown: `source` says where the text came from,
+/// and `body` is the text itself. A skill is prose that steers another agent,
+/// so "show the source" is the whole of its safety — there is nothing to
+/// sandbox, only something to read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct SkillGrant {
+    /// Directory name under the agent's plugin, and the name the model sees.
+    pub name: String,
+    /// One line telling the model when to reach for it.
+    pub description: String,
+    /// Where this text came from: a URL, a package, or "written here".
+    pub source: String,
+    /// The SKILL.md body, without the frontmatter Relay writes itself.
+    pub body: String,
+    pub added_ms: u64,
+}
+
+impl Default for SkillGrant {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            source: String::new(),
+            body: String::new(),
+            added_ms: 0,
+        }
+    }
+}
+
+/// How Relay reaches a granted MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum McpTransport {
+    /// A process on this machine, spoken to over stdio.
+    Stdio {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    Http {
+        url: String,
+    },
+    Sse {
+        url: String,
+    },
+}
+
+impl Default for McpTransport {
+    fn default() -> Self {
+        Self::Stdio {
+            command: String::new(),
+            args: Vec::new(),
+        }
+    }
+}
+
+/// An MCP server granted to one agent.
+///
+/// `tools` is the declaration, not a discovery: it is what the operator was
+/// told this server grants when they approved it. Relay cannot learn the real
+/// list without connecting, and connecting runs the server's code — which is
+/// the thing the approval exists to gate. So the list is declared, reviewed,
+/// and then checked against reality once the run has already been allowed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
+pub struct McpGrant {
+    /// Server name; tools arrive as `mcp__<name>__<tool>`.
+    pub name: String,
+    pub transport: McpTransport,
+    /// Environment the server needs. Written by the operator on the Agents
+    /// screen, never by a model: a conversation is written to disk, so a key
+    /// asked for in one is a key on disk (same reason as `add_endpoint`).
+    pub env: std::collections::BTreeMap<String, String>,
+    /// The tools this server was declared to grant.
+    pub tools: Vec<String>,
+    /// Where the declaration came from: a URL, a package, a registry entry.
+    pub source: String,
+    pub added_ms: u64,
+}
+
+impl Default for McpGrant {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            transport: McpTransport::default(),
+            env: std::collections::BTreeMap::new(),
+            tools: Vec::new(),
+            source: String::new(),
+            added_ms: 0,
+        }
+    }
+}
+
+/// What one run is allowed to load beyond Relay's own wiring: a directory of
+/// skills that belongs to this agent alone, and the MCP servers it was granted.
+///
+/// The isolation is the **directory**, not a filter. The SDK's `skills` option
+/// says so itself — "a context filter, not a sandbox: unlisted skills are
+/// hidden from the model's listing … but their files remain on disk and are
+/// reachable via Read/Bash". So each agent gets its own directory holding
+/// exactly what it was granted, and nothing else is ever on the path.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Grants {
+    /// A plugin directory owned by Relay, or `None` when this agent has no
+    /// skills. Never a directory of the operator's, and never one inside the
+    /// repository being worked on.
+    pub skills_dir: Option<PathBuf>,
+    pub mcp_servers: Vec<McpGrant>,
+}
+
+impl Grants {
+    pub fn is_empty(&self) -> bool {
+        self.skills_dir.is_none() && self.mcp_servers.is_empty()
+    }
+}
+
 /// Where an agent does its work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

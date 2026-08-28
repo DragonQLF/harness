@@ -12,6 +12,7 @@ pub mod checks;
 pub mod curator;
 pub mod devdocs;
 pub mod director;
+pub mod grants;
 pub mod inbox;
 pub mod insights;
 pub mod memory;
