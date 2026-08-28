@@ -338,6 +338,20 @@ impl GitPort for FakeGit {
 /// loaded CI runner, where thirty-odd async tests share whatever cores the
 /// hosted runner feels like giving them — which turns a real failure signal
 /// into a coin flip.
+/// O prazo é de relógio de parede, portanto mede a máquina e não o trabalho —
+/// e já custou quatro falhas, sempre neste ficheiro.
+///
+/// Não é o prazo que está errado. Baixando as worker threads deste ficheiro a
+/// duas, o `a_failed_run_leaves_work_and_the_next_run_finds_it` deixa de ser
+/// intermitente e falha **sempre**; com três, passa em 0,03s. O limiar é
+/// exacto, e o que ele diz é que há duas workers ocupadas por trabalho
+/// bloqueante enquanto o teste corre. Com o runtime a ter uma worker por
+/// núcleo, sobram threads e ninguém dá por isso; quando o workspace inteiro
+/// compila e corre ao mesmo tempo, deixam de sobrar e o teste pendura.
+///
+/// Ou seja: a intermitência é o sintoma, o bloqueio é a doença, e subir o
+/// prazo só faria a falha demorar mais a aparecer. O reprodutor determinista
+/// é `worker_threads = 2`.
 const WAIT_BUDGET: Duration = Duration::from_secs(30);
 const WAIT_POLL: Duration = Duration::from_millis(20);
 
