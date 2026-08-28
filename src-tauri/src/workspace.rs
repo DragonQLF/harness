@@ -27,6 +27,7 @@ use harness_app::director::{CardLine, DiffFacts, ProjectBrief};
 use harness_app::projects::{self, FolderInfo, Project};
 use harness_app::settings::Settings;
 
+use crate::conversations::ConversationsHandle;
 use crate::registry::RegistryHandle;
 use crate::sidecar;
 
@@ -96,16 +97,13 @@ pub struct Workspace {
     /// de um actor, e isto é só o telefone (`registry.rs`).
     registry: RegistryHandle,
     runtimes: Mutex<HashMap<String, Arc<ProjectRuntime>>>,
-    /// Which chats exist and which Claude session each continues. The words
-    /// themselves live in `chat_log`, never here.
-    conversations: Mutex<ConversationIndex>,
+    /// Quais as conversas, que sessão Claude cada uma continua e qual delas tem
+    /// um turno no ar. Também não está aqui: é outro actor (`conversations.rs`).
+    /// As palavras continuam a viver no `chat_log`, nunca no índice.
+    chats: ConversationsHandle,
     /// One transcript per conversation, through the same port every run
     /// transcript already uses.
     chat_log: Arc<JsonlRunLog>,
-    /// The cancellation token of the turn each conversation has in flight.
-    /// Without this a chat turn that never emits `done` leaves the operator
-    /// without a stop.
-    chat_turns: Mutex<HashMap<String, CancellationToken>>,
     /// Improvement proposals waiting on the operator, plus the mark of the
     /// last end-of-day look.
     inbox: Mutex<InboxState>,
@@ -136,6 +134,7 @@ impl Workspace {
         let registry = RegistryHandle::spawn(paths.clone(), agents, projects);
         let conversations: ConversationIndex =
             paths::read_json_or_default(&paths.conversations_file());
+        let chats = ConversationsHandle::spawn(app.clone(), paths.clone(), conversations);
         let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
         let sidecar_dir = sidecar::prepare(&app, &paths);
         // A missing transcript directory must not stop the app opening: an
@@ -181,9 +180,8 @@ impl Workspace {
             sidecar_dir,
             registry,
             runtimes: Mutex::new(HashMap::new()),
-            conversations: Mutex::new(conversations),
+            chats,
             chat_log,
-            chat_turns: Mutex::new(HashMap::new()),
             inbox: Mutex::new(inbox),
             outside_work: Mutex::new(None),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
@@ -313,26 +311,17 @@ impl Workspace {
 
     // ---- conversations ----
 
-    pub fn conversations(&self, include_archived: bool) -> Vec<Conversation> {
-        self.conversations.lock().unwrap().list(include_archived)
+    pub async fn conversations(&self, include_archived: bool) -> Vec<Conversation> {
+        self.chats.list(include_archived).await
     }
 
-    pub fn conversation(&self, id: &str) -> Option<Conversation> {
-        self.conversations.lock().unwrap().get(id).cloned()
+    pub async fn conversation(&self, id: &str) -> Option<Conversation> {
+        self.chats.get(id).await
     }
 
     /// The conversation to reopen when the app starts.
-    pub fn last_conversation(&self) -> Option<Conversation> {
-        self.conversations
-            .lock()
-            .unwrap()
-            .resume_target(agents::DIRECTOR_ID)
-            .cloned()
-    }
-
-    fn save_conversations(&self) -> Result<(), String> {
-        let index = self.conversations.lock().unwrap();
-        paths::write_json(&self.paths.conversations_file(), &*index)
+    pub async fn last_conversation(&self) -> Option<Conversation> {
+        self.chats.resume_target(agents::DIRECTOR_ID).await
     }
 
     /// Start a conversation. A fresh row means a fresh native session: there is
@@ -356,14 +345,14 @@ impl Workspace {
             _ => None,
         };
         let id = format!("chat_{}", uuid::Uuid::new_v4().simple());
-        let created = self.conversations.lock().unwrap().insert(Conversation::new(
-            id,
-            profile_id,
-            project_id,
-            SystemClock.now_millis(),
-        ));
-        self.save_conversations()?;
-        Ok(created)
+        self.chats
+            .insert(Conversation::new(
+                id,
+                profile_id,
+                project_id,
+                SystemClock.now_millis(),
+            ))
+            .await
     }
 
     /// The conversation to talk in right now: the one asked for, the last one
@@ -376,57 +365,40 @@ impl Workspace {
         let wanted = profile_id
             .clone()
             .unwrap_or_else(|| agents::DIRECTOR_ID.to_string());
-        let existing = {
-            let index = self.conversations.lock().unwrap();
-            index
-                .resume_target(&wanted)
-                .filter(|c| c.profile_id == wanted)
-                .cloned()
-        };
+        let existing = self
+            .chats
+            .resume_target(&wanted)
+            .await
+            .filter(|c| c.profile_id == wanted);
         match existing {
             Some(found) => {
-                self.select_conversation(&found.id)?;
+                self.select_conversation(&found.id).await?;
                 Ok(found)
             }
             None => self.new_conversation(profile_id, project_id).await,
         }
     }
 
-    pub fn select_conversation(&self, id: &str) -> Result<Conversation, String> {
-        {
-            let mut index = self.conversations.lock().unwrap();
-            index.select(id)?;
-        }
-        self.save_conversations()?;
-        self.conversation(id).ok_or_else(|| format!("no conversation {id}"))
+    pub async fn select_conversation(&self, id: &str) -> Result<Conversation, String> {
+        self.chats.select(id).await
     }
 
-    pub fn rename_conversation(&self, id: &str, title: &str) -> Result<Conversation, String> {
-        let updated = {
-            let mut index = self.conversations.lock().unwrap();
-            index.rename(id, title, SystemClock.now_millis())?
-        };
-        self.save_conversations()?;
-        Ok(updated)
+    pub async fn rename_conversation(&self, id: &str, title: &str) -> Result<Conversation, String> {
+        self.chats.rename(id, title).await
     }
 
-    pub fn archive_conversation(&self, id: &str, archived: bool) -> Result<Conversation, String> {
-        let updated = {
-            let mut index = self.conversations.lock().unwrap();
-            index.set_archived(id, archived, SystemClock.now_millis())?
-        };
-        self.save_conversations()?;
-        Ok(updated)
+    pub async fn archive_conversation(
+        &self,
+        id: &str,
+        archived: bool,
+    ) -> Result<Conversation, String> {
+        self.chats.set_archived(id, archived).await
     }
 
     /// Forget a conversation and its transcript. Destructive, so the UI asks
     /// first; by the time this runs the decision is made.
-    pub fn delete_conversation(&self, id: &str) -> Result<(), String> {
-        let gone = {
-            let mut index = self.conversations.lock().unwrap();
-            index.remove(id)?
-        };
-        self.save_conversations()?;
+    pub async fn delete_conversation(&self, id: &str) -> Result<(), String> {
+        let gone = self.chats.remove(id).await?;
         // Ask the log where it put it: the name is sanitised on the way in.
         let file = self.chat_log.path_of(&gone.id);
         if let Err(e) = std::fs::remove_file(&file) {
@@ -448,74 +420,35 @@ impl Workspace {
             Some(p) if self.project(&p).await.is_some() => Some(p),
             _ => None,
         };
-        {
-            let mut index = self.conversations.lock().unwrap();
-            let entry = index
-                .conversations
-                .iter_mut()
-                .find(|c| c.id == id)
-                .ok_or_else(|| format!("no conversation {id}"))?;
-            entry.project_id = project_id;
-            entry.updated_ms = SystemClock.now_millis();
-        }
-        self.save_conversations()?;
-        self.conversation(id).ok_or_else(|| format!("no conversation {id}"))
+        self.chats.pin(id, project_id).await
     }
 
-    pub fn record_chat_message(&self, id: &str, message: &str) -> Result<Conversation, String> {
-        let updated = {
-            let mut index = self.conversations.lock().unwrap();
-            index.record_message(id, message, SystemClock.now_millis())?
-        };
-        self.save_conversations()?;
-        Ok(updated)
+    pub async fn record_chat_message(
+        &self,
+        id: &str,
+        message: &str,
+    ) -> Result<Conversation, String> {
+        self.chats.record_message(id, message).await
     }
 
     /// Save the session the SDK handed back, and tell the window, so the list
     /// stops saying a conversation has never been answered.
-    pub fn record_chat_session(&self, id: &str, session_id: &str) {
-        let changed = {
-            let mut index = self.conversations.lock().unwrap();
-            index
-                .record_session(id, session_id, SystemClock.now_millis())
-                .unwrap_or(false)
-        };
-        if changed {
-            let _ = self.save_conversations();
-            self.publish_conversations();
-        }
+    pub async fn record_chat_session(&self, id: &str, session_id: &str) {
+        self.chats.record_session(id, session_id).await
     }
 
-    pub fn record_chat_cost(&self, id: &str, cost_usd: Option<f64>) {
-        {
-            let mut index = self.conversations.lock().unwrap();
-            index.record_cost(id, cost_usd, SystemClock.now_millis());
-        }
-        let _ = self.save_conversations();
-        self.publish_conversations();
+    pub async fn record_chat_cost(&self, id: &str, cost_usd: Option<f64>) {
+        self.chats.record_cost(id, cost_usd).await
     }
 
-    pub fn record_chat_resume_failure(&self, id: &str) {
-        {
-            let mut index = self.conversations.lock().unwrap();
-            index.record_resume_failure(id, SystemClock.now_millis());
-        }
-        let _ = self.save_conversations();
-        self.publish_conversations();
+    pub async fn record_chat_resume_failure(&self, id: &str) {
+        self.chats.record_resume_failure(id).await
     }
 
     pub fn append_chat_line(&self, conversation_id: &str, line: RunLogLine) {
         if let Err(e) = RunLogPort::append(self.chat_log.as_ref(), conversation_id, &line) {
             eprintln!("could not write the conversation transcript: {e}");
         }
-    }
-
-    /// The list changed without the UI asking; it renders backend state, so the
-    /// backend says when it moved.
-    fn publish_conversations(&self) {
-        let _ = self
-            .app
-            .emit("chat://conversations", self.conversations(false));
     }
 
     /// Every board, with the one this conversation can read marked.
@@ -760,23 +693,14 @@ impl Workspace {
     // ---- chat turns ----
 
     /// A conversation has a turn in flight: remember its cancellation token.
-    pub fn register_chat_turn(&self, conversation_id: &str, token: CancellationToken) {
-        self.chat_turns
-            .lock()
-            .unwrap()
-            .insert(conversation_id.to_string(), token);
+    pub async fn register_chat_turn(&self, conversation_id: &str, token: CancellationToken) {
+        self.chats.register_turn(conversation_id, token).await
     }
 
     /// Take the turn's token out (None if the conversation had none). Taking
     /// it is both how stop finds it and how completion cleans up.
-    pub fn finish_chat_turn(
-        &self,
-        conversation_id: &str,
-    ) -> Option<CancellationToken> {
-        self.chat_turns
-            .lock()
-            .unwrap()
-            .remove(conversation_id)
+    pub async fn finish_chat_turn(&self, conversation_id: &str) -> Option<CancellationToken> {
+        self.chats.finish_turn(conversation_id).await
     }
 
     pub async fn update_project(&self, project: Project) -> Result<Project, String> {
@@ -789,11 +713,7 @@ impl Workspace {
         self.runtimes.lock().unwrap().remove(id);
         self.registry.remove_project(id).await?;
         // A conversation pinned to a project that is gone would point nowhere.
-        {
-            let mut index = self.conversations.lock().unwrap();
-            index.unpin_project(id);
-        }
-        let _ = self.save_conversations();
+        self.chats.unpin_project(id).await;
         if delete_data {
             let _ = std::fs::remove_dir_all(self.paths.project_dir(id));
             let _ = std::fs::remove_dir_all(self.paths.project_worktrees(id));

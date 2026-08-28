@@ -79,6 +79,7 @@ pub async fn send(
     let conversation = match conversation_id {
         Some(id) => ws
             .conversation(&id)
+            .await
             .ok_or_else(|| format!("no conversation {id}"))?,
         None => ws.open_conversation(None, None).await?,
     };
@@ -161,7 +162,7 @@ pub async fn send(
             },
         },
     );
-    let conversation = ws.record_chat_message(&conversation.id, &message)?;
+    let conversation = ws.record_chat_message(&conversation.id, &message).await?;
 
     // Relay's own tools. The mutating ones are not in `allowed_tools`, so the
     // SDK sends each call through the approver first: the operator sees "the
@@ -205,12 +206,7 @@ pub async fn send(
     // Registered by conversation id so the operator has a stop: a turn that
     // never emits `done` must not leave them without an exit.
     let token = CancellationToken::new();
-    ws.register_chat_turn(&conversation.id, token.clone());
-    let turn_conversation = conversation.id.clone();
-    let ws_for_cleanup = Arc::clone(ws);
-    let cleanup = move || {
-        ws_for_cleanup.finish_chat_turn(&turn_conversation);
-    };
+    ws.register_chat_turn(&conversation.id, token.clone()).await;
     let fut = agent.run(spec, ev_tx, token);
 
     let app = ws.app_handle();
@@ -254,7 +250,7 @@ pub async fn send(
                 match &ev {
                     RunEvent::Started { session_id } => {
                         seen.store(true, std::sync::atomic::Ordering::Relaxed);
-                        ws.record_chat_session(&conversation_id, session_id);
+                        ws.record_chat_session(&conversation_id, session_id).await;
                     }
                     RunEvent::Text { .. } | RunEvent::Delta { .. } => {
                         seen.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -265,9 +261,9 @@ pub async fn send(
                         ..
                     } => {
                         if let Some(sid) = session_id {
-                            ws.record_chat_session(&conversation_id, sid);
+                            ws.record_chat_session(&conversation_id, sid).await;
                         }
-                        ws.record_chat_cost(&conversation_id, *cost_usd);
+                        ws.record_chat_cost(&conversation_id, *cost_usd).await;
                     }
                     _ => {}
                 }
@@ -315,7 +311,7 @@ pub async fn send(
                 // still readable, but the model no longer remembers it.
                 let lost = resumed && !answered.load(std::sync::atomic::Ordering::Relaxed);
                 if lost {
-                    ws.record_chat_resume_failure(&conversation_id);
+                    ws.record_chat_resume_failure(&conversation_id).await;
                     let notice = RunEvent::Notice {
                         text: format!(
                             "the Claude session for this conversation could not be resumed \
@@ -345,15 +341,15 @@ pub async fn send(
             }
         }
         // The turn is over, however it ended: done, failed or cancelled.
-        cleanup();
+        ws.finish_chat_turn(&conversation_id).await;
     });
 
     Ok(conversation)
 }
 
 /// Stop the turn a conversation has in flight. No-op when there is none.
-pub fn stop_turn(ws: &Workspace, conversation_id: &str) {
-    if let Some(token) = ws.finish_chat_turn(conversation_id) {
+pub async fn stop_turn(ws: &Workspace, conversation_id: &str) {
+    if let Some(token) = ws.finish_chat_turn(conversation_id).await {
         token.cancel();
     }
 }

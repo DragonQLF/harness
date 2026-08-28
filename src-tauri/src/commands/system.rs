@@ -84,8 +84,8 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
         status: system_status(&ws),
         approvals: ws.router.pending_list(),
         data_dir: ws.paths.root().to_string_lossy().to_string(),
-        conversations: ws.conversations(false),
-        last_conversation: ws.last_conversation().map(|c| c.id),
+        conversations: ws.conversations(false).await,
+        last_conversation: ws.last_conversation().await.map(|c| c.id),
         revoked_allowances: ws
             .settings()
             .revoked_allowances()

@@ -72,6 +72,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     // one instead of stacking husks.
     let unanswered = ws
         .conversations(false)
+        .await
         .into_iter()
         .find(|c| c.title == LOOK_TITLE && c.messages == 0);
     let conversation = match unanswered {
@@ -87,7 +88,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
             }
         },
     };
-    let _ = ws.rename_conversation(&conversation.id, LOOK_TITLE);
+    let _ = ws.rename_conversation(&conversation.id, LOOK_TITLE).await;
 
     // The opening turn goes in before the run, exactly as `chat::send` writes
     // the operator's words first. Without it the row is empty until the model
@@ -131,7 +132,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
 
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);
     let token = CancellationToken::new();
-    ws.register_chat_turn(&conversation.id, token.clone());
+    ws.register_chat_turn(&conversation.id, token.clone()).await;
     let run = ws.agent_port().run(spec, ev_tx, token.clone());
     tokio::pin!(run);
 
@@ -148,16 +149,16 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
             heard = true;
             match &ev {
                 RunEvent::Started { session_id } => {
-                    ws_forward.record_chat_session(&conversation_id, session_id);
+                    ws_forward.record_chat_session(&conversation_id, session_id).await;
                 }
                 RunEvent::Text { text } => last_text = text.clone(),
                 RunEvent::Done {
                     session_id, cost_usd, ..
                 } => {
                     if let Some(sid) = session_id {
-                        ws_forward.record_chat_session(&conversation_id, sid);
+                        ws_forward.record_chat_session(&conversation_id, sid).await;
                     }
-                    ws_forward.record_chat_cost(&conversation_id, *cost_usd);
+                    ws_forward.record_chat_cost(&conversation_id, *cost_usd).await;
                 }
                 _ => {}
             }
@@ -243,7 +244,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         );
     }
 
-    ws.finish_chat_turn(&conversation.id);
+    ws.finish_chat_turn(&conversation.id).await;
     // A look that found nothing is still a look, and a cut one retries tomorrow
     // rather than tonight. One that never ran at all is not: marking it would
     // buy a day of silence for a failure nobody saw.

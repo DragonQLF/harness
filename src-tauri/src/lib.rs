@@ -4,6 +4,7 @@
 mod chat;
 mod closing;
 mod commands;
+mod conversations;
 mod director_tools;
 mod menu;
 mod reflection;

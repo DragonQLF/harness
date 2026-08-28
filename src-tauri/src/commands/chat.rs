@@ -19,7 +19,7 @@ pub async fn conversations_list(
     include_archived: Option<bool>,
     ws: Shared<'_>,
 ) -> Result<Vec<Conversation>, String> {
-    Ok(ws.conversations(include_archived.unwrap_or(false)))
+    Ok(ws.conversations(include_archived.unwrap_or(false)).await)
 }
 
 /// Start a new conversation. A new row means a new native Claude session, which
@@ -48,7 +48,7 @@ pub async fn conversation_select(
     conversation_id: String,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.select_conversation(&conversation_id)
+    ws.select_conversation(&conversation_id).await
 }
 
 #[tauri::command]
@@ -57,7 +57,7 @@ pub async fn conversation_rename(
     title: String,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.rename_conversation(&conversation_id, &title)
+    ws.rename_conversation(&conversation_id, &title).await
 }
 
 #[tauri::command]
@@ -66,13 +66,13 @@ pub async fn conversation_archive(
     archived: bool,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.archive_conversation(&conversation_id, archived)
+    ws.archive_conversation(&conversation_id, archived).await
 }
 
 /// Forget a conversation and its transcript. The UI confirms first.
 #[tauri::command]
 pub async fn conversation_delete(conversation_id: String, ws: Shared<'_>) -> Result<(), String> {
-    ws.delete_conversation(&conversation_id)
+    ws.delete_conversation(&conversation_id).await
 }
 
 /// Pin a conversation to a project, or unpin it. This decides which code it can
@@ -222,6 +222,6 @@ pub async fn analyst_ask(
 /// was already said; the busy indicator falls on the cancelled event.
 #[tauri::command]
 pub async fn chat_stop(conversation_id: String, ws: Shared<'_>) -> Result<(), String> {
-    crate::chat::stop_turn(&ws, &conversation_id);
+    crate::chat::stop_turn(&ws, &conversation_id).await;
     Ok(())
 }
