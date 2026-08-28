@@ -8,4 +8,11 @@ kind: string,
 /**
  * Human label, e.g. "Run finished".
  */
-label: string, card_id: string, detail: string, };
+label: string, 
+/**
+ * Foi esta linha uma aprovação? O rótulo diz-no em português corrente, e
+ * o ecrã chegou a lê-lo por prefixo — o que faz uma contagem cair para
+ * zero em silêncio no dia em que alguém reescrever a frase. Quem sabe o
+ * que a linha é, diz.
+ */
+approved: boolean, card_id: string, detail: string, };

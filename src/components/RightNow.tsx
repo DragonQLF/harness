@@ -186,8 +186,10 @@ export function RightNow({
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  // A linha diz que foi uma aprovação; até aqui isto lia o rótulo por prefixo,
+  // que é prosa escrita no backend e muda sem ninguém dar por isso.
   const doneToday = activity.filter(
-    (a) => a.kind === "review" && a.label.startsWith("Approved") && a.ts_ms >= startOfDay.getTime(),
+    (a) => a.approved && a.ts_ms >= startOfDay.getTime(),
   );
 
   const liveSpend = runningCards.reduce((sum, c) => sum + c.cost_usd, 0);

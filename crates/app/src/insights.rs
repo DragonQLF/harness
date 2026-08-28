@@ -34,6 +34,11 @@ pub struct ActivityRow {
     pub kind: &'static str,
     /// Human label, e.g. "Run finished".
     pub label: String,
+    /// Foi esta linha uma aprovação? O rótulo diz-no em português corrente, e
+    /// o ecrã chegou a lê-lo por prefixo — o que faz uma contagem cair para
+    /// zero em silêncio no dia em que alguém reescrever a frase. Quem sabe o
+    /// que a linha é, diz.
+    pub approved: bool,
     pub card_id: String,
     pub detail: String,
 }
@@ -174,6 +179,7 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                 seq: stored.seq,
                 ts_ms: stored.ts_ms,
                 kind,
+                approved: matches!(stored.event, Event::CardApproved { .. }),
                 label: label.to_string(),
                 card_id,
                 detail,
