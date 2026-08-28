@@ -49,6 +49,7 @@ import {
   LEGAL_MOVES as GENERATED_LEGAL_MOVES,
   MODELS,
   REVIEWERS,
+  SHELL_TOOLS,
   STATUSES,
   WORKTREE_MODES,
   type Choice,
@@ -405,7 +406,9 @@ export function ruleLabel(rule: AllowRule): string {
  *  list only so it can be seen and removed. */
 export function ruleIsRevoked(rule: AllowRule): boolean {
   const head = rule.tool.toLowerCase().split("(")[0].trim();
-  return !rule.command && ["bash", "shell", "sh", "powershell"].includes(head);
+  // A lista vem do `allow.rs`, não é escrita outra vez aqui: quem revoga a
+  // regra é que sabe quais são as shells.
+  return !rule.command && SHELL_TOOLS.includes(head);
 }
 
 export function tone(name: string | undefined): Tone {

@@ -72,7 +72,7 @@ const TWO_WORD: [&str; 14] = [
 
 /// Tools that run whatever they are given. A rule for one of these is
 /// meaningless without a command scope, whatever the input looked like.
-const SHELL_TOOLS: [&str; 4] = ["bash", "shell", "sh", "powershell"];
+pub const SHELL_TOOLS: [&str; 4] = ["bash", "shell", "sh", "powershell"];
 
 fn is_shell_tool(tool: &str) -> bool {
     let name = tool.trim().to_ascii_lowercase();

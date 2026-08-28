@@ -51,6 +51,13 @@ export const LEGAL_MOVES: Record<string, string[]> = {
   "done": [],
 };
 
+/** As ferramentas que dão uma linha de comandos. Uma regra sobre uma
+ *  destas sem comando é irrestrita, e o `allow.rs` revoga-a — o ecrã diz
+ *  que está revogada, e dizia-o a partir da mesma lista escrita outra
+ *  vez. Uma regra de segurança em duas cópias falha calada: acrescenta-se
+ *  uma shell nova de um lado e o outro continua a chamar-lhe válida. */
+export const SHELL_TOOLS: string[] = ["bash", "shell", "sh", "powershell"];
+
 /** Every reach an agent can hold. `allowed_tools` in the backend is what
  *  each one means to a run. */
 export const ALL_PERMISSIONS: string[] = ["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"];

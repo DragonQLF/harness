@@ -178,6 +178,16 @@ pub fn typescript() -> String {
         moves.join("\n")
     ));
 
+    let shells: Vec<String> = crate::allow::SHELL_TOOLS.iter().map(|t| json(t)).collect();
+    out.push_str(&format!(
+        "/** As ferramentas que dão uma linha de comandos. Uma regra sobre uma\n \
+         *  destas sem comando é irrestrita, e o `allow.rs` revoga-a — o ecrã diz\n \
+         *  que está revogada, e dizia-o a partir da mesma lista escrita outra\n \
+         *  vez. Uma regra de segurança em duas cópias falha calada: acrescenta-se\n \
+         *  uma shell nova de um lado e o outro continua a chamar-lhe válida. */\nexport const SHELL_TOOLS: string[] = [{}];\n\n",
+        shells.join(", ")
+    ));
+
     let permissions: Vec<String> = ALL_PERMISSIONS.iter().map(|p| json(p)).collect();
     out.push_str(&format!(
         "/** Every reach an agent can hold. `allowed_tools` in the backend is what\n \
