@@ -3,8 +3,11 @@
  *  place. Every change is saved through the backend, never held here. */
 
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { money, num, plural } from "../lib/format";
 import { api, reason } from "../lib/ipc";
+import { cx } from "../lib/cx";
+import { paneIn, rowIn } from "../lib/motion";
 import {
   ALL_PERMISSIONS,
   MODELS,
@@ -18,13 +21,24 @@ import {
   type Provider,
 } from "../lib/types";
 import { useStore } from "../state/store";
-import { Eyebrow, Glyph, monoStyle, truncateStyle } from "../components/ui";
+import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
+
+/** Uma pastilha de contorno que responde ao ponteiro. */
+const CHIP =
+  "min-h-6 cursor-pointer rounded-full border border-line3 transition-[border-color,background,color] duration-150 hover:border-line4 hover:bg-surface2 dark:border-line3-d dark:hover:border-line4-d dark:hover:bg-surface2-d";
+
+/** Uma linha de lista que acende debaixo do ponteiro. */
+const ROW = "transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d";
+
+/** Um campo de texto assente na superfície. */
+const FIELD =
+  "w-full rounded-sm border border-line2 bg-surface text-text outline-none focus-visible:border-accentLine dark:border-line2-d dark:bg-surface-d dark:text-text-d dark:focus-visible:border-accentLine-d";
 
 function stateOf(agent: AgentProfile, running: number) {
-  if (agent.paused) return { label: "paused", color: "var(--text4)" };
-  if (running > 0) return { label: `${running} running`, color: "var(--ok)" };
-  if (agent.id === "director") return { label: "chat", color: "var(--warn)" };
-  return { label: "idle", color: "var(--text4)" };
+  if (agent.paused) return { label: "paused", fg: "text-text4 dark:text-text4-d" };
+  if (running > 0) return { label: `${running} running`, fg: "text-ok dark:text-ok-d" };
+  if (agent.id === "director") return { label: "chat", fg: "text-warn dark:text-warn-d" };
+  return { label: "idle", fg: "text-text4 dark:text-text4-d" };
 }
 
 /** The template footer. Nothing is fetched until this mounts, and nothing is
@@ -79,52 +93,42 @@ function Templates() {
   };
 
   return (
-    <div style={{ flex: "none", borderTop: "1px solid var(--line)", padding: "12px 12px 14px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 8 }}>
-        <span style={{ font: "600 11.5px var(--sans)", color: "var(--text2)" }}>New from template</span>
-        <div style={{ flex: 1 }} />
-        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+    <div className="flex-none border-t border-line px-3 pb-3.5 pt-3 dark:border-line-d">
+      <div className="flex items-baseline gap-2 pb-2">
+        <span className="text-sm font-semibold text-text2 dark:text-text2-d">New from template</span>
+        <div className="flex-1" />
+        <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
           {templates == null ? "…" : templates.length}
         </span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div className="flex flex-wrap gap-1.5">
         {(templates ?? []).map((t) => {
           const already = agents.some((a) => a.id === t.id);
           return (
-            <span
+            <button
               key={t.id}
-              className="chip"
+              type="button"
               title={already ? `${t.name} — you already have one` : t.role}
               onClick={() => createAgentFromTemplate(t.id)}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 999,
-                border: "1px solid var(--line3)",
-                font: "400 10.5px var(--sans)",
-                color: already ? "var(--text4)" : "var(--text2)",
-                cursor: "pointer",
-              }}
+              className={cx(
+                CHIP,
+                "px-2.5 py-1 text-xs font-normal",
+                already ? "text-text4 dark:text-text4-d" : "text-text2 dark:text-text2-d",
+              )}
             >
               {t.name}
-            </span>
+            </button>
           );
         })}
-        <span
-          className="chip"
+        <button
+          type="button"
           onClick={custom}
-          style={{
-            padding: "4px 10px",
-            borderRadius: 999,
-            border: "1px dashed var(--line3)",
-            font: "400 10.5px var(--sans)",
-            color: "var(--text4)",
-            cursor: "pointer",
-          }}
+          className={cx(CHIP, "border-dashed px-2.5 py-1 text-xs font-normal text-text4 dark:text-text4-d")}
         >
           custom
-        </span>
+        </button>
       </div>
-      <div style={{ paddingTop: 10, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+      <div className="pt-2.5 text-xs leading-normal text-text4 dark:text-text4-d">
         A template is a menu entry. Nothing is installed until you pick one.
       </div>
     </div>
@@ -187,88 +191,68 @@ function ModelPicker({
       <input
         value={find}
         onChange={(e) => setFind(e.target.value)}
+        aria-label="Search the models this endpoint offers"
         placeholder={
           models === null ? "reading what this endpoint offers…" : `search ${models.length} models`
         }
         spellCheck={false}
-        style={{
-          width: "100%",
-          padding: "10px 12px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px solid var(--line2)",
-          color: "var(--text)",
-          fontFamily: "var(--mono)",
-          fontSize: 12,
-          outline: "none",
-        }}
+        className={cx(FIELD, "px-3 py-2.5 font-mono text-[12px]")}
       />
 
       {error && (
-        <p style={{ margin: "8px 0 0", font: "400 11.5px/1.6 var(--sans)", color: "var(--warn)" }}>
+        <p className="mb-0 mt-2 text-sm leading-relaxed text-warn dark:text-warn-d">
           {error} — the name can still be typed, it just is not being checked.
         </p>
       )}
 
       {models !== null && models.length === 0 && !error && (
-        <p style={{ margin: "8px 0 0", font: "400 11.5px/1.6 var(--sans)", color: "var(--text4)" }}>
+        <p className="mb-0 mt-2 text-sm leading-relaxed text-text4 dark:text-text4-d">
           Nothing to list for this endpoint. A local Ollama reports only what has been
           pulled onto this machine — `ollama pull qwen3.5` and it appears here.
         </p>
       )}
 
       <div
-        style={{
-          marginTop: 8,
-          maxHeight: 260,
-          overflowY: "auto",
-          border: models?.length ? "1px solid var(--line2)" : "none",
-          borderRadius: 12,
-        }}
+        className={cx(
+          "mt-2 max-h-[260px] overflow-y-auto rounded-md",
+          !!models?.length && "border border-line2 dark:border-line2-d",
+        )}
       >
         {shown.map((m) => {
           const picked = m.id === chosen;
           return (
-            <div
+            <button
               key={m.id}
-              className="row"
+              type="button"
               onClick={() => onPick(m.id)}
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 10,
-                padding: "10px 12px",
-                borderBottom: "1px solid var(--line2)",
-                background: picked ? "var(--accentSoft)" : "transparent",
-                cursor: "pointer",
-                opacity: m.usable ? 1 : 0.55,
-              }}
+              className={cx(
+                ROW,
+                "flex w-full items-baseline gap-2.5 border-b border-line2 px-3 py-2.5 text-left dark:border-line2-d",
+                picked ? "bg-accentSoft dark:bg-accentSoft-d" : "bg-transparent",
+                m.usable ? "opacity-100" : "opacity-55",
+              )}
             >
               <span
-                style={{
-                  ...monoStyle,
-                  fontSize: 11.5,
-                  color: picked ? "var(--accent)" : "var(--text1)",
-                  ...truncateStyle,
-                  flex: 1,
-                }}
+                className={cx(
+                  mono,
+                  truncate,
+                  "flex-1 text-sm",
+                  picked ? "text-accent dark:text-accent-d" : "text-text1 dark:text-text1-d",
+                )}
               >
                 {m.id}
               </span>
               {caveatOf(m) ? (
-                <span style={{ font: "400 10.5px var(--sans)", color: "var(--warn)", flex: "none" }}>
+                <span className="flex-none text-xs font-normal text-warn dark:text-warn-d">
                   {caveatOf(m)}
                 </span>
               ) : (
-                <span
-                  style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", flex: "none" }}
-                  data-nums
-                >
+                <span className={cx(mono, "flex-none text-xs text-text4 dark:text-text4-d")}>
                   {Math.round(m.context / 1000)}k
                   {m.input_cost ? ` · $${m.input_cost}/M` : " · free"}
                 </span>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -277,29 +261,19 @@ function ModelPicker({
           empty, stale, or unreachable, and an endpoint can serve a model nobody
           has published — none of which should leave the operator unable to name
           the model they meant. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", flex: "none" }}>set to</span>
+      <div className="mt-2 flex items-center gap-2">
+        <span className={cx(mono, "flex-none text-xs text-text4 dark:text-text4-d")}>set to</span>
         <input
           key={chosen}
           defaultValue={chosen}
+          aria-label="Model name"
           placeholder="type a name the endpoint knows"
           spellCheck={false}
           onBlur={(e) => {
             const next = e.target.value.trim();
             if (next !== chosen) onPick(next);
           }}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            padding: "8px 10px",
-            borderRadius: 8,
-            background: "var(--surface)",
-            border: "1px solid var(--line2)",
-            color: "var(--text)",
-            fontFamily: "var(--mono)",
-            fontSize: 11.5,
-            outline: "none",
-          }}
+          className={cx(FIELD, "min-w-0 flex-1 px-2.5 py-2 font-mono text-sm")}
         />
       </div>
     </div>
@@ -319,22 +293,26 @@ function Knob({
    *  A tile that looks clickable and does nothing is worse than a still one. */
   onCycle?: () => void;
 }) {
-  return (
-    <div
-      className={onCycle ? "row" : undefined}
-      onClick={onCycle}
-      style={{
-        padding: "12px 14px",
-        background: "var(--surface)",
-        cursor: onCycle ? "pointer" : "default",
-      }}
-    >
-      <div style={{ font: "400 10.5px var(--sans)", color: "var(--text4)", letterSpacing: ".08em" }}>
+  const body = (
+    <>
+      <div className="text-xs font-normal tracking-[.08em] text-text4 dark:text-text4-d">
         {label}
       </div>
-      <div style={{ marginTop: 4, font: "600 12.5px var(--sans)", color: "var(--text1)" }}>{value}</div>
-      <div style={{ marginTop: 4, font: "400 10.5px/1.4 var(--sans)", color: "var(--text4)" }}>{hint}</div>
-    </div>
+      <div className="mt-1 text-md font-semibold text-text1 dark:text-text1-d">{value}</div>
+      <div className="mt-1 text-xs font-normal leading-snug text-text4 dark:text-text4-d">
+        {hint}
+      </div>
+    </>
+  );
+  const skin = "bg-surface px-3.5 py-3 text-left dark:bg-surface-d";
+  // Um botão quando cicla, uma caixa quando não: um mosaico que parece
+  // clicável e não faz nada é pior do que um que está quieto.
+  return onCycle ? (
+    <button type="button" onClick={onCycle} className={cx(skin, ROW, "cursor-pointer")}>
+      {body}
+    </button>
+  ) : (
+    <div className={cx(skin, "cursor-default")}>{body}</div>
   );
 }
 
@@ -350,54 +328,38 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div
-      className="row"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
       onClick={() => onChange(!on)}
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 12,
-        padding: "12px 14px",
-        borderBottom: "1px solid var(--line)",
-        cursor: "pointer",
-      }}
+      className={cx(
+        ROW,
+        "flex w-full cursor-pointer items-start gap-3 border-b border-line px-3.5 py-3 text-left dark:border-line-d",
+      )}
     >
       <span
-        style={{
-          width: 30,
-          height: 18,
-          flex: "none",
-          marginTop: 1,
-          borderRadius: 999,
-          background: on ? "var(--accentLine)" : "var(--line3)",
-          display: "flex",
-          alignItems: "center",
-          padding: 2,
-          justifyContent: on ? "flex-end" : "flex-start",
-          transition: "background .18s ease",
-        }}
+        className={cx(
+          "mt-px flex h-4.5 w-[30px] flex-none items-center rounded-full p-0.5 transition-colors duration-150",
+          on
+            ? "justify-end bg-accentLine dark:bg-accentLine-d"
+            : "justify-start bg-line3 dark:bg-line3-d",
+        )}
       >
         <span
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: "50%",
-            background: on ? "var(--accent2)" : "var(--line4)",
-            transition: "background .18s ease",
-          }}
+          className={cx(
+            "h-3.5 w-3.5 rounded-full transition-colors duration-150",
+            on ? "bg-accent2 dark:bg-accent2-d" : "bg-line4 dark:bg-line4-d",
+          )}
         />
       </span>
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "block", font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
-          {label}
-        </span>
-        <span
-          style={{ display: "block", marginTop: 2, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}
-        >
+      <span className="min-w-0 flex-1">
+        <span className="block text-md font-medium text-text1 dark:text-text1-d">{label}</span>
+        <span className="mt-0.5 block text-xs font-normal leading-normal text-text4 dark:text-text4-d">
           {hint}
         </span>
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -438,7 +400,7 @@ export function Agents({
 
   if (!agent) {
     return (
-      <div style={{ flex: 1, display: "grid", placeItems: "center", color: "var(--text3)" }}>
+      <div className="grid flex-1 place-items-center text-text3 dark:text-text3-d">
         No profiles yet.
       </div>
     );
@@ -540,37 +502,31 @@ export function Agents({
   // of a chart of something. A profile that has never run says so instead.
   const neverRan = (stats?.runs ?? 0) === 0;
   const numbers = [
-    { k: "runs", v: num(stats?.runs ?? 0), color: "var(--text1)" },
-    { k: "cards done", v: num(stats?.cards_done ?? 0), color: "var(--ok)" },
-    { k: "sent back", v: num(stats?.sent_back ?? 0), color: "var(--warn)" },
-    { k: "spend", v: money(stats?.spend ?? 0), color: "var(--text1)" },
-    { k: "avg / card", v: money(stats?.avg_cost ?? 0), color: "var(--text1)" },
-    { k: "commits", v: num(stats?.commits ?? 0), color: "var(--text1)" },
+    { k: "runs", v: num(stats?.runs ?? 0), fg: "text-text1 dark:text-text1-d" },
+    { k: "cards done", v: num(stats?.cards_done ?? 0), fg: "text-ok dark:text-ok-d" },
+    { k: "sent back", v: num(stats?.sent_back ?? 0), fg: "text-warn dark:text-warn-d" },
+    { k: "spend", v: money(stats?.spend ?? 0), fg: "text-text1 dark:text-text1-d" },
+    { k: "avg / card", v: money(stats?.avg_cost ?? 0), fg: "text-text1 dark:text-text1-d" },
+    { k: "commits", v: num(stats?.commits ?? 0), fg: "text-text1 dark:text-text1-d" },
   ];
 
   return (
-    <div
-      style={{
-        flex: 1,
-        minHeight: 0,
-        display: "grid",
-        gridTemplateColumns: "266px minmax(0,1fr)",
-        overflow: "hidden",
-        animation: "paneIn .4s cubic-bezier(.2,.8,.25,1) both",
-      }}
+    <motion.div
+      variants={paneIn}
+      initial="hidden"
+      animate="shown"
+      className="grid min-h-0 flex-1 grid-cols-[266px_minmax(0,1fr)] overflow-hidden"
     >
-      <div
-        style={{
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          borderRight: "1px solid var(--line)",
-          overflow: "hidden",
-        }}
-      >
-        <div className="stagger" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px 12px" }}>
-          {teams.map(([team, members]) => (
-            <div key={team}>
+      <div className="flex min-h-0 flex-col overflow-hidden border-r border-line dark:border-line-d">
+        {/* A lista chega linha a linha. É o `.stagger` do desenho, agora com os
+            mesmos atrasos escritos num sítio só. */}
+        <motion.div
+          initial="hidden"
+          animate="shown"
+          className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-2.5"
+        >
+          {teams.map(([team, members], ti) => (
+            <motion.div key={team} custom={ti} variants={rowIn}>
               <Eyebrow className="block px-2 pb-1.5 pt-2.5">{team}</Eyebrow>
               {members.map((a) => {
                 const at = tone(a.tone);
@@ -578,107 +534,85 @@ export function Agents({
                 const busy = cards.filter((c) => c.status === "running" && c.agent_id === a.id).length;
                 const state = stateOf(a, busy);
                 return (
-                  <div
+                  <button
                     key={a.id}
-                    className="row"
+                    type="button"
+                    aria-pressed={on}
                     onClick={() => select(a.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 10px",
-                      borderRadius: 12,
-                      cursor: "pointer",
-                      background: on ? "var(--active)" : "transparent",
-                      boxShadow: on ? "inset 0 0 0 1px var(--line3)" : "none",
-                    }}
+                    className={cx(
+                      ROW,
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left",
+                      on
+                        ? "bg-active shadow-[inset_0_0_0_1px_theme(colors.line3.DEFAULT)] dark:bg-active-d dark:shadow-[inset_0_0_0_1px_theme(colors.line3.d)]"
+                        : "bg-transparent",
+                    )}
                   >
                     <Glyph tone={at} size={24} radius={8} font={9.5}>
                       {a.initial}
                     </Glyph>
-                    <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="min-w-0 flex-1">
                       <span
-                        style={{
-                          display: "block",
-                          font: "600 12.5px var(--sans)",
-                          color: on ? "var(--text)" : "var(--text1)",
-                          ...truncateStyle,
-                        }}
+                        className={cx(
+                          truncate,
+                          "block text-md font-semibold",
+                          on ? "text-text dark:text-text-d" : "text-text1 dark:text-text1-d",
+                        )}
                       >
                         {a.name}
                       </span>
                       <span
-                        style={{ display: "block", ...monoStyle, fontSize: 10.5, color: "var(--text4)", ...truncateStyle }}
+                        className={cx(mono, truncate, "block text-xs text-text4 dark:text-text4-d")}
                       >
                         {a.title} · {a.model ?? "auto"}
                       </span>
                     </span>
-                    <span style={{ font: "500 10.5px var(--sans)", color: state.color }}>
-                      {state.label}
-                    </span>
-                  </div>
+                    <span className={cx("text-xs font-medium", state.fg)}>{state.label}</span>
+                  </button>
                 );
               })}
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
         <Templates />
       </div>
 
-      <div style={{ minWidth: 0, minHeight: 0, overflowY: "auto" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 14,
-            padding: "18px 22px 14px",
-            borderBottom: "1px solid var(--line)",
-            animation: "rowIn .4s cubic-bezier(.2,.8,.25,1) both",
-          }}
+      <div className="min-h-0 min-w-0 overflow-y-auto">
+        <motion.div
+          custom={0}
+          variants={rowIn}
+          initial="hidden"
+          animate="shown"
+          className="flex items-start gap-3.5 border-b border-line px-5.5 pb-3.5 pt-4.5 dark:border-line-d"
         >
           <Glyph tone={t} size={38} radius={12} font={14}>
             {agent.initial}
           </Glyph>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2.5">
               <input
                 value={agent.name}
+                aria-label="Agent name"
                 onChange={(e) => patch({ name: e.target.value })}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  outline: "none",
-                  padding: 0,
-                  font: "600 16px var(--sans)",
-                  color: "var(--text)",
-                  letterSpacing: "-.01em",
-                  width: `${Math.max(6, agent.name.length + 1)}ch`,
-                }}
+                className="border-none bg-transparent p-0 text-xl font-semibold tracking-[-.01em] text-text outline-none dark:text-text-d"
+                style={{ width: `${Math.max(6, agent.name.length + 1)}ch` }}
               />
               <input
                 value={agent.team}
                 onChange={(e) => patch({ team: e.target.value })}
                 placeholder="team"
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: "var(--surface2)",
-                  outline: "none",
-                  ...monoStyle,
-                  fontSize: 10.5,
-                  color: "var(--text2)",
-                  width: 108,
-                }}
+                aria-label="Team"
+                className={cx(
+                  mono,
+                  "w-[108px] rounded-sm border-none bg-surface2 px-2 py-0.5 text-xs text-text2 outline-none dark:bg-surface2-d dark:text-text2-d",
+                )}
               />
               <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 8,
-                  background: running > 0 ? "var(--okSoft)" : "var(--surface2)",
-                  font: "600 10.5px var(--sans)",
-                  color: running > 0 ? "var(--ok)" : "var(--text3)",
-                }}
+                className={cx(
+                  "rounded-sm px-2 py-0.5 text-xs font-semibold",
+                  running > 0
+                    ? "bg-okSoft text-ok dark:bg-okSoft-d dark:text-ok-d"
+                    : "bg-surface2 text-text3 dark:bg-surface2-d dark:text-text3-d",
+                )}
               >
                 {st.label}
               </span>
@@ -687,17 +621,8 @@ export function Agents({
               value={agent.role}
               onChange={(e) => patch({ role: e.target.value })}
               placeholder="What is this one for?"
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 4,
-                border: "none",
-                background: "transparent",
-                outline: "none",
-                padding: 0,
-                font: "400 12.5px var(--sans)",
-                color: "var(--text3)",
-              }}
+              aria-label="What this agent is for"
+              className="mt-1 block w-full border-none bg-transparent p-0 text-md font-normal text-text3 outline-none dark:text-text3-d"
             />
           </div>
           {[
@@ -713,44 +638,42 @@ export function Agents({
               off: false,
             },
           ].map((b) => (
-            <span
+            <button
               key={b.label}
-              className="chip"
-              onClick={() => !b.off && b.run()}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 8,
-                border: "1px solid var(--line3)",
-                font: "500 11.5px var(--sans)",
-                color: "var(--text2)",
-                cursor: b.off ? "not-allowed" : "pointer",
-                opacity: b.off ? 0.45 : 1,
-              }}
+              type="button"
+              disabled={b.off}
+              onClick={b.run}
+              className={cx(
+                CHIP,
+                "rounded-sm px-3.5 py-2 text-sm font-medium text-text2 disabled:cursor-not-allowed disabled:opacity-45 dark:text-text2-d",
+              )}
             >
               {b.label}
-            </span>
+            </button>
           ))}
-        </div>
+        </motion.div>
 
-        <div className="stagger" style={{ padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(5,minmax(0,1fr))",
-              gap: 1,
-              background: "var(--line)",
-              border: "1px solid var(--line)",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
+        <motion.div
+          initial="hidden"
+          animate="shown"
+          className="flex flex-col gap-4.5 px-5.5 pb-5 pt-4"
+        >
+          <motion.div
+            custom={0}
+            variants={rowIn}
+            className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-px overflow-hidden rounded-md border border-line bg-line dark:border-line-d dark:bg-line-d"
           >
             {knobs.map((k) => (
               <Knob key={k.label} {...k} />
             ))}
-          </div>
+          </motion.div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: 16 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <motion.div
+            custom={1}
+            variants={rowIn}
+            className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4"
+          >
+            <div className="flex flex-col gap-3.5">
               <div>
                 <Eyebrow className="block pb-1.5">BRIEF</Eyebrow>
                 <textarea
@@ -758,17 +681,11 @@ export function Agents({
                   value={agent.brief}
                   onChange={(e) => patch({ brief: e.target.value })}
                   placeholder="What is it told before every run?"
-                  style={{
-                    width: "100%",
-                    resize: "vertical",
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    background: "var(--surface)",
-                    border: "1px solid var(--line2)",
-                    font: "400 12.5px/1.7 var(--sans)",
-                    color: "var(--text2)",
-                    outline: "none",
-                  }}
+                  aria-label="Brief"
+                  className={cx(
+                    FIELD,
+                    "resize-y rounded-md px-3.5 py-3 text-md font-normal leading-[1.7] text-text2 dark:text-text2-d",
+                  )}
                 />
               </div>
               <div>
@@ -778,17 +695,11 @@ export function Agents({
                   value={agent.expected_output}
                   onChange={(e) => patch({ expected_output: e.target.value })}
                   placeholder="What finished work looks like."
-                  style={{
-                    width: "100%",
-                    resize: "vertical",
-                    padding: "12px 14px",
-                    borderRadius: 12,
-                    background: "var(--surface)",
-                    border: "1px solid var(--line2)",
-                    font: "400 12.5px/1.7 var(--sans)",
-                    color: "var(--text2)",
-                    outline: "none",
-                  }}
+                  aria-label="Expected output"
+                  className={cx(
+                    FIELD,
+                    "resize-y rounded-md px-3.5 py-3 text-md font-normal leading-[1.7] text-text2 dark:text-text2-d",
+                  )}
                 />
               </div>
               {endpoint && (
@@ -801,13 +712,15 @@ export function Agents({
 
               <div>
                 <Eyebrow className="block pb-2">TOOLS IT MAY USE</Eyebrow>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className="flex flex-wrap gap-1.5">
                   {ALL_PERMISSIONS.map((p) => {
                     const on = agent.permissions.includes(p);
                     return (
-                      <span
-                        className="hv-soft"
+                      <button
                         key={p}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={on}
                         onClick={() =>
                           patch({
                             permissions: on
@@ -815,60 +728,48 @@ export function Agents({
                               : [...agent.permissions, p],
                           })
                         }
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "6px 10px",
-                          borderRadius: 8,
-                          background: on ? "var(--accentSoft)" : "var(--surface)",
-                          border: `1px solid ${on ? "var(--accentLine)" : "var(--line2)"}`,
-                          font: "500 11.5px var(--sans)",
-                          color: on ? "var(--text1)" : "var(--text4)",
-                          cursor: "pointer",
-                        }}
+                        className={cx(
+                          "flex min-h-6 cursor-pointer items-center gap-1.5 rounded-sm border px-2.5 py-1.5 text-sm font-medium transition-colors duration-150",
+                          on
+                            ? "border-accentLine bg-accentSoft text-text1 dark:border-accentLine-d dark:bg-accentSoft-d dark:text-text1-d"
+                            : "border-line2 bg-surface text-text4 hover:bg-hovered hover:text-text dark:border-line2-d dark:bg-surface-d dark:text-text4-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+                        )}
                       >
                         <span
-                          style={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: 4,
-                            border: `1px solid ${on ? "var(--accent2)" : "var(--line3)"}`,
-                            background: on ? "var(--accent2)" : "transparent",
-                          }}
+                          className={cx(
+                            "h-3 w-3 rounded-[4px] border",
+                            on
+                              ? "border-accent2 bg-accent2 dark:border-accent2-d dark:bg-accent2-d"
+                              : "border-line3 bg-transparent dark:border-line3-d",
+                          )}
                         />
                         {p}
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
-                <div style={{ paddingTop: 8, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+                <div className="pt-2 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
                   Anything outside this list is refused before it runs. Anything inside it still asks
                   you, unless a scoped standing rule covers it.
                 </div>
               </div>
               <div>
                 <Eyebrow className="block pb-2">SKILLS</Eyebrow>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                <div className="flex flex-wrap items-center gap-1.5">
                   {agent.skills.map((s) => (
-                    <span
-                      className="hv-soft"
+                    <button
                       key={s}
+                      type="button"
                       title="Remove"
+                      aria-label={`Remove the ${s} skill`}
                       onClick={() => patch({ skills: agent.skills.filter((x) => x !== s) })}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        background: "var(--surface)",
-                        border: "1px solid var(--line2)",
-                        ...monoStyle,
-                        fontSize: 11.5,
-                        color: "var(--text2)",
-                        cursor: "pointer",
-                      }}
+                      className={cx(
+                        mono,
+                        "min-h-6 cursor-pointer rounded-full border border-line2 bg-surface px-2.5 py-1 text-sm text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line2-d dark:bg-surface-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+                      )}
                     >
                       {s}
-                    </span>
+                    </button>
                   ))}
                   <input
                     value={skill}
@@ -879,22 +780,14 @@ export function Agents({
                       setSkill("");
                     }}
                     placeholder="add"
-                    style={{
-                      width: 96,
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      border: "1px dashed var(--line3)",
-                      background: "transparent",
-                      outline: "none",
-                      font: "400 11.5px var(--sans)",
-                      color: "var(--text2)",
-                    }}
+                    aria-label="Add a skill"
+                    className="w-24 rounded-full border border-dashed border-line3 bg-transparent px-2.5 py-1 text-sm font-normal text-text2 outline-none dark:border-line3-d dark:text-text2-d"
                   />
                 </div>
               </div>
               <div>
                 <Eyebrow className="block pb-2">WHERE IT SITS</Eyebrow>
-                <div style={{ display: "flex", gap: 10 }}>
+                <div className="flex gap-2.5">
                   {[
                     {
                       label: "reports to",
@@ -909,23 +802,15 @@ export function Agents({
                       none: "You",
                     },
                   ].map((f) => (
-                    <div key={f.label} style={{ flex: 1 }}>
-                      <div style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", paddingBottom: 4 }}>
+                    <div key={f.label} className="flex-1">
+                      <div className={cx(mono, "pb-1 text-xs text-text4 dark:text-text4-d")}>
                         {f.label}
                       </div>
                       <select
                         value={f.value}
+                        aria-label={f.label}
                         onChange={(e) => f.set(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          border: "1px solid var(--line2)",
-                          background: "var(--surface)",
-                          font: "400 12.5px var(--sans)",
-                          color: "var(--text2)",
-                          cursor: "pointer",
-                        }}
+                        className={cx(FIELD, "cursor-pointer px-2.5 py-2 text-md font-normal text-text2 dark:text-text2-d")}
                       >
                         <option value="">{f.none}</option>
                         {agents
@@ -942,15 +827,8 @@ export function Agents({
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div
-                style={{
-                  borderRadius: 12,
-                  background: "var(--surface)",
-                  border: "1px solid var(--line2)",
-                  overflow: "hidden",
-                }}
-              >
+            <div className="flex flex-col gap-3.5">
+              <div className="overflow-hidden rounded-md border border-line2 bg-surface dark:border-line2-d dark:bg-surface-d">
                 <Toggle
                   label="Can hold a conversation"
                   hint="Gets its own chat and its own resumable session."
@@ -969,81 +847,55 @@ export function Agents({
                   on={agent.can_delegate}
                   onChange={(v) => patch({ can_delegate: v })}
                 />
-                <div style={{ padding: "12px 14px", font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+                <div className="px-3.5 py-3 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
                   Board changes an agent makes still come to you as a permission request — the same
                   sheet a shell command uses.
                 </div>
               </div>
 
-              <div
-                style={{
-                  borderRadius: 12,
-                  background: "var(--surface)",
-                  border: "1px solid var(--line2)",
-                  padding: 14,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 10 }}>
-                  <span style={{ font: "600 11.5px var(--sans)", color: "var(--text1)" }}>
+              <div className="rounded-md border border-line2 bg-surface p-3.5 dark:border-line2-d dark:bg-surface-d">
+                <div className="flex items-baseline gap-2 pb-2.5">
+                  <span className="text-sm font-semibold text-text1 dark:text-text1-d">
                     What it has done
                   </span>
-                  <div style={{ flex: 1 }} />
-                  <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>all time</span>
+                  <div className="flex-1" />
+                  <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>all time</span>
                 </div>
                 {neverRan ? (
-                  <p
-                    style={{
-                      margin: 0,
-                      font: "400 12.5px/1.6 var(--sans)",
-                      color: "var(--text3)",
-                    }}
-                  >
+                  <p className="m-0 text-md font-normal leading-relaxed text-text3 dark:text-text3-d">
                     {agent.name} has not run yet. Give it a card and its runs, spend and
                     commits are counted here from the event log.
                   </p>
                 ) : (
                   <>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(3,minmax(0,1fr))",
-                        gap: "12px 8px",
-                      }}
-                    >
+                    <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-x-2 gap-y-3">
                       {numbers.map((n) => (
                         <div key={n.k}>
-                          <div
-                            data-nums
-                            style={{ ...monoStyle, fontSize: 16, fontWeight: 600, color: n.color }}
-                          >
-                            {n.v}
-                          </div>
-                          <div
-                            style={{ marginTop: 1, font: "400 10.5px var(--sans)", color: "var(--text4)" }}
-                          >
+                          <div className={cx(mono, "text-xl font-semibold", n.fg)}>{n.v}</div>
+                          <div className="mt-px text-xs font-normal text-text4 dark:text-text4-d">
                             {n.k}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div
-                      style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 34, paddingTop: 12 }}
-                    >
+                    <div className="flex h-[34px] items-end gap-1 pt-3">
                       {week.map((v, i) => (
                         <span
                           key={i}
+                          className={cx(
+                            "flex-1 origin-bottom animate-[grow_.55s_cubic-bezier(.2,.8,.25,1)_both] rounded-2px",
+                            v === peak && v > 0
+                              ? "bg-accent dark:bg-accent-d"
+                              : "bg-line3 dark:bg-line3-d",
+                          )}
                           style={{
-                            flex: 1,
                             height: `${Math.max(6, Math.round((v / peak) * 100))}%`,
-                            borderRadius: 2,
-                            background: v === peak && v > 0 ? "var(--accent)" : "var(--line3)",
-                            transformOrigin: "bottom",
-                            animation: `grow .55s cubic-bezier(.2,.8,.25,1) ${0.06 + i * 0.05}s both`,
+                            animationDelay: `${0.06 + i * 0.05}s`,
                           }}
                         />
                       ))}
                     </div>
-                    <div style={{ paddingTop: 6, ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+                    <div className={cx(mono, "pt-1.5 text-xs text-text4 dark:text-text4-d")}>
                       runs, last 7 days
                     </div>
                   </>
@@ -1051,72 +903,59 @@ export function Agents({
               </div>
 
               {mine.length > 0 && (
-                <div
-                  style={{
-                    borderRadius: 12,
-                    background: "var(--surface)",
-                    border: "1px solid var(--line2)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ padding: "12px 14px 8px", font: "600 11.5px var(--sans)", color: "var(--text1)" }}>
+                <div className="overflow-hidden rounded-md border border-line2 bg-surface dark:border-line2-d dark:bg-surface-d">
+                  <div className="px-3.5 pb-2 pt-3 text-sm font-semibold text-text1 dark:text-text1-d">
                     Its cards here
                   </div>
                   {mine.slice(0, 6).map((c) => (
-                    <div
+                    <button
                       key={c.id}
-                      className="row"
+                      type="button"
                       onClick={() => openSession(c.id)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "8px 14px",
-                        borderTop: "1px solid var(--line)",
-                        cursor: "pointer",
-                      }}
+                      className={cx(
+                        ROW,
+                        "flex w-full cursor-pointer items-center gap-2.5 border-t border-line px-3.5 py-2 text-left dark:border-line-d",
+                      )}
                     >
-                      <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncateStyle }}>
+                      <span
+                        className={cx(
+                          truncate,
+                          "flex-1 text-sm font-normal text-text2 dark:text-text2-d",
+                        )}
+                      >
                         {c.title}
                       </span>
-                      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+                      <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
                         {money(c.cost_usd, 2)}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
 
-              <div style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--bad)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)" }}>
+              <div className="rounded-md border border-bad px-3.5 py-3 dark:border-bad-d">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex-1 text-sm font-medium text-text2 dark:text-text2-d">
                     Remove this profile
                   </span>
-                  <span
-                    className="hv-soft"
-                    onClick={() => agent.id !== "director" && removeAgent(agent.id)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 8,
-                      border: "1px solid var(--bad)",
-                      color: "var(--bad2)",
-                      font: "600 11.5px var(--sans)",
-                      cursor: agent.id === "director" ? "not-allowed" : "pointer",
-                      opacity: agent.id === "director" ? 0.45 : 1,
-                    }}
+                  <button
+                    type="button"
+                    disabled={agent.id === "director"}
+                    onClick={() => removeAgent(agent.id)}
+                    className="min-h-6 cursor-pointer rounded-sm border border-bad px-3 py-1.5 text-sm font-semibold text-bad2 transition-colors duration-150 hover:bg-badSoft disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent dark:border-bad-d dark:text-bad2-d dark:hover:bg-badSoft-d"
                   >
                     Remove
-                  </span>
+                  </button>
                 </div>
-                <div style={{ paddingTop: 6, font: "400 10.5px/1.5 var(--sans)", color: "var(--text4)" }}>
+                <div className="pt-1.5 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
                   Finished cards keep their history. The Director cannot be removed — the review loop
                   needs it.
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

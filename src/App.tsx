@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { check, type Update as Release } from "@tauri-apps/plugin-updater";
+import { MotionConfig } from "motion/react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { TitleBar } from "./components/TitleBar";
 import { NavRail } from "./components/NavRail";
@@ -1124,8 +1125,13 @@ function Shell() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <Shell />
-    </StoreProvider>
+    // `reducedMotion="user"` é o lado do `motion` da mesma preferência que o
+    // bloco `@media (prefers-reduced-motion)` do `styles/app.css` trata pelo
+    // lado do CSS. Movimento a menos onde foi pedido, nos dois caminhos.
+    <MotionConfig reducedMotion="user">
+      <StoreProvider>
+        <Shell />
+      </StoreProvider>
+    </MotionConfig>
   );
 }
