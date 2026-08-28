@@ -24,6 +24,7 @@ import type {
   CardDiff,
   Conversation,
   Envelope,
+  MirrorWarning,
   PendingApproval,
   Proposal,
   ProjectStats,
@@ -50,20 +51,31 @@ export interface Toast {
   body?: string;
 }
 
-/** Um aviso de trabalho fora do quadro (#86), tal como chegou.
+/** Um aviso de trabalho fora do quadro (#86), tal como chegou a esta janela.
  *
- *  Não é um espelho de nada do backend: o backend guarda só o **último**
- *  achado, numa string, e não o expõe por comando nenhum — nem no `bootstrap`.
- *  Isto é o registo do que esta janela recebeu, como os `Toast` ou as linhas
- *  do run feed, e por isso o id e a hora são desta janela e dizem-se assim
- *  ("seen", não "detected"). */
-export interface OutsideWork {
+ *  O achado é do backend e vem inteiro (`MirrorWarning`); o que é desta janela
+ *  é só o id e a hora — por isso o rail diz "seen" e não "detected". O backend
+ *  guarda apenas o **último**, e isto é uma lista: um aviso novo não apaga o
+ *  anterior. */
+export interface OutsideWorkSeen {
   id: number;
-  /** O texto tal e qual o backend o escreveu. Nada aqui o recalcula. */
-  said: string;
+  /** Os factos e a metade que fala ao Director, tal como o backend os escreveu.
+   *  Nada aqui os recalcula nem os conta a partir de texto. */
+  warning: MirrorWarning;
   /** Quando **este ecrã** o recebeu. */
   seen_ms: number;
 }
+
+/** A identidade de um aviso são os factos, não a frase.
+ *
+ *  O olhar corre duas vezes por sessão e o operador não pode ver o mesmo aviso
+ *  duas vezes. A chave é o achado em si: quantos commits, desde quando, e que
+ *  ficheiros — o que o backend descobriu **sobre o repositório**. A prosa não
+ *  serve, porque a idade que ela cita ("3 hours ago") é relativa ao instante
+ *  em que foi escrita, e a mesma descoberta descrita duas vezes daria duas
+ *  frases diferentes. */
+const outsideWorkKey = (w: MirrorWarning) =>
+  [w.work.commits, w.work.since_ms, w.work.files_total, w.work.files.join(">")].join("|");
 
 interface Store {
   ready: boolean;
@@ -88,7 +100,7 @@ interface Store {
   /** Warnings that Relay's own source moved without a card behind it, newest
    *  first. They never expire on their own and nothing here clears them: only
    *  `dismissOutsideWork` takes one off the rail. */
-  outsideWork: OutsideWork[];
+  outsideWork: OutsideWorkSeen[];
   dismissOutsideWork: (id: number) => void;
   /** What each card changed, once something has asked for it. */
   diffs: Record<string, CardDiff>;
@@ -226,7 +238,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const feed = useRunFeed();
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [outsideWork, setOutsideWork] = useState<OutsideWork[]>([]);
+  const [outsideWork, setOutsideWork] = useState<OutsideWorkSeen[]>([]);
   const [diffs, setDiffs] = useState<Record<string, CardDiff>>({});
   const [navigation, setNavigation] = useState<(Navigation & { at: number }) | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -235,6 +247,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   projectRef.current = projectId;
   const toastSeq = useRef(0);
   const outsideSeq = useRef(0);
+  /** Which findings this window has already been told about, by
+   *  `outsideWorkKey`. See `noteOutsideWork`. */
+  const outsideKeys = useRef<Set<string>>(new Set());
 
   const toast = useCallback((tone: string, title: string, body?: string) => {
     const id = ++toastSeq.current;
@@ -249,6 +264,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fail = useCallback(
     (e: unknown, what: string) => {
       toast("bad", what, reason(e));
+    },
+    [toast],
+  );
+
+  /** Put a warning about work that skipped the board on the rail.
+   *
+   *  A finding already on the rail is dropped by `outsideWorkKey`, and the
+   *  toast rides on the append rather than on the arrival: it fires exactly
+   *  once per warning per window, which is the same claim the rail's
+   *  "seen HH:MM" makes — this window has just learned about this. */
+  const noteOutsideWork = useCallback(
+    (warning: MirrorWarning) => {
+      // The ledger is a ref and not the list itself because the decision has
+      // to be made now, in this call: a state updater runs during the next
+      // render, too late to say whether the toast is owed. Dismissing takes
+      // the entry off the rail without forgetting the key.
+      const key = outsideWorkKey(warning);
+      if (outsideKeys.current.has(key)) return;
+      outsideKeys.current.add(key);
+      setOutsideWork((prev) => [
+        { id: ++outsideSeq.current, warning, seen_ms: Date.now() },
+        ...prev,
+      ]);
+      // The toast is the only signal on the two screens the rail is hidden
+      // from. It is the *extra*, never the surface: the rail entry is what
+      // stays until the operator says otherwise.
+      toast(
+        "warn",
+        "Work that skipped the board",
+        "Relay's own repository moved without a card behind it — see Right now.",
+      );
     },
     [toast],
   );
@@ -413,25 +459,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     keep(events.onConversations((list) => !closed && chat.setConversations(list)));
     keep(events.onInbox((list) => !closed && setProposals(list)));
     keep(
-      events.onOutsideWork((said) => {
+      events.onOutsideWork((warning) => {
         if (closed) return;
-        const text = said.trim();
-        if (!text) return;
-        setOutsideWork((prev) => {
-          // The look runs twice a session and re-anchors its sha each time, so
-          // the same sentence twice means the same commits twice: keep the
-          // first, which carries the hour it actually arrived.
-          if (prev.some((w) => w.said === text)) return prev;
-          return [{ id: ++outsideSeq.current, said: text, seen_ms: Date.now() }, ...prev];
-        });
-        // The toast is the only signal on the two screens the rail is hidden
-        // from. It is the *extra*, never the surface: the rail entry above is
-        // what stays until the operator says otherwise.
-        toast(
-          "warn",
-          "Work that skipped the board",
-          "Relay's own repository moved without a card behind it — see Right now.",
-        );
+        noteOutsideWork(warning);
       }),
     );
     keep(

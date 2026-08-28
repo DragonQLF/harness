@@ -87,6 +87,20 @@ pub struct ProjectRuntime {
     pub run_log: Arc<JsonlRunLog>,
 }
 
+/// The last look at Relay's own repository, kept whole.
+///
+/// Two readers want different halves of the same finding and neither should
+/// rebuild the other's: the Director's prompt wants the sentence, and the
+/// window wants the numbers. Keeping both together means the sentence the
+/// operator is shown a piece of is the same sentence the Director received,
+/// not one written again later against a different clock.
+pub struct Finding {
+    /// The whole paragraph, exactly as `chat.rs` puts it in the prompt.
+    pub said: String,
+    /// The same finding as data, plus the half addressed to the Director.
+    pub warning: harness_app::mirror::MirrorWarning,
+}
+
 pub struct Workspace {
     app: AppHandle,
     pub paths: AppPaths,
@@ -110,7 +124,7 @@ pub struct Workspace {
     /// What the last look at Relay's own repository found: commits that never
     /// went through a card. Held here so the Director's next turn receives it
     /// rather than having to know to ask.
-    outside_work: Mutex<Option<String>>,
+    outside_work: Mutex<Option<Finding>>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
     /// Set by whoever wins the race to close the window, so a second close
@@ -956,12 +970,12 @@ impl Workspace {
         Ok(accepted)
     }
 
-    /// The last thing the look at Relay's own repository found, if anything.
-    /// Read by the Director's prompt so he receives it instead of having to
-    /// know to ask.
+    /// The last thing the look at Relay's own repository found, if anything,
+    /// as the Director's prompt wants it: one paragraph.
     pub fn outside_work(&self) -> Option<String> {
-        self.outside_work.lock().unwrap().clone()
+        self.outside_work.lock().unwrap().as_ref().map(|f| f.said.clone())
     }
+
 
     /// Has Relay's own source moved without a card behind it?
     ///
@@ -1036,8 +1050,21 @@ impl Workspace {
 
         let work = harness_app::mirror::outside_work(&commits)?;
         let said = harness_app::mirror::describe(&work, SystemClock.now_millis());
-        *self.outside_work.lock().unwrap() = Some(said.clone());
-        let _ = self.app.emit("mirror://outside-work", &said);
+        // The facts travel beside the sentence rather than inside it: the
+        // window states them as numbers, and the sentence stays whole for the
+        // Director, who is the one it is written for.
+        let warning = harness_app::mirror::MirrorWarning {
+            work,
+            for_director: harness_app::mirror::FOR_DIRECTOR.to_string(),
+        };
+        // Recorded before it is announced, never after: a window that hears
+        // the event and asks in the same breath must not be told there is
+        // nothing to report.
+        *self.outside_work.lock().unwrap() = Some(Finding {
+            said: said.clone(),
+            warning: warning.clone(),
+        });
+        let _ = self.app.emit("mirror://outside-work", &warning);
         Some(said)
     }
 

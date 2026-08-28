@@ -21,6 +21,8 @@ fn export_types() {
     harness_app::approvals::PendingApproval::export().unwrap();
     harness_app::inbox::Proposal::export().unwrap();
     harness_app::inbox::ProposalStatus::export().unwrap();
+    harness_app::mirror::OutsideWork::export().unwrap();
+    harness_app::mirror::MirrorWarning::export().unwrap();
     harness_app::selfreport::SelfReport::export().unwrap();
     harness_app::selfreport::RefusalCount::export().unwrap();
     harness_app::selfreport::RunFailures::export().unwrap();

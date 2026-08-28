@@ -128,7 +128,9 @@ pub fn base_to_compare(known: &Watch, head: &str) -> Option<String> {
 ///
 /// Detection is deliberately shallow: how many, which files, since when. What
 /// the commits *mean* is the operator's to judge.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(
+    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
 pub struct OutsideWork {
     pub commits: usize,
     /// Distinct paths touched, sorted, capped by [`FILES_NAMED`].
@@ -138,6 +140,35 @@ pub struct OutsideWork {
     /// The oldest of them, in milliseconds. Zero when git said nothing.
     pub since_ms: u64,
 }
+
+/// The finding as it crosses to the window: the facts as facts, and the half
+/// of [`describe`] that is addressed to the Director.
+///
+/// Both halves come from here on purpose. The window used to receive only the
+/// sentence and had to cut it at a literal mark to keep the second person
+/// ("say which open cards…, do not close a card") away from the operator, who
+/// is not the one being told (#86: the Director flags, the operator decides).
+/// A cut through prose is not data and breaks the day the wording changes, so
+/// the split happens where the wording lives.
+#[derive(
+    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
+pub struct MirrorWarning {
+    /// How many commits, which files, since when — the same numbers the
+    /// sentence states, as numbers.
+    pub work: OutsideWork,
+    /// [`FOR_DIRECTOR`], verbatim. Carried rather than duplicated in the
+    /// frontend so there is one copy of the wording, and it is this one.
+    pub for_director: String,
+}
+
+/// Where the warning stops stating facts and starts telling the Director what
+/// he may do about them — which is to flag, never to act.
+pub const FOR_DIRECTOR: &str =
+    "That is work the board never saw, so cards may describe things already done and \
+     DEBT.md may no longer match the code. Say which open cards and which documents are \
+     worth re-reading because of it, and stop there: do not close a card, do not move \
+     anything, do not rewrite a document. The operator decides.";
 
 /// A warning is a pointer, not a changelog. Past this many paths the list stops
 /// helping and starts being the diff.
@@ -200,12 +231,8 @@ pub fn describe(work: &OutsideWork, now_ms: u64) -> String {
             ));
         }
     }
-    out.push_str(
-        ". That is work the board never saw, so cards may describe things already done and \
-         DEBT.md may no longer match the code. Say which open cards and which documents are \
-         worth re-reading because of it, and stop there: do not close a card, do not move \
-         anything, do not rewrite a document. The operator decides.",
-    );
+    out.push_str(". ");
+    out.push_str(FOR_DIRECTOR);
     out
 }
 
@@ -277,6 +304,20 @@ mod tests {
         // And what he may do with it: flag, never act.
         assert!(said.contains("do not close a card"), "{said}");
         assert!(said.contains("The operator decides"), "{said}");
+    }
+
+    /// O ecrã mostra `for_director` como *"what the Director was told"*. Se a
+    /// frase deixasse de acabar exactamente nesse texto, a etiqueta passava a
+    /// mentir sem nada falhar — e era assim que o corte de prosa se partia.
+    #[test]
+    fn the_half_for_the_director_is_the_tail_of_the_sentence() {
+        let work = outside_work(&[(NOW - 60_000, vec!["src/App.tsx".into()])]).unwrap();
+        let said = describe(&work, NOW);
+        assert!(said.ends_with(FOR_DIRECTOR), "{said}");
+        assert!(
+            !said.trim_end_matches(FOR_DIRECTOR).contains("do not close a card"),
+            "os factos não repetem a instrução: {said}"
+        );
     }
 
     #[test]

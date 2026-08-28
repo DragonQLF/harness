@@ -28,6 +28,8 @@ import type { CommitRow } from "./generated/CommitRow";
 import type { Conversation } from "./generated/Conversation";
 import type { FolderInfo } from "./generated/FolderInfo";
 import type { LanguageRow } from "./generated/LanguageRow";
+import type { MirrorWarning } from "./generated/MirrorWarning";
+import type { OutsideWork } from "./generated/OutsideWork";
 import type { PendingApproval } from "./generated/PendingApproval";
 import type { Proposal } from "./generated/Proposal";
 import type { Project } from "./generated/Project";
@@ -70,6 +72,8 @@ export type {
   Conversation,
   FolderInfo,
   LanguageRow,
+  MirrorWarning,
+  OutsideWork,
   PendingApproval,
   Proposal,
   Project,

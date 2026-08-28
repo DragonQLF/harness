@@ -7,7 +7,7 @@ import { motion } from "motion/react";
 import { api } from "../lib/ipc";
 import { cx } from "../lib/cx";
 import { railIn, rowIn } from "../lib/motion";
-import { clock, duration, money, outsideWorkParts, plural } from "../lib/format";
+import { ago, clock, duration, money, plural } from "../lib/format";
 import { tone, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
 import { Glyph, Icon, mono, truncate } from "./ui";
@@ -396,14 +396,18 @@ export function RightNow({
               at the day's close, over the mirror project only.
             </div>
           )}
-          {outsideWork.map((warning) => {
-            // Both halves come from the backend's own sentence; nothing here
-            // counts commits or names files of its own.
-            const { facts, forDirector } = outsideWorkParts(warning.said);
-            const shown = shownWarning === warning.id;
+          {outsideWork.map((seen) => {
+            // The facts are the backend's `OutsideWork`, as numbers. Nothing
+            // here counts commits, names files, or reads them back out of a
+            // sentence — and `for_director` arrives already separated, so the
+            // half written in the second person is never mistaken for an
+            // instruction to the operator (#86).
+            const { work, for_director: forDirector } = seen.warning;
+            const shown = shownWarning === seen.id;
+            const capped = work.files_total - work.files.length;
             return (
               <div
-                key={warning.id}
+                key={seen.id}
                 className={cx(RAIL_CARD, "flex flex-col gap-1.5 bg-surface dark:bg-surface-d")}
               >
                 <span className="flex items-center gap-2">
@@ -419,15 +423,39 @@ export function RightNow({
                     Commits without a card
                   </span>
                 </span>
-                <span className="text-sm font-normal leading-[1.55] text-text2 dark:text-text2-d">
-                  {facts}
+                {/* Os três factos que o #86 diz que um aviso tem de carregar:
+                    quantos, que ficheiros, desde quando. A idade sai do
+                    `since_ms` do commit mais antigo, que é um facto do
+                    repositório; quando o git não datou nada, diz-se. */}
+                <span className={cx(mono, "text-xs text-text3 dark:text-text3-d")}>
+                  {plural(work.commits, "commit")} ·{" "}
+                  {plural(work.files_total, "file")} ·{" "}
+                  {work.since_ms ? `oldest ${ago(work.since_ms)}` : "git did not say when"}
+                </span>
+                {/* A lista já vem cortada pelo backend (`FILES_NAMED`), e o
+                    resto conta-se, não se esconde. */}
+                <span
+                  className={cx(mono, "text-xs leading-[1.6] text-text2 dark:text-text2-d")}
+                >
+                  {work.files.length === 0 ? (
+                    <span className="text-text4 dark:text-text4-d">none that git named</span>
+                  ) : (
+                    work.files.map((file) => (
+                      <span key={file} className="block">
+                        {file}
+                      </span>
+                    ))
+                  )}
+                  {capped > 0 && (
+                    <span className="block text-text4 dark:text-text4-d">and {capped} more</span>
+                  )}
                 </span>
                 {forDirector && (
                   <>
                     <button
                       type="button"
                       aria-expanded={shown}
-                      onClick={() => setShownWarning(shown ? null : warning.id)}
+                      onClick={() => setShownWarning(shown ? null : seen.id)}
                       className={cx(QUIET_LINK, "self-start text-left")}
                     >
                       {shown ? "hide what the Director was told" : "what the Director was told"}
@@ -442,7 +470,7 @@ export function RightNow({
                 <span className="flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={() => dismissOutsideWork(warning.id)}
+                    onClick={() => dismissOutsideWork(seen.id)}
                     title="Takes it off the rail. The same commits are never reported twice: the look already moved the sha it compares against."
                     className={QUIET_LINK}
                   >
@@ -450,7 +478,7 @@ export function RightNow({
                   </button>
                   <span className="flex-1" />
                   <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
-                    seen {clock(warning.seen_ms)}
+                    seen {clock(seen.seen_ms)}
                   </span>
                 </span>
               </div>

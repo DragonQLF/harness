@@ -17,6 +17,7 @@ import type {
   Conversation,
   CreatedCard,
   Envelope,
+  MirrorWarning,
   Navigation,
   PendingApproval,
   PendingUpdate,
@@ -212,17 +213,19 @@ export const events = {
     listen<Proposal[]>("inbox://proposals", (evt) => fn(evt.payload)),
   /** Relay's own repository moved without a card behind it (#86).
    *
-   *  The payload is **one string**, not a structure: `workspace.rs` emits the
-   *  prose that `harness_app::mirror::describe` writes, and the `OutsideWork`
-   *  it was folded from — the count, the paths, the oldest timestamp — never
-   *  crosses. So the counts on screen are the ones inside that sentence, and
-   *  nothing here recomputes them.
+   *  The payload carries the `OutsideWork` the backend folded the commits into
+   *  — the count, the paths, the oldest timestamp — beside the half of the
+   *  sentence that addresses the Director. So the numbers on screen are the
+   *  backend's numbers, not counts read back out of a paragraph, and nothing
+   *  here cuts prose.
    *
    *  It arrives at most twice a session (startup and the end-of-day close) and
    *  is never repeated: the backend re-anchors the sha it compares against on
-   *  every look, so the same commits are reported once and then are past. */
-  onOutsideWork: (fn: (said: string) => void) =>
-    listen<string>("mirror://outside-work", (evt) => fn(evt.payload)),
+   *  every look, so the same commits are reported once and then are past. The
+   *  same value comes back on `bootstrap`, because the startup emit may have
+   *  had no window to reach. */
+  onOutsideWork: (fn: (w: MirrorWarning) => void) =>
+    listen<MirrorWarning>("mirror://outside-work", (evt) => fn(evt.payload)),
   /** An item was picked in the macOS menu bar; the payload is its id. */
   onMenuPick: (fn: (id: string) => void) =>
     listen<string>("menu://picked", (evt) => fn(evt.payload)),
