@@ -52,7 +52,57 @@ export function candidatePaths(input) {
   return found;
 }
 
+/** Shell commands that only ever read. The same asymmetry as `READ_TOOLS`:
+ *  the frozen zone is about writes, and an `ls -R` of somewhere else does not
+ *  write. The list is explicit and short — omission guards. */
+export const READ_COMMANDS = new Set([
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "find",
+  "grep",
+  "wc",
+  "stat",
+]);
+
+/** `find` is the one reader with writing built in. Any of these turns the
+ *  segment back into a command that acts on what it walks. */
+const FIND_WRITES = /(^|\s)-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)(\s|$)/;
+
+/** Cut a command line into the pieces the shell would run separately.
+ *  Separators never appear inside a path the scan below recognises (its
+ *  character classes exclude `&|;<>()`), so a plain split is enough for a
+ *  heuristic that is declared as one. */
+function segments(cmd) {
+  return cmd.split(/\|\||&&|;|\||&|\n/);
+}
+
+/** Is this segment a pure read? Conservative by construction: a redirection,
+ *  a command substitution, a leading variable assignment or a `find` that
+ *  executes all give the exemption back. */
+function isReadSegment(segment) {
+  const text = segment.trim();
+  if (!text) return true;
+  // `>`, `>>`, `2>`, `&>`, `>(…)` — any of them writes somewhere.
+  if (text.includes(">")) return false;
+  // `$(…)` and backticks hide a whole other command inside this one.
+  if (text.includes("$(") || text.includes("`")) return false;
+  const first = text.split(/\s+/)[0];
+  // `FOO=/fora cat x` is not a read of `cat`'s arguments alone.
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) return false;
+  const name = first.split(/[\\/]/).pop();
+  if (!READ_COMMANDS.has(name)) return false;
+  if (name === "find" && FIND_WRITES.test(text)) return false;
+  return true;
+}
+
 /** Heuristic Bash scan — declared heuristic, not a border (#62).
+ *
+ *  Reads are exempt, exactly as `inspect` exempts `Read`/`Glob`/`Grep`: an
+ *  `ls -R` outside the worktree writes nothing, and refusing it stopped the
+ *  Director from looking at Relay's own data. Writes and redirection stay
+ *  guarded — `cat x > /fora` is not a read, and neither is `ls | tee /fora`.
  *
  *  Windows-style absolutes (`C:\…`, `\\?\C:\…`): on a Windows host they are
  *  classified against the worktree; anywhere else they are outside *by
@@ -64,14 +114,23 @@ export function candidatePaths(input) {
  *  and must be translated before judging, while `/usr`, `/etc` and friends
  *  live in the msys root — always outside. */
 export function classifyBash(cwd, command, hostPlatform = process.platform) {
-  const winHost = hostPlatform === "win32";
   const cmd = String(command ?? "");
-  for (const m of cmd.matchAll(/(?:\\\\\?\\)?[A-Za-z]:[\\/][^\s"'&|;<>()]*/g)) {
+  for (const segment of segments(cmd)) {
+    if (isReadSegment(segment)) continue;
+    const verdict = scanSegment(cwd, segment, hostPlatform === "win32");
+    if (!verdict.ok) return verdict;
+  }
+  return { ok: true, path: null };
+}
+
+/** The path arithmetic of one segment, once it has lost the read exemption. */
+function scanSegment(cwd, segment, winHost) {
+  for (const m of segment.matchAll(/(?:\\\\\?\\)?[A-Za-z]:[\\/][^\s"'&|;<>()]*/g)) {
     if (!winHost) return { ok: false, path: m[0] };
     const v = classifyWrite(cwd, { file_path: m[0].replace(/[\\/]$/, "") });
     if (!v.ok) return { ok: false, path: m[0] };
   }
-  for (const m of cmd.matchAll(/(?:^|[\s=('"`])\/([A-Za-z0-9._-][^\s"'&|;<>()]*)/g)) {
+  for (const m of segment.matchAll(/(?:^|[\s=('"`])\/([A-Za-z0-9._-][^\s"'&|;<>()]*)/g)) {
     const posix = `/${m[1]}`;
     if (winHost) {
       // /c/<rest> is drive C:\ under git-bash. Translate, then judge like

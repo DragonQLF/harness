@@ -114,7 +114,6 @@ test("bash with absolute paths outside is refused in both styles", () => {
     "cat > /Users/nandi/site/feed.xml",
     "cp x /c/Users/nandi/site/feed.xml",
     String.raw`echo hi > C:\Users\nandi\site\feed.xml`,
-    "ls -la /Users/nandi/",
   ]) {
     const v = inspect("Bash", cwd, { command });
     assert.equal(v.ok, false, `${command} must be refused`);
@@ -142,6 +141,64 @@ test("the worktree's own msys path passes on windows", () => {
     const v = classifyBash(cwd, command);
     assert.equal(v.ok, true, `${command}: ${JSON.stringify(v)}`);
   }
+});
+
+/** The Director's case: `ls -R` of a path outside the worktree was refused
+ *  with "runs may only write inside their worktree". It does not write. Reads
+ *  are exempt in Bash exactly as they are in `inspect`. */
+test("reads outside the worktree pass — a read is not a write", () => {
+  const cwd = worktree();
+  for (const command of [
+    "ls -R /Users/nandi/relay-data",
+    "ls -la /Users/nandi/",
+    "cat /Users/nandi/relay-data/settings.json",
+    "head -50 /etc/hosts",
+    "tail -f /var/log/system.log",
+    "find /Users/nandi/relay-data -name '*.jsonl'",
+    "grep -r director /Users/nandi/relay-data",
+    "wc -l /etc/hosts",
+    "stat /Users/nandi/relay-data",
+    "/bin/cat /etc/hosts",
+    "cat /etc/hosts | head -20",
+    "ls /etc && cat /etc/hosts",
+  ]) {
+    const v = inspect("Bash", cwd, { command });
+    assert.equal(v.ok, true, `${command} must pass: ${JSON.stringify(v)}`);
+  }
+});
+
+/** And the other half: everything that looks like a read but writes. Opening
+ *  reads must not open writes — this is the test that says so. */
+test("a write dressed as a read is still refused", () => {
+  const cwd = worktree();
+  for (const command of [
+    "cat x > /Users/nandi/site/feed.xml",
+    "cat x >> /Users/nandi/site/feed.xml",
+    "ls -R > /Users/nandi/listing.txt",
+    "ls -R 2> /Users/nandi/err.txt",
+    "ls /etc | tee /Users/nandi/listing.txt",
+    "cat /etc/hosts; rm -rf /Users/nandi/site",
+    "ls /etc && cp x /Users/nandi/site/x",
+    "find /Users/nandi -name '*.tmp' -delete",
+    "find /Users/nandi -name '*.tmp' -exec rm {} +",
+    "cat $(echo /Users/nandi/site/feed.xml) > out.txt",
+    "OUT=/Users/nandi/site cat x",
+    String.raw`cat x > C:\Users\nandi\site\feed.xml`,
+  ]) {
+    const v = inspect("Bash", cwd, { command });
+    assert.equal(v.ok, false, `${command} must be refused: ${JSON.stringify(v)}`);
+    assert.ok(v.path && v.path.length > 1, `${command} names the path: ${v.path}`);
+  }
+});
+
+/** A read that stays inside is untouched either way, and a write that stays
+ *  inside keeps passing — the exemption did not swallow the guard. */
+test("reads and writes inside the worktree both still pass", () => {
+  const cwd = worktree();
+  const inside = path.join(cwd, "out.txt");
+  assert.equal(classifyBash(cwd, `cat "${inside}"`).ok, true);
+  assert.equal(classifyBash(cwd, `echo hi > "${inside}"`).ok, true);
+  assert.equal(classifyBash(cwd, `ls -R "${cwd}"`).ok, true);
 });
 
 /** And if this ever runs under WSL2 or any Linux host, a Windows-style path
