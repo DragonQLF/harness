@@ -25,6 +25,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-24 | 67–69 | Modo Destacado e Voz (fase 1 desenhada; fase 2 atrás de uma semana de uso) |
 | 2026-08-26 | 78–79 | O Director vê o próprio histórico: self_report, read_docs, caixa de entrada e fecho do dia |
 | 2026-08-28 | 80 | Tailwind v3: os tokens deixam de ser custom properties e o inline sai das vistas |
+| 2026-08-28 | 87 | O estado da shell sai de trás dos mutexes: dois actores novos, mensagens em vez de locks |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -1340,3 +1341,90 @@ ficheiros e desde quando, e manda-o dizer que cartões e que documentos vale a
 pena reler — e **parar aí**. Não fecha cartões, não move nada, não reescreve
 documentos. É a mesma postura da caixa de entrada (#79) e a mesma razão: uma
 lista de ficheiros não é fundamento para decidir por quem é dono do trabalho.
+
+### 87. O estado da shell sai de trás dos mutexes e passa a ter dono
+A arquitectura tem uma premissa, e é uma só: **um loop possui o estado, ninguém
+partilha, não há locks.** É o que torna as transições de cartão livres de
+corridas — o engine possui o `Board` assim, e é por isso que ninguém precisa de
+pensar em ordem quando lhe manda um comando.
+
+O `Workspace` fazia o contrário, ao lado. Mil e trezentas linhas, oito campos
+atrás de locks (dezoito ocorrências de `Mutex` no ficheiro), e o estado da app
+inteira — quem são os agentes, quais os projectos,
+que conversas existem, que turnos estão no ar — atrás de locks, **fora** do
+actor, com as regras opostas às do vizinho.
+
+Não é uma queixa de estética. É a origem da classe de bug que o #73/3 já
+apanhou duas vezes: com duas fontes de verdade, uma avança, a outra não, e
+ninguém sabe qual está certa. Iam continuar a ser caçadas à mão enquanto a
+estrutura fosse esta.
+
+**Dois actores novos, pelo mesmo padrão do `EngineHandle`**: um `enum Msg` com
+um `oneshot` por pedido, um `ask()` que faz a ida e volta, e o estado a viver
+dentro da tarefa que corre o loop.
+
+- `registry.rs` — os perfis de agente e os projectos. Leituras e escritas
+  simples, sem ciclo de vida; foi aqui que o padrão se estabeleceu.
+- `conversations.rs` — o índice das conversas e os tokens dos turnos. Ficam no
+  mesmo dono de propósito: um turno começa e acaba numa conversa, e com dois
+  donos haveria um instante em que a conversa já não existe e o token dela ainda
+  sim.
+
+Três decisões dentro do padrão, que valem mais do que o padrão:
+
+1. **A persistência é do dono.** Quem muda a lista é quem escreve o ficheiro, no
+   mesmo passo do loop. Deixa de haver janela entre a mutação e o disco.
+2. **O I/O demorado fica fora.** Canonicalizar caminhos, `git init`, clonar,
+   levantar um engine — nada disso corre dentro do actor. Um actor bloqueado
+   segundos a fio deixa de ser um dono e passa a ser uma fila; é a mesma lição
+   do #45 (o actor bloqueado pelo git) e do `WorktreeResolved` no engine.
+3. **O relógio é do dono das conversas.** Antes cada chamador carimbava
+   `now_millis()` e mandava o número — duas escritas quase simultâneas podiam
+   chegar ao índice por ordem inversa ao carimbo que traziam. Agora a ordem da
+   fila **é** a ordem do tempo.
+
+A consequência que se vê é que `agents()`, `projects()`, `runtime()`,
+`conversation()` e o que deles depende são `async`. **Nenhum comando IPC mudou
+de nome, de argumentos ou de forma de retorno**: o frontend continua a enviar
+intenções e a desenhar snapshots, como o `PRODUCT.md` diz.
+
+#### O que **não** se mexeu, e porquê
+
+Estes dois foram avaliados e ficam. O objectivo era a premissa, não a contagem
+de mutexes; forçá-los custaria mais do que devolve.
+
+- **`settings`.** É lido em dois sítios que não podem esperar. O
+  `AgentPort::run` do `SwitchingAgent` é um método de trait sem `async` — a
+  assinatura é dyn-compatível por decisão explícita (#3) — e o guardo do fecho
+  da janela em `lib.rs` tem de decidir o `prevent_close` **antes** de a função
+  retornar, ou a janela vai-se embora. Um actor obrigaria a manter uma cópia
+  síncrona ao lado, que é exactamente a segunda fonte de verdade que isto veio
+  remover. E o `Settings` não é estado de quadro: não tem transições nem vistas
+  derivadas, ninguém calcula o estado de um cartão a partir dele. Uma leitura
+  atrasada escolhe o outro adapter num run; não põe dois painéis a discordar.
+  É também partilhado com o `ApprovalRouter`, que vive na crate `app` e não
+  conhece o Tauri.
+- **`runtimes`.** Não é estado — é uma mesa de punhos para outros donos. Um
+  `ProjectRuntime` guarda um `EngineHandle` (que é ele próprio um actor), o git,
+  o store e o run log, todos portos com sincronização própria. Não há ali
+  nenhum facto sobre o quadro que possa divergir de outro. Convertê-lo daria o
+  mesmo desenho que já tem — perguntar, construir fora, pôr — com um canal em
+  vez de um lock, e tiraria um número à contagem sem tirar nada ao problema.
+
+  O que **existe** ali é uma corrida de construção, não de verdade: duas
+  chamadas ao mesmo projecto frio podem levantar dois engines sobre o mesmo
+  ficheiro de eventos. Já existia antes desta passagem. Ficou estreitada — o
+  mapa passou a ser o árbitro (`entry().or_insert()`), portanto só um deles é
+  usado e o perdedor morre com o handle — mas fechá-la a sério é *single
+  flight*: o dono registar que alguém já está a construir e o segundo esperar.
+  Isso muda comportamento, e esta passagem era de estrutura. Está no `DEBT.md`.
+
+`inbox` e `outside_work` ficaram igualmente de fora, e o `inbox` pela mesma
+razão do `settings`: o `daily_look_due()` é lido do guardo síncrono do fecho da
+janela.
+
+`workspace.rs`: 1300 → 1204 linhas; os campos do `Workspace` atrás de um lock
+passam de oito (`settings`, `agents`, `projects`, `runtimes`, `conversations`,
+`chat_turns`, `inbox`, `outside_work`) para quatro (`settings`, `runtimes`,
+`inbox`, `outside_work`). `grep -c "Mutex"` desce de 18 para 11 — onze e não dez
+porque uma das linhas é o comentário que explica porque é que o `settings` fica.

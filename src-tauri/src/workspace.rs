@@ -242,6 +242,14 @@ impl Workspace {
     }
 
     // ---- settings ----
+    //
+    // Isto continua atrás de um `Mutex`, e continua de propósito (#87). São
+    // leituras síncronas em sítios que não podem esperar: o
+    // `AgentPort::run` do `SwitchingAgent` é um método de trait sem `async`
+    // (#3), e o guardo do fecho da janela em `lib.rs` tem de decidir o
+    // `prevent_close` antes de a função retornar. Um actor obrigaria a uma
+    // cópia síncrona ao lado — que é exactamente a segunda fonte de verdade
+    // que a migração veio remover.
 
     pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
@@ -255,9 +263,7 @@ impl Workspace {
         let settings = self.settings();
         paths::write_json(&self.paths.settings_file(), &settings)?;
         let policy = settings.policy();
-        let runtimes: Vec<Arc<ProjectRuntime>> =
-            self.runtimes.lock().unwrap().values().cloned().collect();
-        for runtime in runtimes {
+        for runtime in self.runtimes() {
             let policy = policy.clone();
             let engine = runtime.engine.clone();
             tauri::async_runtime::spawn(async move {
@@ -529,6 +535,13 @@ impl Workspace {
     }
 
     /// Every live runtime, for sweeps that must visit each project once.
+    ///
+    /// O mapa dos runtimes fica onde está, e não por preguiça (#87): um
+    /// `ProjectRuntime` não é estado, é uma mesa de punhos para outros donos —
+    /// o `EngineHandle` é ele próprio um actor, e o git, o store e o run log
+    /// são portos com sincronização própria. Não há aqui nenhum facto sobre o
+    /// quadro que possa divergir de outro, que é a classe de bug que a
+    /// premissa protege.
     pub fn runtimes(&self) -> Vec<Arc<ProjectRuntime>> {
         self.runtimes.lock().unwrap().values().cloned().collect()
     }
@@ -1184,9 +1197,7 @@ impl Workspace {
     /// Cancel every run everywhere and let the worktrees commit.
     pub async fn shutdown(&self) {
         self.router.deny_all();
-        let runtimes: Vec<Arc<ProjectRuntime>> =
-            self.runtimes.lock().unwrap().values().cloned().collect();
-        for runtime in runtimes {
+        for runtime in self.runtimes() {
             let _ = runtime.engine.shutdown().await;
         }
     }
