@@ -1214,3 +1214,129 @@ levanta um cartão do quadro com três valores crus (`#1e1d19`, `#33302b`) e nã
 tem par para o tema claro, portanto um cartão claro escurece ao passar por
 cima. Está preservado tal e qual: é opinião de desenho e pertence ao brief da
 v2, não a uma migração que promete não mudar pixels.
+
+### 81. O guardo do Bash distingue leitura de escrita
+Um `ls -R` de um caminho fora da worktree era recusado com *"runs may only
+write inside their worktree"*. O `ls` não escreve. O `classifyBash` procurava
+caminhos absolutos no comando inteiro e recusava sem olhar ao que o comando
+fazia — ao contrário do `inspect`, que isenta `Read`, `Glob` e `Grep` desde o
+#66. A incoerência custava o que se via: o Director não conseguia sequer olhar
+para os dados do próprio Relay.
+
+Passa a haver `READ_COMMANDS` (`ls`, `cat`, `head`, `tail`, `find`, `grep`,
+`wc`, `stat`), a par do `READ_TOOLS` que já existia. O comando é cortado nos
+separadores do shell (`;`, `&&`, `||`, `|`, `&`) e **cada segmento é julgado
+sozinho**: `ls /fora | tee /fora` isenta o primeiro e guarda o segundo.
+
+Quatro coisas devolvem a isenção, e são elas que impedem isto de ser um buraco:
+qualquer `>` no segmento (cobre `>`, `>>`, `2>`, `&>`, `>(…)`), uma substituição
+de comando (`$(…)` ou crases), uma atribuição à cabeça (`OUT=/fora cat x`), e um
+`find` que executa (`-exec`, `-delete`, `-fprint` e afins) — o único leitor da
+lista com escrita embutida. Sem elas, `cat x > /fora` passava por leitura.
+
+Continua a ser heurística declarada, não fronteira: o #2 (sandbox) continua
+adiado e isto não finge fechá-lo. Onze testes no `pathguard.test.mjs`, metade
+deles escrita disfarçada de leitura.
+
+### 82. `EditCard`: corrigir um cartão, mas só antes de correr
+O domínio tinha `CreateCard`, `DiscardCard`, `SetDependencies`, `AssignAgent`,
+`MoveCard` e `OverrideCard` — e nada que mudasse o texto. Um cartão mal escrito
+só se corrigia apagando e recriando, o que perde id, histórico, sessão e as
+dependências que apontam para ele. E **o título é o prompt que o agente
+recebe**, portanto um cartão mal escrito é uma instrução mal escrita.
+
+`Command::EditCard { card_id, title }`, com `Event::CardEdited`. A linha que o
+torna seguro: **permitido só enquanto `runs == 0`**. Depois do primeiro run o
+log, a transcrição e o assunto do commit já respondem ao título antigo;
+reescrevê-lo faz o registo deixar de bater certo com o cartão. `runs` sobe
+quando um run *arranca*, não quando acaba, portanto um cartão a correr também
+está fechado. `DecisionError::AlreadyRan` diz o número de runs e o que fazer em
+vez disso.
+
+Não se acrescentou nada ao prompt do Director por causa disto: a ferramenta
+`edit_card` traz a regra na própria descrição, que é onde ela é lida no momento
+em que interessa.
+
+### 83. O corpo de uma proposta vai para o cartão
+Aceitar uma proposta criava o cartão a partir de `proposal.title` e mais nada.
+A observação e o raciocínio — o corpo todo — morriam na caixa de entrada no
+momento exacto em que o operador dizia que sim. Como o título é o prompt, **uma
+proposta aceite chegava ao builder sem nenhuma das razões que a motivaram.**
+
+O título de um cartão passa a poder ter corpo: a primeira linha é o pedido de
+uma linha, e o corpo vem por baixo. `Proposal::as_card_text()` monta-o.
+
+Isto obrigou a uma segunda decisão, pequena e obrigatória: `harness_domain::one_line`,
+e os dois sítios que precisam de exactamente uma linha passam a pedi-la — o
+assunto do commit (senão o #57 deixava de valer: o `git log` deixava de se ler
+como trabalho) e a linha por cartão no prompt do Director. Tudo o resto vê o
+texto inteiro, incluindo o prompt do agente, que é o ponto. A UI já corta o
+título em três linhas (`line-clamp-3`), portanto não mudou nada no ecrã.
+
+### 84. Uma ocorrência única basta para abrir uma proposta
+A descrição do `propose_improvement` pedia contagens do `self_report`, portanto
+lia-se como sendo só para padrões repetidos. Numa sessão real o Director
+encontrou **quatro recusas de ferramenta**, cada uma um buraco de capacidade
+genuíno, e **não usou a ferramenta** — porque uma ocorrência única não parecia
+caber lá. Disse-o quando lhe perguntaram.
+
+O texto da ferramenta passa a dizer que uma ocorrência única chega, e que as
+contagens do `self_report` **reforçam** uma proposta em vez de serem requisito
+para a abrir. Texto da ferramenta, não do prompt: é lido no momento da decisão
+de a usar, e não gasta uma das ~150 instruções que o modelo segue com fiabilidade.
+
+### 85. Uma regra de paragem no prompt do Director
+O system prompt do Claude Code já traz ~50 instruções e os modelos seguem de
+forma fiável 150-200 antes de a adesão degradar: acrescentar regras faz seguir
+**menos** delas. A postura do #75 está a funcionar, portanto acrescenta-se
+**uma** regra, e uma só:
+
+> Quando uma ferramenta te é recusada, isso é um achado sobre a aplicação, não
+> uma condição do teu turno. Antes de continuares: arquiva com
+> `propose_improvement` e diz se a recusa está correcta ou se é defeito.
+
+Duas metades, ambas necessárias. O **"antes de continuares"** é o que a faz
+acontecer — sem isso arquiva no fim, ou não arquiva. E o **"diz se a recusa
+está correcta"** é a distinção que faltava: na mesma sessão o `AskUserQuestion`
+estava correctamente recusado (falta superfície na UI, não é defeito) e o
+guardo do Bash estava errado (#81). Arquivados juntos e indistintos, ambos se
+lêem como ruído.
+
+Fica ao lado da regra de recusa que já existia ("diz e pára; não contornes"),
+porque é o mesmo acontecimento. **Duas regras foram explicitamente recusadas**:
+não sobre-explorar (resolve-se com âmbito no pedido, não no prompt) e dar
+estimativas de tempo (é geral, não específico do Director). Há um teste que
+falha se alguma delas voltar.
+
+### 86. O quadro dá por si quando o código muda por fora
+Quando alguém trabalha no repositório do Relay **sem passar pelo Relay** — o
+operador num editor, um agente de infra, uma migração — o quadro não fica a
+saber. Cartões que descrevem trabalho já feito continuam em Ready, o `DEBT.md`
+que o Director lê fica desactualizado, e ele encontra comportamento que
+contradiz o que julga saber sem forma de perceber porquê. Aconteceu nesta
+própria passagem: nem os commits desta tarefa nem os da migração do Tailwind
+passaram por cartão nenhum.
+
+**A defesa não precisa de perceber o que mudou — basta detectar que mudou.** O
+que a torna barata já existia: todo o commit nascido de um cartão leva o
+trailer `Harness-Card` (#57), portanto **um commit sem esse trailer é, por
+definição, trabalho que não passou pelo quadro**. Três chamadas de leitura ao
+git (`commits_without_a_card`): os commits do intervalo, os que têm o trailer, e
+os ficheiros de cada um.
+
+O SHA da última vez fica em `<appdata>/mirror-watch.json` — fora do repositório
+do operador, como tudo o que é do Relay. O repositório é encontrado pelo caminho
+do Modo Espelho que já existe (`mirror_project`), não por um segundo.
+
+Corre no arranque e no fecho do dia. **Nunca segura nenhum dos dois**: o git é
+chamado numa thread bloqueante com prazo de 5s e um repositório lento ou avariado
+é desistido em silêncio. Uma janela que demora mais a fechar por causa de uma
+verificação de estado é pior bug do que um aviso perdido — o #79 gastou um tecto
+duro de 180s a aprender isso. A primeira execução regista o SHA e não avisa nada:
+despejar a história inteira na primeira vez que o Relay abre os olhos é ruído.
+
+**O Director recebe e sinaliza; não decide.** O aviso diz quantos commits, que
+ficheiros e desde quando, e manda-o dizer que cartões e que documentos vale a
+pena reler — e **parar aí**. Não fecha cartões, não move nada, não reescreve
+documentos. É a mesma postura da caixa de entrada (#79) e a mesma razão: uma
+lista de ficheiros não é fundamento para decidir por quem é dono do trabalho.
