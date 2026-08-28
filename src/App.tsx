@@ -10,7 +10,7 @@ import {
   Toasts,
   type PaletteAction,
 } from "./components/Overlays";
-import { Icon, Loading, Spinner, mono, truncate } from "./components/ui";
+import { Icon, Loading, Spinner, monoStyle, truncateStyle } from "./components/ui";
 import { api, events, reason } from "./lib/ipc";
 import { ago, money, plural } from "./lib/format";
 import { STATUS_TONE, tone } from "./lib/types";
@@ -25,6 +25,8 @@ import { Agents } from "./views/Agents";
 import { ProjectPage, Projects } from "./views/Projects";
 import { Activity, Settings, Worktrees } from "./views/Misc";
 import { VIEW_TITLES, type View } from "./views/views";
+import "./styles/app.css";
+// Sai no último commit da migração, quando já não restar nada a apontar-lhe.
 import "./styles/theme.css";
 
 /** The window is held on close for two deliberate reasons — agents leaving a
@@ -119,7 +121,7 @@ function ClosingOverlay() {
             borderTop: "1px solid var(--line2)",
           }}
         >
-          <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+          <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
             {elapsed}s · closes on its own in {left}s
           </span>
           <div style={{ flex: 1 }} />
@@ -229,7 +231,7 @@ function UpdateBanner() {
       } catch (e) {
         setBusy(false);
         setProgress(null);
-        toast("var(--bad)", "Could not install the update", reason(e));
+        toast("bad", "Could not install the update", reason(e));
       }
     };
     return (
@@ -262,7 +264,7 @@ function UpdateBanner() {
           padding: "6px 16px",
           borderBottom: "1px solid var(--line)",
           background: "var(--surface)",
-          ...mono,
+          ...monoStyle,
           fontSize: 10.5,
           color: "var(--text4)",
         }}
@@ -285,7 +287,7 @@ function UpdateBanner() {
         setBusy(false);
         // It refuses while any agent is working. Sending that to the console
         // left the button flipping back with nothing said.
-        toast("var(--bad)", "Could not install the update", reason(e));
+        toast("bad", "Could not install the update", reason(e));
       });
     // If the swap works, this process is already on its way out.
   };
@@ -341,14 +343,14 @@ function Banner({
         background: "var(--accentSoft)",
       }}
     >
-      <span style={{ ...mono, fontSize: 10.5, color: "var(--accent2)" }}>UPDATE</span>
+      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--accent2)" }}>UPDATE</span>
       <span
         style={{
           flex: 1,
           minWidth: 0,
           font: "400 12.5px var(--sans)",
           color: "var(--text)",
-          ...truncate,
+          ...truncateStyle,
         }}
       >
         <b style={{ fontWeight: 600 }}>{label}</b> · {detail}
@@ -669,7 +671,7 @@ function Shell() {
       list.push({
         name: p.name,
         hint: "project",
-        color: tone(p.tone).color,
+        color: tone(p.tone).cssColor,
         run: () => {
           selectProject(p.id);
           go("board");
@@ -680,7 +682,7 @@ function Shell() {
       list.push({
         name: a.name,
         hint: "agent",
-        color: tone(a.tone).color,
+        color: tone(a.tone).cssColor,
         run: () => openAgent(a.id),
       }),
     );
@@ -688,7 +690,7 @@ function Shell() {
       list.push({
         name: c.title,
         hint: c.id,
-        color: STATUS_TONE[c.status].color,
+        color: STATUS_TONE[c.status].cssColor,
         run: () => (c.status === "review" ? openReview(c.id) : openRun(c.id)),
       }),
     );
@@ -941,12 +943,12 @@ function Shell() {
                     color: "var(--text)",
                     letterSpacing: "-.01em",
                     maxWidth: 460,
-                    ...truncate,
+                    ...truncateStyle,
                   }}
                 >
                   {headTitle}
                 </span>
-                <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", ...truncate }}>
+                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", ...truncateStyle }}>
                   {headMeta}
                 </span>
               </>
@@ -970,7 +972,7 @@ function Shell() {
                     borderRadius: 999,
                     background: "var(--surface)",
                     border: "1px solid var(--line3)",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     color: conversation.resume_failed ? "var(--bad2)" : "var(--text2)",
                     cursor: "default",

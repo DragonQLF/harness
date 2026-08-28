@@ -6,7 +6,7 @@ import { api, events, reason } from "../lib/ipc";
 import { clock, money } from "../lib/format";
 import { ruleIsRevoked, ruleLabel, type Provider, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
-import { Loading, Switch, mono, tabular, truncate } from "../components/ui";
+import { Loading, Switch, monoStyle, tabularStyle, truncateStyle } from "../components/ui";
 
 export function Worktrees() {
   const { projectId, project, snapshot, toast } = useStore();
@@ -17,7 +17,7 @@ export function Worktrees() {
     api
       .worktrees(projectId)
       .then(setRows)
-      .catch((e) => toast("var(--bad)", "Could not list worktrees", reason(e)));
+      .catch((e) => toast("bad", "Could not list worktrees", reason(e)));
   };
 
   useEffect(load, [projectId]);
@@ -90,7 +90,7 @@ export function Worktrees() {
                 transition: "background .18s ease",
               }}
             >
-              <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 500, ...truncate }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 500, ...truncateStyle }}>
                 {w.branch ?? "(detached)"}
               </span>
               <span
@@ -99,7 +99,7 @@ export function Worktrees() {
                   fontFamily: "var(--mono)",
                   fontSize: 11.5,
                   color: "var(--text3)",
-                  ...truncate,
+                  ...truncateStyle,
                 }}
               >
                 {card?.id ?? "—"}
@@ -117,7 +117,7 @@ export function Worktrees() {
               >
                 {st.label}
               </span>
-              <span title={w.path} style={{ fontSize: 12.5, color: "var(--text2)", ...truncate }}>
+              <span title={w.path} style={{ fontSize: 12.5, color: "var(--text2)", ...truncateStyle }}>
                 {w.path}
               </span>
               <span style={{ justifySelf: "end", display: "flex", gap: 6 }}>
@@ -147,10 +147,10 @@ export function Worktrees() {
                     api
                       .removeWorktree(projectId, w.path)
                       .then(() => {
-                        toast("var(--ok)", "Removed", w.branch ?? w.path);
+                        toast("ok", "Removed", w.branch ?? w.path);
                         load();
                       })
-                      .catch((e) => toast("var(--bad)", "Could not remove it", reason(e)));
+                      .catch((e) => toast("bad", "Could not remove it", reason(e)));
                   }}
                   style={{
                     padding: "6px 14px",
@@ -327,22 +327,22 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
                         : "var(--info)",
               }}
             />
-            <span style={{ fontWeight: 600, ...truncate }}>{e.label}</span>
+            <span style={{ fontWeight: 600, ...truncateStyle }}>{e.label}</span>
             <span
               title={e.card_id}
               style={{
                 fontFamily: "var(--mono)",
                 fontSize: 11.5,
                 color: "var(--text3)",
-                ...truncate,
+                ...truncateStyle,
               }}
             >
               {e.card_id}
             </span>
-            <span style={{ color: "var(--text2)", ...truncate }}>
+            <span style={{ color: "var(--text2)", ...truncateStyle }}>
               {e.detail || snapshot?.cards.find((c) => c.id === e.card_id)?.title || ""}
             </span>
-            <span style={{ fontSize: 11.5, color: "var(--text3)", textAlign: "right", ...tabular }}>
+            <span style={{ fontSize: 11.5, color: "var(--text3)", textAlign: "right", ...tabularStyle }}>
               {undated ? "—" : clock(e.ts_ms)}
             </span>
           </button>
@@ -561,7 +561,7 @@ export function Settings() {
           last
         >
           {mirror ? (
-            <span style={{ ...mono, fontSize: 11.5, color: "var(--ok)" }}>on · {mirror.path}</span>
+            <span style={{ ...monoStyle, fontSize: 11.5, color: "var(--ok)" }}>on · {mirror.path}</span>
           ) : (
             <button
               type="button"
@@ -573,7 +573,7 @@ export function Settings() {
                   await api.mirrorSetup();
                   await refreshProjects();
                 } catch (e) {
-                  toast("var(--bad)", "Could not set Relay up", reason(e));
+                  toast("bad", "Could not set Relay up", reason(e));
                 } finally {
                   setFetchingRelay(false);
                 }
@@ -742,7 +742,7 @@ export function Settings() {
                 fontWeight: 800,
                 minWidth: 66,
                 textAlign: "center",
-                ...tabular,
+                ...tabularStyle,
               }}
             >
               {money(settings.daily_budget_usd)}
@@ -926,7 +926,7 @@ export function Settings() {
                 color: "var(--text3)",
                 fontFamily: "var(--mono)",
                 maxWidth: 460,
-                ...truncate,
+                ...truncateStyle,
               }}
             >
               {dataDir}
@@ -940,7 +940,7 @@ export function Settings() {
             type="button"
             className="hv-text"
             onClick={() =>
-              api.reveal(dataDir).catch((e) => toast("var(--bad)", "Could not open it", reason(e)))
+              api.reveal(dataDir).catch((e) => toast("bad", "Could not open it", reason(e)))
             }
             style={{
               alignSelf: "flex-start",

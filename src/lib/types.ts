@@ -291,21 +291,89 @@ export const STATUS_NAME: Record<Status, string> = Object.fromEntries(
   STATUSES.map((s) => [s.id, s.name]),
 ) as Record<Status, string>;
 
-/** CSS variable pairs per status, so colour lives in one place. */
-export const STATUS_TONE: Record<Status, { color: string; soft: string }> = {
-  backlog: { color: "var(--text3)", soft: "var(--surface2)" },
-  ready: { color: "var(--info)", soft: "var(--infoSoft)" },
-  running: { color: "var(--accent)", soft: "var(--accentSoft)" },
-  review: { color: "var(--warn)", soft: "var(--warnSoft)" },
-  done: { color: "var(--ok)", soft: "var(--okSoft)" },
+/** Um tom é um conjunto de classes, não uma cor.
+ *
+ *  Enquanto os tokens eram custom properties, um tom podia ser a string
+ *  `var(--ok)` e ir parar a um `style`. Com o Tailwind o nome da classe tem de
+ *  estar escrito em código para ser gerado, e cada cor traz o seu par
+ *  `dark:` — daí quatro campos por tom em vez de dois. */
+export interface Tone {
+  /** Texto e glifos. */
+  fg: string;
+  /** O fundo lavado por baixo desse texto. */
+  soft: string;
+  /** O preenchimento cheio: pontos, barras, medidores. */
+  solid: string;
+  /** A linha. */
+  line: string;
+  /** Andaime da migração: a cor como custom property, para as vistas que ainda
+   *  a espalham dentro de um `style`. Sai com o `theme.css`.
+   *  @deprecated usa `fg` / `solid`. */
+  cssColor: string;
+  /** @deprecated usa `soft`. */
+  cssSoft: string;
+}
+
+export type ToneName = "neutral" | "accent" | "info" | "ok" | "warn" | "bad";
+
+export const TONE: Record<ToneName, Tone> = {
+  neutral: {
+    fg: "text-text3 dark:text-text3-d",
+    soft: "bg-surface2 dark:bg-surface2-d",
+    solid: "bg-text3 dark:bg-text3-d",
+    line: "border-line3 dark:border-line3-d",
+    cssColor: "var(--text3)",
+    cssSoft: "var(--surface2)",
+  },
+  accent: {
+    fg: "text-accent dark:text-accent-d",
+    soft: "bg-accentSoft dark:bg-accentSoft-d",
+    solid: "bg-accent dark:bg-accent-d",
+    line: "border-accentLine dark:border-accentLine-d",
+    cssColor: "var(--accent)",
+    cssSoft: "var(--accentSoft)",
+  },
+  info: {
+    fg: "text-info dark:text-info-d",
+    soft: "bg-infoSoft dark:bg-infoSoft-d",
+    solid: "bg-info dark:bg-info-d",
+    line: "border-info dark:border-info-d",
+    cssColor: "var(--info)",
+    cssSoft: "var(--infoSoft)",
+  },
+  ok: {
+    fg: "text-ok dark:text-ok-d",
+    soft: "bg-okSoft dark:bg-okSoft-d",
+    solid: "bg-ok dark:bg-ok-d",
+    line: "border-ok dark:border-ok-d",
+    cssColor: "var(--ok)",
+    cssSoft: "var(--okSoft)",
+  },
+  warn: {
+    fg: "text-warn dark:text-warn-d",
+    soft: "bg-warnSoft dark:bg-warnSoft-d",
+    solid: "bg-warn dark:bg-warn-d",
+    line: "border-warn dark:border-warn-d",
+    cssColor: "var(--warn)",
+    cssSoft: "var(--warnSoft)",
+  },
+  bad: {
+    fg: "text-bad dark:text-bad-d",
+    soft: "bg-badSoft dark:bg-badSoft-d",
+    solid: "bg-bad dark:bg-bad-d",
+    line: "border-bad dark:border-bad-d",
+    cssColor: "var(--bad)",
+    cssSoft: "var(--badSoft)",
+  },
 };
 
-export const TONE: Record<string, { color: string; soft: string }> = {
-  accent: { color: "var(--accent)", soft: "var(--accentSoft)" },
-  info: { color: "var(--info)", soft: "var(--infoSoft)" },
-  ok: { color: "var(--ok)", soft: "var(--okSoft)" },
-  warn: { color: "var(--warn)", soft: "var(--warnSoft)" },
-  bad: { color: "var(--bad)", soft: "var(--badSoft)" },
+/** O tom de cada coluna, para a cor viver num sítio só. */
+export const STATUS_TONE: Record<Status, Tone> = {
+  backlog: TONE.neutral,
+  ready: TONE.info,
+  running: TONE.accent,
+  review: TONE.warn,
+  done: TONE.ok,
 };
 
 /** How a standing allowance reads, matching the backend label. */
@@ -320,8 +388,14 @@ export function ruleIsRevoked(rule: AllowRule): boolean {
   return !rule.command && ["bash", "shell", "sh", "powershell"].includes(head);
 }
 
-export function tone(name: string | undefined) {
-  return TONE[name ?? "accent"] ?? TONE.accent;
+export function tone(name: string | undefined): Tone {
+  return TONE[(name ?? "accent") as ToneName] ?? TONE.accent;
+}
+
+/** O nome do tom, quando é o nome que viaja (num toast, numa acção da paleta)
+ *  em vez do conjunto de classes. */
+export function toneName(name: string | undefined): ToneName {
+  return name && name in TONE ? (name as ToneName) : "accent";
 }
 
 

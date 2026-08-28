@@ -448,7 +448,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const fail = useCallback(
     (e: unknown, what: string) => {
-      toast("var(--bad)", what, reason(e));
+      toast("bad", what, reason(e));
     },
     [toast],
   );
@@ -777,13 +777,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       events.onNavigate((n) => {
         if (closed) return;
         setNavigation({ ...n, at: Date.now() });
-        toast("var(--info)", "The Director opened " + n.screen, n.why ?? undefined);
+        toast("info", "The Director opened " + n.screen, n.why ?? undefined);
       }),
     );
     keep(
       events.onApprovalAsked((a) => {
         if (closed) return;
-        toast("var(--warn)", "Permission needed", `${a.tool} — ${a.summary}`);
+        toast("warn", "Permission needed", `${a.tool} — ${a.summary}`);
       }),
     );
 
@@ -807,7 +807,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       async (): Promise<T | undefined> => {
         const id = projectRef.current;
         if (!id) {
-          toast("var(--bad)", "No project", "Add a git repository first.");
+          toast("bad", "No project", "Add a git repository first.");
           return;
         }
         try {
@@ -824,7 +824,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (title: string, agentId: string, mode: "plan" | "start" | "later") => {
       const clean = title.trim();
       if (!clean) {
-        toast("var(--bad)", "Nothing to add", "Say what should happen first.");
+        toast("bad", "Nothing to add", "Say what should happen first.");
         return;
       }
       await withProject(async (id) => {
@@ -836,9 +836,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           mode === "plan",
         );
         if (created.run_id) {
-          toast("var(--accent)", "Started", `${clean}`);
+          toast("accent", "Started", `${clean}`);
         } else {
-          toast("var(--ok)", "Added", mode === "later" ? "Parked in Later" : "Ready to start");
+          toast("ok", "Added", mode === "later" ? "Parked in Later" : "Ready to start");
         }
         await refresh();
       }, "Could not add the card")();
@@ -882,7 +882,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (cardId: string) => {
       await withProject(async (id) => {
         await api.cancelRun(id, cardId);
-        toast("var(--bad)", "Stopping", "Work in progress will be committed.");
+        toast("bad", "Stopping", "Work in progress will be committed.");
       }, "Could not stop the run")();
     },
     [toast, withProject],
@@ -892,7 +892,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (cardId: string) => {
       await withProject(async (id) => {
         await api.approveCard(id, cardId, "approved by you");
-        toast("var(--ok)", "Approved", "The card is done.");
+        toast("ok", "Approved", "The card is done.");
         await refresh();
       }, "Could not approve the card")();
     },
@@ -903,7 +903,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (cardId: string, why: string) => {
       await withProject(async (id) => {
         await api.rejectCard(id, cardId, why.trim() || "no reason given");
-        toast("var(--warn)", "Sent back", "The agent gets your reason on the next run.");
+        toast("warn", "Sent back", "The agent gets your reason on the next run.");
         await refresh();
       }, "Could not send the card back")();
     },
@@ -914,7 +914,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (cardId: string) => {
       const card = snapshot?.cards.find((c) => c.id === cardId);
       if (card?.status === "running") {
-        toast("var(--bad)", "It is running", "Stop the run before deleting the card.");
+        toast("bad", "It is running", "Stop the run before deleting the card.");
         return;
       }
       // Unreviewed work is the one case worth interrupting for: deleting it
@@ -930,7 +930,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       await withProject(async (id) => {
         await api.discardCard(id, cardId);
-        toast("var(--ok)", "Deleted", card?.title ?? cardId);
+        toast("ok", "Deleted", card?.title ?? cardId);
         await refresh();
       }, "Could not delete the card")();
     },
@@ -1089,7 +1089,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           chatRef.current = null;
           setChat([]);
         }
-        toast("var(--ok)", archived ? "Archived" : "Restored");
+        toast("ok", archived ? "Archived" : "Restored");
       } catch (e) {
         fail(e, "Could not archive the conversation");
       }
@@ -1114,7 +1114,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setChat([]);
         }
         await refreshConversations();
-        toast("var(--ok)", "Deleted", which?.title);
+        toast("ok", "Deleted", which?.title);
       } catch (e) {
         fail(e, "Could not delete the conversation");
       }
@@ -1150,7 +1150,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const created = await api.agentCreateFromTemplate(templateId);
         setAgents(await api.agentsGet());
-        toast("var(--ok)", "Added", `${created.name} joined the crew`);
+        toast("ok", "Added", `${created.name} joined the crew`);
       } catch (e) {
         fail(e, "Could not create that profile");
       }
@@ -1163,7 +1163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const copy = await api.agentDuplicate(agentId);
         setAgents(await api.agentsGet());
-        toast("var(--ok)", "Duplicated", copy.name);
+        toast("ok", "Duplicated", copy.name);
       } catch (e) {
         fail(e, "Could not duplicate that profile");
       }
@@ -1181,7 +1181,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!ok) return;
       try {
         setAgents(await api.agentRemove(agentId));
-        toast("var(--ok)", "Removed", which?.name);
+        toast("ok", "Removed", which?.name);
       } catch (e) {
         fail(e, "Could not remove that profile");
       }
@@ -1295,7 +1295,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const project = await api.projectAdd(path, name, init);
       await refreshProjects();
       selectProject(project.id);
-      toast("var(--ok)", "Project added", project.name);
+      toast("ok", "Project added", project.name);
     },
     [refreshProjects, selectProject, toast],
   );
@@ -1310,11 +1310,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           p.path.toLowerCase() === info.path.toLowerCase(),
         );
         if (existing) selectProject(existing.id);
-        toast("var(--info)", "Already added", info.name);
+        toast("info", "Already added", info.name);
         return;
       }
       if (info.next === "missing") {
-        toast("var(--bad)", "Gone", `${info.path} is not a directory any more.`);
+        toast("bad", "Gone", `${info.path} is not a directory any more.`);
         return;
       }
       if (info.next === "confirm_init") {
@@ -1339,7 +1339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (name: string) => {
       const clean = name.trim();
       if (!clean) {
-        toast("var(--bad)", "Name it first", "A project needs a name.");
+        toast("bad", "Name it first", "A project needs a name.");
         return;
       }
       try {
@@ -1348,7 +1348,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const project = await api.projectCreate(parent, clean);
         await refreshProjects();
         selectProject(project.id);
-        toast("var(--ok)", "Project created", `${project.name} — a fresh repository`);
+        toast("ok", "Project created", `${project.name} — a fresh repository`);
       } catch (e) {
         fail(e, "Could not create the project");
       }
@@ -1367,7 +1367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setProjectId(next?.id ?? null);
           projectRef.current = next?.id ?? null;
         }
-        toast("var(--ok)", "Removed", deleteData ? "Project and its history" : "Project forgotten");
+        toast("ok", "Removed", deleteData ? "Project and its history" : "Project forgotten");
       } catch (e) {
         fail(e, "Could not remove the project");
       }
@@ -1376,11 +1376,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const installSidecar = useCallback(async () => {
-    toast("var(--info)", "Installing", "Fetching the agent SDK…");
+    toast("info", "Installing", "Fetching the agent SDK…");
     try {
       await api.sidecarInstall();
       await refreshStatus();
-      toast("var(--ok)", "Sidecar ready", "Agents can run now.");
+      toast("ok", "Sidecar ready", "Agents can run now.");
     } catch (e) {
       fail(e, "The sidecar install failed");
     }

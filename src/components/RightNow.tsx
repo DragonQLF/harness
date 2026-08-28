@@ -7,7 +7,7 @@ import { api } from "../lib/ipc";
 import { clock, duration, money, plural } from "../lib/format";
 import { tone, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
-import { Glyph, Icon, mono, truncate } from "./ui";
+import { Glyph, Icon, monoStyle, truncateStyle } from "./ui";
 
 function Section({
   title,
@@ -24,7 +24,7 @@ function Section({
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: `${top ?? 0}px 3px 9px` }}>
       <span style={{ font: "600 11.5px var(--sans)", color: "var(--text2)" }}>{title}</span>
       {count && (
-        <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
           · {count}
         </span>
       )}
@@ -76,7 +76,7 @@ export function RightNowStrip({ open }: { open: () => void }) {
             borderRadius: 8,
             background: "var(--warnSoft)",
             color: "var(--warn)",
-            ...mono,
+            ...monoStyle,
             fontSize: 10.5,
             fontWeight: 600,
           }}
@@ -88,7 +88,7 @@ export function RightNowStrip({ open }: { open: () => void }) {
         const agent = agents.find((a) => a.id === id);
         const t = tone(agent?.tone);
         return (
-          <Glyph key={id} color={t.color} soft={t.soft} size={26} radius={9} font={10}>
+          <Glyph key={id} tone={t} size={26} radius={9} font={10}>
             {agent?.initial ?? "?"}
           </Glyph>
         );
@@ -228,7 +228,7 @@ export function RightNow({
           title="Waiting on you"
           right={
             waiting > 0 ? (
-              <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--warn)" }}>
+              <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--warn)" }}>
                 · {waiting}
               </span>
             ) : undefined
@@ -288,10 +288,10 @@ export function RightNow({
               }}
             >
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Glyph color={t.color} soft={t.soft} size={18} radius={6} font={8}>
+                <Glyph tone={t} size={18} radius={6} font={8}>
                   {agent?.initial ?? "?"}
                 </Glyph>
-                <span style={{ flex: 1, font: "600 11.5px var(--sans)", color: "var(--text)", ...truncate }}>
+                <span style={{ flex: 1, font: "600 11.5px var(--sans)", color: "var(--text)", ...truncateStyle }}>
                   {agent?.name ?? "An agent"} · permission
                 </span>
                 <span
@@ -300,7 +300,7 @@ export function RightNow({
                     borderRadius: 8,
                     background: "var(--warnSoft)",
                     color: "var(--warn)",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     fontWeight: 500,
                   }}
@@ -310,7 +310,7 @@ export function RightNow({
               </span>
               <span
                 style={{
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 10.5,
                   fontWeight: 500,
                   color: "var(--warn)",
@@ -364,7 +364,7 @@ export function RightNow({
                 cursor: "pointer",
               }}
             >
-              <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncate }}>
+              <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncateStyle }}>
                 {card.title}
               </span>
               <span
@@ -372,7 +372,7 @@ export function RightNow({
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 10.5,
                   color: "var(--text3)",
                 }}
@@ -401,7 +401,7 @@ export function RightNow({
             openProposals.length > 0 ? (
               <span
                 title="The Director noticed a pattern; you decide whether it becomes work"
-                style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}
+                style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}
               >
                 his call, your decision
               </span>
@@ -427,7 +427,7 @@ export function RightNow({
               marginBottom: 8,
             }}
           >
-            <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncate }}>
+            <span style={{ font: "600 11.5px var(--sans)", color: "var(--text)", ...truncateStyle }}>
               {proposal.title}
             </span>
             <span style={{ font: "400 11.5px var(--sans)", lineHeight: 1.55, color: "var(--text3)" }}>
@@ -460,7 +460,7 @@ export function RightNow({
                 Dismiss
               </span>
               <span style={{ flex: 1 }} />
-              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                 {clock(proposal.created_ms)}
               </span>
             </span>
@@ -472,7 +472,7 @@ export function RightNow({
           count={String(runningCards.length)}
           top={14}
           right={
-            <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{money(liveSpend, 2)}</span>
+            <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>{money(liveSpend, 2)}</span>
           }
         />
         {runningCards.length === 0 && !allQuiet && (
@@ -512,7 +512,7 @@ export function RightNow({
                 marginBottom: 8,
               }}
             >
-              <Glyph color={t.color} soft={t.soft} size={26} radius={9} font={10}>
+              <Glyph tone={t} size={26} radius={9} font={10}>
                 {agent?.initial ?? "?"}
               </Glyph>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -520,9 +520,9 @@ export function RightNow({
                   <span style={{ font: "600 12.5px var(--sans)", color: "var(--text)" }}>
                     {agent?.name ?? card.agent_id}
                   </span>
-                  <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{card.id}</span>
+                  <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>{card.id}</span>
                   <div style={{ flex: 1 }} />
-                  <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
+                  <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
                     {session ? duration(Date.now() - session.started_ms) : "—"}
                   </span>
                 </div>
@@ -540,9 +540,9 @@ export function RightNow({
                 </span>
                 <span
                   style={{
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
-                    color: t.color,
+                    color: t.cssColor,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -555,7 +555,7 @@ export function RightNow({
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     color: "var(--text3)",
                   }}
@@ -576,7 +576,7 @@ export function RightNow({
           count={String(stats?.done_today ?? doneToday.length)}
           top={14}
           right={
-            <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+            <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
               {money(stats?.spend_today ?? 0)}
             </span>
           }
@@ -604,13 +604,13 @@ export function RightNow({
                 cursor: "pointer",
               }}
             >
-              <Glyph color={t.color} soft={t.soft} size={20} radius={7} font={8.5}>
+              <Glyph tone={t} size={20} radius={7} font={8.5}>
                 {agent?.initial ?? "·"}
               </Glyph>
-              <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
+              <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncateStyle }}>
                 {card?.title ?? row.card_id}
               </span>
-              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{clock(row.ts_ms)}</span>
+              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>{clock(row.ts_ms)}</span>
             </div>
           );
         })}
@@ -648,7 +648,7 @@ export function RightNow({
                 cursor: "pointer",
               }}
             >
-              <span style={{ flex: 1, ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--text2)", ...truncate }}>
+              <span style={{ flex: 1, ...monoStyle, fontSize: 11.5, fontWeight: 500, color: "var(--text2)", ...truncateStyle }}>
                 {t.branch ?? t.path.split(/[\\/]/).pop()}
               </span>
               <span

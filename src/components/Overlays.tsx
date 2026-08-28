@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ago } from "../lib/format";
 import { tone } from "../lib/types";
 import { useStore } from "../state/store";
-import { truncate } from "./ui";
+import { truncateStyle } from "./ui";
 
 export function Toasts() {
   const { toasts, dismissToast } = useStore();
@@ -117,8 +117,8 @@ export function ApprovalSheet({ close }: { close: () => void }) {
               width: 38,
               height: 38,
               borderRadius: "50%",
-              background: t.soft,
-              color: t.color,
+              background: t.cssSoft,
+              color: t.cssColor,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -499,7 +499,7 @@ export function CommandPalette({
               <span
                 style={{ width: 7, height: 7, borderRadius: "50%", flex: "none", background: a.color }}
               />
-              <span style={{ flex: 1, fontWeight: 500, ...truncate }}>{a.name}</span>
+              <span style={{ flex: 1, fontWeight: 500, ...truncateStyle }}>{a.name}</span>
               <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{a.hint}</span>
             </button>
           ))}

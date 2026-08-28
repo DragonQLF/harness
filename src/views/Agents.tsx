@@ -18,7 +18,7 @@ import {
   type Provider,
 } from "../lib/types";
 import { useStore } from "../state/store";
-import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
+import { Eyebrow, Glyph, monoStyle, truncateStyle } from "../components/ui";
 
 function stateOf(agent: AgentProfile, running: number) {
   if (agent.paused) return { label: "paused", color: "var(--text4)" };
@@ -83,7 +83,7 @@ function Templates() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, paddingBottom: 8 }}>
         <span style={{ font: "600 11.5px var(--sans)", color: "var(--text2)" }}>New from template</span>
         <div style={{ flex: 1 }} />
-        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
           {templates == null ? "…" : templates.length}
         </span>
       </div>
@@ -182,7 +182,7 @@ function ModelPicker({
 
   return (
     <div>
-      <Eyebrow style={{ display: "block", paddingBottom: 8 }}>MODEL</Eyebrow>
+      <Eyebrow className="block pb-2">MODEL</Eyebrow>
 
       <input
         value={find}
@@ -246,10 +246,10 @@ function ModelPicker({
             >
               <span
                 style={{
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 11.5,
                   color: picked ? "var(--accent)" : "var(--text1)",
-                  ...truncate,
+                  ...truncateStyle,
                   flex: 1,
                 }}
               >
@@ -261,7 +261,7 @@ function ModelPicker({
                 </span>
               ) : (
                 <span
-                  style={{ ...mono, fontSize: 10.5, color: "var(--text4)", flex: "none" }}
+                  style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", flex: "none" }}
                   data-nums
                 >
                   {Math.round(m.context / 1000)}k
@@ -278,7 +278,7 @@ function ModelPicker({
           has published — none of which should leave the operator unable to name
           the model they meant. */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", flex: "none" }}>set to</span>
+        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", flex: "none" }}>set to</span>
         <input
           key={chosen}
           defaultValue={chosen}
@@ -571,7 +571,7 @@ export function Agents({
         <div className="stagger" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px 12px" }}>
           {teams.map(([team, members]) => (
             <div key={team}>
-              <Eyebrow style={{ display: "block", padding: "10px 8px 6px" }}>{team}</Eyebrow>
+              <Eyebrow className="block px-2 pb-1.5 pt-2.5">{team}</Eyebrow>
               {members.map((a) => {
                 const at = tone(a.tone);
                 const on = a.id === agent.id;
@@ -593,7 +593,7 @@ export function Agents({
                       boxShadow: on ? "inset 0 0 0 1px var(--line3)" : "none",
                     }}
                   >
-                    <Glyph color={at.color} soft={at.soft} size={24} radius={8} font={9.5}>
+                    <Glyph tone={at} size={24} radius={8} font={9.5}>
                       {a.initial}
                     </Glyph>
                     <span style={{ flex: 1, minWidth: 0 }}>
@@ -602,13 +602,13 @@ export function Agents({
                           display: "block",
                           font: "600 12.5px var(--sans)",
                           color: on ? "var(--text)" : "var(--text1)",
-                          ...truncate,
+                          ...truncateStyle,
                         }}
                       >
                         {a.name}
                       </span>
                       <span
-                        style={{ display: "block", ...mono, fontSize: 10.5, color: "var(--text4)", ...truncate }}
+                        style={{ display: "block", ...monoStyle, fontSize: 10.5, color: "var(--text4)", ...truncateStyle }}
                       >
                         {a.title} · {a.model ?? "auto"}
                       </span>
@@ -636,7 +636,7 @@ export function Agents({
             animation: "rowIn .4s cubic-bezier(.2,.8,.25,1) both",
           }}
         >
-          <Glyph color={t.color} soft={t.soft} size={38} radius={12} font={14}>
+          <Glyph tone={t} size={38} radius={12} font={14}>
             {agent.initial}
           </Glyph>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -665,7 +665,7 @@ export function Agents({
                   border: "none",
                   background: "var(--surface2)",
                   outline: "none",
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 10.5,
                   color: "var(--text2)",
                   width: 108,
@@ -752,7 +752,7 @@ export function Agents({
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: 16 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 6 }}>BRIEF</Eyebrow>
+                <Eyebrow className="block pb-1.5">BRIEF</Eyebrow>
                 <textarea
                   rows={4}
                   value={agent.brief}
@@ -772,7 +772,7 @@ export function Agents({
                 />
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 6 }}>EXPECTED OUTPUT</Eyebrow>
+                <Eyebrow className="block pb-1.5">EXPECTED OUTPUT</Eyebrow>
                 <textarea
                   rows={2}
                   value={agent.expected_output}
@@ -800,7 +800,7 @@ export function Agents({
               )}
 
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>TOOLS IT MAY USE</Eyebrow>
+                <Eyebrow className="block pb-2">TOOLS IT MAY USE</Eyebrow>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {ALL_PERMISSIONS.map((p) => {
                     const on = agent.permissions.includes(p);
@@ -848,7 +848,7 @@ export function Agents({
                 </div>
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>SKILLS</Eyebrow>
+                <Eyebrow className="block pb-2">SKILLS</Eyebrow>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                   {agent.skills.map((s) => (
                     <span
@@ -861,7 +861,7 @@ export function Agents({
                         borderRadius: 999,
                         background: "var(--surface)",
                         border: "1px solid var(--line2)",
-                        ...mono,
+                        ...monoStyle,
                         fontSize: 11.5,
                         color: "var(--text2)",
                         cursor: "pointer",
@@ -893,7 +893,7 @@ export function Agents({
                 </div>
               </div>
               <div>
-                <Eyebrow style={{ display: "block", paddingBottom: 8 }}>WHERE IT SITS</Eyebrow>
+                <Eyebrow className="block pb-2">WHERE IT SITS</Eyebrow>
                 <div style={{ display: "flex", gap: 10 }}>
                   {[
                     {
@@ -910,7 +910,7 @@ export function Agents({
                     },
                   ].map((f) => (
                     <div key={f.label} style={{ flex: 1 }}>
-                      <div style={{ ...mono, fontSize: 10.5, color: "var(--text4)", paddingBottom: 4 }}>
+                      <div style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", paddingBottom: 4 }}>
                         {f.label}
                       </div>
                       <select
@@ -988,7 +988,7 @@ export function Agents({
                     What it has done
                   </span>
                   <div style={{ flex: 1 }} />
-                  <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>all time</span>
+                  <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>all time</span>
                 </div>
                 {neverRan ? (
                   <p
@@ -1014,7 +1014,7 @@ export function Agents({
                         <div key={n.k}>
                           <div
                             data-nums
-                            style={{ ...mono, fontSize: 16, fontWeight: 600, color: n.color }}
+                            style={{ ...monoStyle, fontSize: 16, fontWeight: 600, color: n.color }}
                           >
                             {n.v}
                           </div>
@@ -1043,7 +1043,7 @@ export function Agents({
                         />
                       ))}
                     </div>
-                    <div style={{ paddingTop: 6, ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+                    <div style={{ paddingTop: 6, ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                       runs, last 7 days
                     </div>
                   </>
@@ -1076,10 +1076,10 @@ export function Agents({
                         cursor: "pointer",
                       }}
                     >
-                      <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
+                      <span style={{ flex: 1, font: "400 11.5px var(--sans)", color: "var(--text2)", ...truncateStyle }}>
                         {c.title}
                       </span>
-                      <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+                      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                         {money(c.cost_usd, 2)}
                       </span>
                     </div>

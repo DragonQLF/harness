@@ -1,132 +1,200 @@
-/** Primitives lifted straight from the design file, so a screen reads as the
- *  same composition the design has. Styles stay inline on purpose: it keeps
- *  each element comparable with `Relay v4.dc.html` line by line. */
+/** As primitivas do desenho.
+ *
+ *  Eram inline para se poderem ler linha a linha ao lado do ficheiro de
+ *  desenho. Agora são classes do Tailwind e, o que interessa mais, **têm
+ *  variantes**: `<Pill tone="bad">` em vez de a vista passar cores por cima.
+ *  Uma vista que precise de mudar o aspecto de uma primitiva mudou-a aqui.
+ *
+ *  O que ficou como `style` são as medidas que o chamador escolhe — o lado de
+ *  um glifo, a altura de uma barra —, porque essas são valores e não classes:
+ *  o Tailwind precisa do nome escrito em código para o gerar. */
 
 import type { CSSProperties, ReactNode } from "react";
+import {
+  Activity as LuActivity,
+  Archive as LuArchive,
+  ArrowRight,
+  ArrowUp,
+  Bell,
+  Check as LuCheck,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy as LuCopy,
+  FileCode,
+  Folder as LuFolder,
+  GitBranch,
+  House,
+  Kanban,
+  List as LuList,
+  MessageCircle,
+  Minus,
+  PanelLeft,
+  Paperclip,
+  Pencil as LuPencil,
+  CirclePlay,
+  Plus as LuPlus,
+  Search as LuSearch,
+  Settings as LuSettings,
+  Square as LuSquare,
+  UserRound,
+  Users,
+  Waypoints,
+  X,
+} from "lucide-react";
+import { cx } from "../lib/cx";
+import { TONE, type Tone, type ToneName } from "../lib/types";
 
-/** The panel shape the design uses everywhere: 1px line, radius 18, surface. */
+/** Um tom chega como nome (`"bad"`) ou já resolvido (o do perfil de um
+ *  agente, que vem do backend como string). Ambos servem. */
+function pickTone(t: ToneName | Tone | undefined, fallback: Tone = TONE.neutral): Tone {
+  if (!t) return fallback;
+  return typeof t === "string" ? (TONE[t] ?? fallback) : t;
+}
+
+// ---- classes que várias vistas repetem -------------------------------------
+
+/** Uma linha que não pode crescer para lá do sítio onde está. */
+export const truncate = "min-w-0 truncate";
+
+export const tabular = "tabular-nums";
+
+/** A voz de metadados em monoespaçada: ids, custos, ramos, horas. */
+export const mono = "font-mono tabular-nums";
+
+/** Andaimes da migração: as vistas que ainda não foram convertidas espalham
+ *  estes objectos dentro de um `style`. Saem com o `theme.css`, no último
+ *  commit, quando já não houver quem os espalhe.
+ *  @deprecated usa as classes acima. */
+export const monoStyle: CSSProperties = {
+  fontFamily: '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontVariantNumeric: "tabular-nums",
+};
+/** @deprecated usa `truncate`. */
+export const truncateStyle: CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  minWidth: 0,
+};
+/** @deprecated usa `tabular`. */
+export const tabularStyle: CSSProperties = { fontVariantNumeric: "tabular-nums" };
+
+// ---- painéis ---------------------------------------------------------------
+
+const CARD_PAD: Record<"none" | "sm" | "md" | "lg", string> = {
+  none: "",
+  sm: "p-3",
+  md: "p-4",
+  lg: "p-5",
+};
+
+/** A forma de painel que o desenho usa por todo o lado: linha de 1px, raio 16,
+ *  superfície. `pad` é a variante cheia; sem ela fica de bordo a bordo, que é
+ *  o que uma lista precisa. */
 export function Card({
   children,
-  style,
-  pad,
+  pad = "none",
+  tone,
+  raised,
   className,
-  animation,
 }: {
   children: ReactNode;
-  style?: CSSProperties;
-  /** Padding for the plain variant; omit for edge-to-edge lists. */
-  pad?: string;
+  pad?: keyof typeof CARD_PAD;
+  /** Tinge a linha, para um painel que está a dizer alguma coisa. */
+  tone?: ToneName | Tone;
+  /** Pousado sobre o pano de fundo em vez de assente nele. */
+  raised?: boolean;
   className?: string;
-  animation?: string;
 }) {
+  const t = tone ? pickTone(tone) : null;
   return (
     <div
-      className={className}
-      style={{
-        border: "1px solid var(--line)",
-        borderRadius: "var(--r-lg)",
-        background: "var(--surface)",
-        overflow: "hidden",
-        padding: pad,
-        animation,
-        ...style,
-      }}
+      className={cx(
+        "overflow-hidden rounded-lg border bg-surface dark:bg-surface-d",
+        t ? t.line : "border-line dark:border-line-d",
+        raised && "shadow-panel dark:shadow-panel-d",
+        CARD_PAD[pad],
+        className,
+      )}
     >
       {children}
     </div>
   );
 }
 
-/** Header row inside a card: title, optional count pill, right-hand link. */
+/** Cabeçalho dentro de um painel: título, contagem, ligação à direita. */
 export function CardHead({
   title,
   count,
-  countColor,
-  countSoft,
+  tone,
   right,
   note,
 }: {
   title: string;
   count?: ReactNode;
-  countColor?: string;
-  countSoft?: string;
+  tone?: ToneName | Tone;
   right?: ReactNode;
   note?: string;
 }) {
+  const t = pickTone(tone);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 20px 14px" }}>
-      <span style={{ fontSize: "var(--t-lg)", fontWeight: 700 }}>{title}</span>
+    <div className="flex items-center gap-2.5 px-5 pb-3.5 pt-4.5">
+      <span className="text-lg font-bold">{title}</span>
       {count != null && (
-        <span
-          style={{
-            padding: "2px 8px",
-            borderRadius: 999,
-            background: countSoft ?? "var(--surface2)",
-            color: countColor ?? "var(--text3)",
-            fontSize: "var(--t-xs)",
-            fontWeight: 700,
-          }}
-        >
+        <span className={cx("rounded-full px-2 py-0.5 text-xs font-bold", t.soft, t.fg)}>
           {count}
         </span>
       )}
-      <div style={{ flex: 1 }} />
-      {note && <span style={{ fontSize: "var(--t-xs)", color: "var(--text3)" }}>{note}</span>}
+      <div className="flex-1" />
+      {note && <span className="text-xs text-text3 dark:text-text3-d">{note}</span>}
       {right}
     </div>
   );
 }
 
-/** The quiet "Board →" style link the design puts in card headers. */
+/** A ligação discreta ("Board →") que o desenho põe nos cabeçalhos. */
 export function HeadLink({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="hv-link"
       onClick={onClick}
-      style={{
-        background: "transparent",
-        border: "none",
-        color: "var(--text3)",
-        fontSize: "var(--t-sm)",
-        cursor: "pointer",
-        padding: 0,
-      }}
+      className="cursor-pointer rounded-[4px] border-none bg-transparent p-0 text-sm text-text3 transition-colors duration-150 hover:text-text focus-visible:text-text dark:text-text3-d dark:hover:text-text-d dark:focus-visible:text-text-d"
     >
       {label}
     </button>
   );
 }
 
+// ---- marcas ----------------------------------------------------------------
+
 export function Avatar({
   children,
-  color,
-  soft,
+  tone,
   size = 36,
-  radius,
+  round = true,
   weight = 700,
   fontSize,
 }: {
   children: ReactNode;
-  color: string;
-  soft: string;
+  tone?: ToneName | Tone;
   size?: number;
-  radius?: number | string;
+  round?: boolean;
   weight?: number;
   fontSize?: number;
 }) {
+  const t = pickTone(tone, TONE.accent);
   return (
     <span
+      className={cx(
+        "flex flex-none items-center justify-center",
+        round ? "rounded-full" : "rounded-md",
+        t.soft,
+        t.fg,
+      )}
       style={{
         width: size,
         height: size,
-        flex: "none",
-        borderRadius: radius ?? "50%",
-        background: soft,
-        color,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
         fontSize: fontSize ?? (size >= 36 ? 12.5 : 11.5),
         fontWeight: weight,
       }}
@@ -136,52 +204,88 @@ export function Avatar({
   );
 }
 
-export function Pill({
+/** O quadrado de 16px com a inicial que o desenho põe ao lado de tudo o que
+ *  um agente é dono. As marcas dos agentes são identidade: o tom vem do perfil
+ *  e não de uma variante escolhida aqui. */
+export function Glyph({
   children,
-  color,
-  soft,
-  bold = true,
-  size = 11,
-  dot,
+  tone,
+  size = 16,
+  radius = 5,
+  font,
+  className,
 }: {
   children: ReactNode;
-  color?: string;
-  soft?: string;
-  bold?: boolean;
+  tone?: ToneName | Tone;
   size?: number;
-  dot?: boolean;
+  radius?: number | string;
+  font?: number;
+  /** Para o preenchimento que não é um tom — um degradê, por exemplo. Substitui
+   *  as classes de cor em vez de se somar a elas. */
+  className?: string;
 }) {
+  const t = pickTone(tone, TONE.accent);
   return (
     <span
+      className={cx(
+        "grid flex-none place-items-center font-mono font-semibold leading-none",
+        className ?? cx(t.soft, t.fg),
+      )}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: dot ? "4px 10px" : "3px 9px",
-        borderRadius: 999,
-        background: soft ?? "var(--surface2)",
-        color: color ?? "var(--text3)",
-        fontSize: size,
-        fontWeight: bold ? 700 : 500,
-        whiteSpace: "nowrap",
+        width: size,
+        height: size,
+        borderRadius: radius,
+        fontSize: font ?? Math.max(8, Math.round(size * 0.5)),
       }}
     >
-      {dot && (
-        <span
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: "50%",
-            background: color ?? "var(--text3)",
-          }}
-        />
-      )}
       {children}
     </span>
   );
 }
 
-/** Solid dark action button ("Approve", "Review"). */
+const PILL_SIZE = {
+  sm: "text-[10px]",
+  md: "text-[11px]",
+  lg: "text-md",
+} as const;
+
+export function Pill({
+  children,
+  tone,
+  bold = true,
+  size = "md",
+  dot,
+  className,
+}: {
+  children: ReactNode;
+  tone?: ToneName | Tone;
+  bold?: boolean;
+  size?: keyof typeof PILL_SIZE;
+  dot?: boolean;
+  className?: string;
+}) {
+  const t = pickTone(tone);
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full",
+        dot ? "px-2.5 py-1" : "px-2.25 py-[3px]",
+        PILL_SIZE[size],
+        bold ? "font-bold" : "font-medium",
+        t.soft,
+        t.fg,
+        className,
+      )}
+    >
+      {dot && <span className={cx("h-1.25 w-1.25 flex-none rounded-full", t.solid)} />}
+      {children}
+    </span>
+  );
+}
+
+// ---- botões ----------------------------------------------------------------
+
+/** Botão de acção cheio ("Approve", "Review"). */
 export function StrongButton({
   label,
   onClick,
@@ -194,29 +298,16 @@ export function StrongButton({
   return (
     <button
       type="button"
-      className="hv-brighter"
       onClick={onClick}
       disabled={disabled}
-      style={{
-        padding: "10px 18px",
-        border: "none",
-        borderRadius: 999,
-        background: "var(--text)",
-        color: "var(--bg)",
-        fontSize: "var(--t-sm)",
-        fontWeight: 700,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        transition: "filter .18s ease",
-        whiteSpace: "nowrap",
-      }}
+      className="min-h-6 cursor-pointer whitespace-nowrap rounded-full border-none bg-text px-4.5 py-2.5 text-sm font-bold text-bg transition-[filter] duration-150 hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 dark:bg-text-d dark:text-bg-d"
     >
       {label}
     </button>
   );
 }
 
-/** Outlined secondary action ("Send back", "Log"). */
+/** Acção secundária de contorno ("Send back", "Log"). */
 export function QuietButton({
   label,
   onClick,
@@ -226,34 +317,27 @@ export function QuietButton({
   label: string;
   onClick: () => void;
   disabled?: boolean;
-  tone?: { color: string; soft: string };
+  tone?: ToneName | Tone;
 }) {
+  const t = tone ? pickTone(tone) : null;
   return (
     <button
       type="button"
-      className="hv-soft"
       onClick={onClick}
       disabled={disabled}
-      style={{
-        padding: "10px 16px",
-        border: tone ? "1px solid transparent" : "1px solid var(--line)",
-        borderRadius: 999,
-        background: tone?.soft ?? "transparent",
-        color: tone?.color ?? "var(--text2)",
-        fontSize: "var(--t-sm)",
-        fontWeight: tone ? 700 : 500,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        transition: "all .18s ease",
-        whiteSpace: "nowrap",
-      }}
+      className={cx(
+        "min-h-6 cursor-pointer whitespace-nowrap rounded-full border px-4 py-2.5 text-sm transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50",
+        t
+          ? cx("border-transparent font-bold", t.soft, t.fg)
+          : "border-line bg-transparent font-medium text-text2 hover:bg-hovered hover:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+      )}
     >
       {label}
     </button>
   );
 }
 
-/** Segmented control: the design's pill row of choices. */
+/** Controlo segmentado: a fila de escolhas em pastilha do desenho. */
 export function Segmented<T extends string>({
   value,
   options,
@@ -266,37 +350,22 @@ export function Segmented<T extends string>({
   small?: boolean;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 4,
-        padding: 4,
-        borderRadius: 999,
-        background: "var(--surface2)",
-        border: "1px solid var(--line)",
-      }}
-    >
+    <div className="flex gap-1 rounded-full border border-line bg-surface2 p-1 dark:border-line-d dark:bg-surface2-d">
       {options.map((o) => {
         const on = o.id === value;
         return (
           <button
-            className="hv-soft"
             key={o.id}
             type="button"
             onClick={() => onPick(o.id)}
-            style={{
-              flex: 1,
-              padding: small ? "5px 10px" : "7px 13px",
-              border: "none",
-              borderRadius: 999,
-              background: on ? "var(--accent)" : "transparent",
-              color: on ? "var(--onAccent)" : "var(--text2)",
-              fontWeight: on ? 700 : 500,
-              fontSize: small ? 11.5 : 12.5,
-              cursor: "pointer",
-              transition: "all .18s ease",
-              whiteSpace: "nowrap",
-            }}
+            aria-pressed={on}
+            className={cx(
+              "min-h-6 flex-1 cursor-pointer whitespace-nowrap rounded-full border-none transition-colors duration-150",
+              small ? "px-2.5 py-1.25 text-sm" : "px-[13px] py-1.75 text-md",
+              on
+                ? "bg-accent font-bold text-onAccent dark:bg-accent-d dark:text-onAccent-d"
+                : "bg-transparent font-medium text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+            )}
           >
             {o.name}
           </button>
@@ -306,38 +375,32 @@ export function Segmented<T extends string>({
   );
 }
 
-/** The design's switch: 38x22 track, 18px knob. */
-export function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
+/** O interruptor do desenho: carril 38x22, botão de 18px. */
+export function Switch({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
   return (
     <button
-      className="hv-soft"
       type="button"
       aria-label={label}
       aria-pressed={on}
       onClick={() => onChange(!on)}
-      style={{
-        position: "relative",
-        width: 38,
-        height: 22,
-        flex: "none",
-        border: "none",
-        borderRadius: 999,
-        background: on ? "var(--accent)" : "var(--surface2)",
-        cursor: "pointer",
-        transition: "background .2s ease",
-      }}
+      className={cx(
+        "relative h-5.5 w-[38px] flex-none cursor-pointer rounded-full border-none transition-colors duration-200",
+        on ? "bg-accent dark:bg-accent-d" : "bg-surface2 dark:bg-surface2-d",
+      )}
     >
       <span
-        style={{
-          position: "absolute",
-          top: 2,
-          left: on ? 18 : 2,
-          width: 18,
-          height: 18,
-          borderRadius: "50%",
-          background: on ? "var(--onAccent)" : "var(--text3)",
-          transition: "all .2s cubic-bezier(.2,.8,.2,1)",
-        }}
+        className={cx(
+          "absolute top-0.5 h-4.5 w-4.5 rounded-full transition-all duration-200 ease-rise",
+          on ? "left-4.5 bg-onAccent dark:bg-onAccent-d" : "left-0.5 bg-text3 dark:bg-text3-d",
+        )}
       />
     </button>
   );
@@ -358,87 +421,75 @@ export function SwitchRow({
 }) {
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        padding: "14px 18px",
-        borderTop: first ? "none" : "1px solid var(--line2)",
-      }}
+      className={cx(
+        "flex items-center gap-3.5 px-4.5 py-3.5",
+        !first && "border-t border-line2 dark:border-line2-d",
+      )}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{name}</div>
-        <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--text3)", lineHeight: 1.5 }}>
-          {note}
-        </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-md font-semibold">{name}</div>
+        <div className="mt-1 text-sm leading-normal text-text3 dark:text-text3-d">{note}</div>
       </div>
       <Switch on={on} onChange={onChange} label={name} />
     </div>
   );
 }
 
-/** Seven-day bar chart with weekday letters, as the design draws it. */
+// ---- números com forma -----------------------------------------------------
+
+/** Barras de sete dias com as letras dos dias, como o desenho as desenha. */
 export function WeekBars({
   values,
   labels,
-  color = "var(--accent)",
+  tone,
   height = 64,
 }: {
   values: number[];
   labels: string[];
-  color?: string;
+  tone?: ToneName | Tone;
   height?: number;
 }) {
+  const t = pickTone(tone, TONE.accent);
   const peak = Math.max(1, ...values);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height }}>
+    <div className="flex items-end gap-1.5" style={{ height }}>
       {values.map((v, i) => (
-        <span
-          key={i}
-          style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
-        >
+        <span key={i} className="flex flex-1 flex-col items-center gap-1.5">
           <span
+            className={cx("w-full origin-bottom animate-riseBar rounded-[4px]", t.solid)}
             style={{
-              width: "100%",
               height: `${Math.max(6, Math.round((v / peak) * (height - 18)))}px`,
-              borderRadius: 4,
-              background: color,
               opacity: Number((0.3 + 0.7 * (v / peak)).toFixed(2)),
-              transformOrigin: "bottom",
-              animation: "riseBar .7s cubic-bezier(.2,.8,.2,1) both",
             }}
           />
-          <span style={{ fontSize: 10.5, color: "var(--text3)" }}>{labels[i]}</span>
+          <span className="text-xs text-text3 dark:text-text3-d">{labels[i]}</span>
         </span>
       ))}
     </div>
   );
 }
 
-/** Compact bars without labels (agent and project cards). */
+/** Barras compactas sem rótulos (cartões de agente e de projecto). */
 export function MiniBars({
   values,
-  color = "var(--accent)",
+  tone,
   height = 34,
 }: {
   values: number[];
-  color?: string;
+  tone?: ToneName | Tone;
   height?: number;
 }) {
+  const t = pickTone(tone, TONE.accent);
   const peak = Math.max(1, ...values);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height }}>
+    <div className="flex items-end gap-1" style={{ height }}>
       {values.map((v, i) => (
         <span
           key={i}
+          className={cx("flex-1 origin-bottom animate-riseBar-fast rounded-[4px]", t.solid)}
           style={{
-            flex: 1,
             height: `${Math.max(5, Math.round((v / peak) * 100))}%`,
-            borderRadius: 4,
-            background: color,
             opacity: Number((0.28 + 0.72 * (v / peak)).toFixed(2)),
-            transformOrigin: "bottom",
-            animation: "riseBar .6s cubic-bezier(.2,.8,.2,1) both",
           }}
         />
       ))}
@@ -446,21 +497,34 @@ export function MiniBars({
   );
 }
 
-/** Five squares showing the added/removed balance of a commit. */
-export function DiffBlocks({ added, removed }: { added: number; removed: number }) {
+const BLOCK_SIZE = { sm: "h-1.25 w-1.25", md: "h-1.75 w-1.75" } as const;
+
+/** Cinco quadrados com o equilíbrio entre acrescentado e removido. */
+export function DiffBlocks({
+  added,
+  removed,
+  size = "md",
+}: {
+  added: number;
+  removed: number;
+  size?: keyof typeof BLOCK_SIZE;
+}) {
   const span = added + removed;
   const green = span ? Math.max(1, Math.min(5, Math.round((added / span) * 5))) : 0;
   return (
-    <span style={{ display: "flex", gap: 2, alignItems: "center" }}>
+    <span className="flex items-center gap-0.5">
       {[0, 1, 2, 3, 4].map((i) => (
         <span
           key={i}
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: 1,
-            background: span === 0 ? "var(--line)" : i < green ? "var(--ok)" : "var(--bad)",
-          }}
+          className={cx(
+            "rounded-px",
+            BLOCK_SIZE[size],
+            span === 0
+              ? "bg-line dark:bg-line-d"
+              : i < green
+                ? "bg-ok dark:bg-ok-d"
+                : "bg-bad dark:bg-bad-d",
+          )}
         />
       ))}
     </span>
@@ -469,41 +533,45 @@ export function DiffBlocks({ added, removed }: { added: number; removed: number 
 
 export function Meter({
   pct,
-  color = "var(--accent)",
-  track = "var(--line)",
+  tone,
   height = 5,
 }: {
   pct: number;
-  color?: string;
-  track?: string;
+  tone?: ToneName | Tone;
   height?: number;
 }) {
+  const t = pickTone(tone, TONE.accent);
   return (
-    <div style={{ height, borderRadius: height, background: track, overflow: "hidden" }}>
+    <div
+      className="overflow-hidden bg-line dark:bg-line-d"
+      style={{ height, borderRadius: height }}
+    >
       <div
-        style={{
-          height: "100%",
-          width: `${Math.max(0, Math.min(100, pct))}%`,
-          background: color,
-          transformOrigin: "left",
-          animation: "barGrow .8s cubic-bezier(.2,.8,.2,1) both",
-          transition: "width .5s ease",
-        }}
+        className={cx(
+          "h-full origin-left animate-barGrow transition-[width] duration-500 ease-[ease]",
+          t.solid,
+        )}
+        style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
       />
     </div>
   );
 }
 
-export function EmptyNote({ children, bordered = true }: { children: ReactNode; bordered?: boolean }) {
+// ---- estados ---------------------------------------------------------------
+
+export function EmptyNote({
+  children,
+  bordered = true,
+}: {
+  children: ReactNode;
+  bordered?: boolean;
+}) {
   return (
     <div
-      style={{
-        padding: 24,
-        textAlign: "center",
-        fontSize: "var(--t-sm)",
-        color: "var(--text3)",
-        borderTop: bordered ? "1px solid var(--line2)" : undefined,
-      }}
+      className={cx(
+        "p-6 text-center text-sm text-text3 dark:text-text3-d",
+        bordered && "border-t border-line2 dark:border-line2-d",
+      )}
     >
       {children}
     </div>
@@ -512,38 +580,55 @@ export function EmptyNote({ children, bordered = true }: { children: ReactNode; 
 
 export function Loading({ what }: { what: string }) {
   return (
+    // Centrado no espaço que lhe deram, não preso ao topo dele. Um spinner
+    // debaixo do cabeçalho com um ecrã de nada por baixo lê-se como uma página
+    // que falhou e não como uma que está a trabalhar.
     <div
-      style={{
-        // Centred in the space it is given, not pinned to the top of it. A
-        // spinner sitting under the header with a screenful of nothing below
-        // reads as a page that failed rather than one that is working.
-        flex: 1,
-        minHeight: 220,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        padding: 44,
-        color: "var(--text3)",
-        fontSize: "var(--t-sm)",
-      }}
+      className="flex min-h-[220px] flex-1 items-center justify-center gap-2.5 p-11 text-sm text-text3 dark:text-text3-d"
+      role="status"
     >
-      <span
-        style={{
-          width: 14,
-          height: 14,
-          border: "2px solid var(--line)",
-          borderTopColor: "var(--accent)",
-          borderRadius: "50%",
-          animation: "spin .7s linear infinite",
-        }}
-      />
+      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-accent dark:border-line-d dark:border-t-accent-d" />
       {what}
     </div>
   );
 }
 
-/** Page heading: "Overview › workspace" with the date on the right. */
+/** O spinner que diz que um run está vivo. */
+export function Spinner({ size = 16 }: { size?: number }) {
+  return (
+    <span
+      className="flex-none animate-spin-slow rounded-full border-[1.6px] border-line3 border-t-accent dark:border-line3-d dark:border-t-accent-d"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** Um ponto vivo: verde e a respirar enquanto alguma coisa corre mesmo. */
+export function LiveDot({ tone, size = 6 }: { tone?: ToneName | Tone; size?: number }) {
+  const t = pickTone(tone, TONE.ok);
+  return (
+    <span
+      className={cx("flex-none animate-pulse rounded-full", t.solid)}
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** O cursor que diz que uma resposta ainda está a chegar. */
+export function Caret() {
+  return (
+    <span
+      className="ml-1 inline-block h-3 w-1.75 animate-caret bg-accent align-[-1px] dark:bg-accent-d"
+      aria-hidden="true"
+    />
+  );
+}
+
+// ---- cabeçalhos ------------------------------------------------------------
+
+/** Cabeçalho de página: "Overview › workspace" com a data à direita. */
 export function PageHead({
   title,
   crumb,
@@ -556,334 +641,77 @@ export function PageHead({
   children?: ReactNode;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-      <h1
-        style={{
-          margin: 0,
-          fontSize: "var(--t-xl)",
-          fontWeight: 800,
-          letterSpacing: "-.02em",
-          lineHeight: 1.2,
-        }}
-      >
-        {title}
-      </h1>
+    <div className="mb-5 flex items-center gap-3">
+      <h1 className="m-0 text-xl font-extrabold leading-tight tracking-[-.02em]">{title}</h1>
       {crumb && (
-        <span
-          style={{
-            padding: "4px 12px",
-            borderRadius: 999,
-            background: "var(--surface2)",
-            border: "1px solid var(--line)",
-            fontSize: "var(--t-xs)",
-            fontWeight: 600,
-            color: "var(--text2)",
-          }}
-        >
+        <span className="rounded-full border border-line bg-surface2 px-3 py-1 text-xs font-semibold text-text2 dark:border-line-d dark:bg-surface2-d dark:text-text2-d">
           {crumb}
         </span>
       )}
       {children}
-      <div style={{ flex: 1 }} />
+      <div className="flex-1" />
       {right}
     </div>
   );
 }
 
-export const truncate: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  minWidth: 0,
-};
-
-export const tabular: CSSProperties = { fontVariantNumeric: "tabular-nums" };
-
-/** The mono metadata voice: ids, costs, branches, timestamps. */
-export const mono: CSSProperties = {
-  fontFamily: "var(--mono)",
-  fontVariantNumeric: "tabular-nums",
-};
-
-/** A section label in the sidebar and the rails: small, spaced, quiet. */
-export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+/** Um rótulo de secção na barra lateral e nos rails: pequeno, espaçado, quieto. */
+export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span
-      style={{
-        fontSize: "var(--t-xs)",
-        fontWeight: 500,
-        letterSpacing: ".08em",
-        color: "var(--text3)",
-        ...style,
-      }}
+      className={cx("text-xs font-medium tracking-[.08em] text-text3 dark:text-text3-d", className)}
     >
       {children}
     </span>
   );
 }
 
-/** The 16px square initial the design puts beside anything an agent owns. */
-export function Glyph({
-  children,
-  color,
-  soft,
-  size = 16,
-  radius = 5,
-  font,
-}: {
-  children: ReactNode;
-  color: string;
-  soft: string;
-  size?: number;
-  radius?: number | string;
-  font?: number;
-}) {
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        flex: "none",
-        borderRadius: radius,
-        background: soft,
-        color,
-        display: "grid",
-        placeItems: "center",
-        fontFamily: "var(--mono)",
-        fontSize: font ?? Math.max(8, Math.round(size * 0.5)),
-        fontWeight: 600,
-        lineHeight: 1,
-      }}
-    >
-      {children}
-    </span>
-  );
-}
+// ---- ícones ----------------------------------------------------------------
 
-/** The spinner that says a run is alive. */
-export function Spinner({ size = 16 }: { size?: number }) {
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        flex: "none",
-        borderRadius: "50%",
-        border: "1.6px solid var(--line3)",
-        borderTopColor: "var(--accent)",
-        animation: "spin 1.1s linear infinite",
-      }}
-    />
-  );
-}
-
-/** A live dot: green and breathing while something is actually running. */
-export function LiveDot({ color = "var(--ok)", size = 6 }: { color?: string; size?: number }) {
-  return (
-    <span
-      style={{
-        width: size,
-        height: size,
-        flex: "none",
-        borderRadius: "50%",
-        background: color,
-        animation: "pulse 2.4s ease-in-out infinite",
-      }}
-    />
-  );
-}
-
-/** The caret that says an answer is still arriving. */
-export function Caret() {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 7,
-        height: 12,
-        marginLeft: 4,
-        background: "var(--accent)",
-        animation: "caret 1.05s steps(1) infinite",
-        verticalAlign: "-1px",
-      }}
-    />
-  );
-}
+/** Os trinta e um SVG à mão passaram a `lucide-react`.
+ *
+ *  A fachada fica: cada entrada guarda o tamanho e o peso de traço que o
+ *  desenho lhe deu, convertidos para a grelha de 24 do lucide, para o ecrã não
+ *  mudar de espessura ao mudar de biblioteca. São todos decorativos —
+ *  `aria-hidden` — e quem tem um botão só de ícone põe-lhe o `aria-label`. */
+const hidden = { "aria-hidden": true } as const;
 
 export const Icon = {
-  search: () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.4 10.4L14 14" />
-    </svg>
-  ),
-  bell: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M8 2.6a3.4 3.4 0 00-3.4 3.4c0 3-1.2 4-1.2 4h9.2s-1.2-1-1.2-4A3.4 3.4 0 008 2.6z" />
-      <path d="M6.8 12.4a1.3 1.3 0 002.4 0" />
-    </svg>
-  ),
+  search: () => <LuSearch size={14} strokeWidth={2.4} {...hidden} />,
+  bell: () => <Bell size={15} strokeWidth={2.25} {...hidden} />,
   chevron: () => (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      style={{ flex: "none", color: "var(--text3)" }}
-    >
-      <path d="M3.4 4.6L6 7.2l2.6-2.6" />
-    </svg>
+    <ChevronDown
+      size={12}
+      strokeWidth={3}
+      className="flex-none text-text3 dark:text-text3-d"
+      {...hidden}
+    />
   ),
-  minimize: () => (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <path d="M.6 5h8.8" />
-    </svg>
-  ),
-  maximize: () => (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <rect x=".7" y=".7" width="8.6" height="8.6" rx="1.6" />
-    </svg>
-  ),
-  close: () => (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <path d="M1.2 1.2l7.6 7.6M8.8 1.2L1.2 8.8" />
-    </svg>
-  ),
-  home: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M2.6 6.7L8 2.6l5.4 4.1V13a.5.5 0 01-.5.5H3.1a.5.5 0 01-.5-.5z" />
-    </svg>
-  ),
-  code: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M3.5 2.6h6.3l2.7 2.7V13a.5.5 0 01-.5.5H3.5a.5.5 0 01-.5-.5V3.1a.5.5 0 01.5-.5z" />
-      <path d="M5.7 8.1h4.6M5.7 10.6h3" />
-    </svg>
-  ),
-  agents: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="8" cy="5.8" r="2.7" />
-      <path d="M3.2 13.4c.6-2.5 2.5-3.8 4.8-3.8s4.2 1.3 4.8 3.8" />
-    </svg>
-  ),
-  board: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="2" y="2.8" width="3.4" height="10.4" rx="1.2" />
-      <rect x="6.3" y="2.8" width="3.4" height="6.8" rx="1.2" />
-      <rect x="10.6" y="2.8" width="3.4" height="8.6" rx="1.2" />
-    </svg>
-  ),
-  runs: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="8" cy="8" r="5.8" />
-      <path d="M6.9 5.9l3.4 2.1-3.4 2.1z" fill="currentColor" stroke="none" />
-    </svg>
-  ),
-  trees: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="4.3" cy="4" r="1.8" />
-      <circle cx="4.3" cy="12" r="1.8" />
-      <circle cx="11.7" cy="8" r="1.8" />
-      <path d="M4.3 5.8v4.4M6.1 4.5h2c1 0 1.7.6 1.7 1.6v.4M6.1 11.5h2c1 0 1.7-.6 1.7-1.6V9.6" />
-    </svg>
-  ),
-  log: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M3 4.2h10M3 8h10M3 11.8h6" />
-    </svg>
-  ),
-  gear: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="8" cy="8" r="2.2" />
-      <circle cx="8" cy="8" r="5.8" />
-    </svg>
-  ),
-  folder: () => (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M2.2 4.4c0-.7.6-1.2 1.2-1.2h2.3l1.3 1.6h5.6c.7 0 1.2.5 1.2 1.2v5.6c0 .7-.5 1.2-1.2 1.2H3.4c-.6 0-1.2-.5-1.2-1.2V4.4z" />
-    </svg>
-  ),
-  plus: () => (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.7">
-      <path d="M6 2.4v7.2M2.4 6h7.2" />
-    </svg>
-  ),
-  clip: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-      <path d="M11.6 7.2l-4.3 4.3a2.3 2.3 0 01-3.3-3.3l4.9-4.9a1.5 1.5 0 012.1 2.1l-4.9 4.9a.7.7 0 01-1-1l4.4-4.4" />
-    </svg>
-  ),
-  chat: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M13.4 8.2c0 2.6-2.4 4.7-5.4 4.7-.7 0-1.4-.1-2-.3L3 13.6l.6-2.3a4.4 4.4 0 01-1-2.9c0-2.6 2.4-4.7 5.4-4.7s5.4 2.1 5.4 4.5z" />
-    </svg>
-  ),
-  check: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M2.6 8.4l3 3 7.8-7.8" />
-    </svg>
-  ),
-  crew: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <circle cx="6.2" cy="5.8" r="2.5" />
-      <path d="M2 13.2c.5-2.3 2.2-3.5 4.2-3.5s3.7 1.2 4.2 3.5" />
-      <path d="M10.6 4.1a2.3 2.3 0 010 4.3M11.8 13.2c-.2-1.2-.6-2.1-1.2-2.8" />
-    </svg>
-  ),
-  pulse: () => (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M2.4 8h2.4l1.6-4 2.4 8 1.6-4h3.2" />
-    </svg>
-  ),
-  arrow: () => (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M3.4 8h9.2M8.8 4.2L12.6 8l-3.8 3.8" />
-    </svg>
-  ),
-  send: () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M8 13V3.5" />
-      <path d="M4.2 7.3L8 3.4l3.8 3.9" />
-    </svg>
-  ),
-  copy: () => (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="5" y="5" width="8.5" height="8.5" rx="1.6" />
-      <path d="M11 5V3.2a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v7.1c0 .4.3.7.7.7H5" />
-    </svg>
-  ),
-  pencil: () => (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M10.6 3.2l2.2 2.2-7 7-2.9.7.7-2.9z" />
-    </svg>
-  ),
-  archive: () => (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="2.4" y="3" width="11.2" height="3" rx="1" />
-      <path d="M3.6 6v6.4a.6.6 0 00.6.6h7.6a.6.6 0 00.6-.6V6M6.4 8.8h3.2" />
-    </svg>
-  ),
-  branch: () => (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M8 9.6v3.8M5.6 2.6h4.8l-.7 4.2 1.5 1.4H4.8l1.5-1.4z" />
-    </svg>
-  ),
-  sidebar: () => (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <rect x="2" y="2.6" width="12" height="10.8" rx="2" />
-      <path d="M6.2 2.6v10.8" />
-    </svg>
-  ),
-  back: () => (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M9.5 3.5L5 8l4.5 4.5" />
-    </svg>
-  ),
-  forward: () => (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M6.5 3.5L11 8l-4.5 4.5" />
-    </svg>
-  ),
+  minimize: () => <Minus size={10} strokeWidth={2.88} {...hidden} />,
+  maximize: () => <LuSquare size={10} strokeWidth={2.88} {...hidden} />,
+  close: () => <X size={10} strokeWidth={3.12} {...hidden} />,
+  home: () => <House size={16} strokeWidth={2.4} {...hidden} />,
+  code: () => <FileCode size={16} strokeWidth={2.4} {...hidden} />,
+  agents: () => <UserRound size={16} strokeWidth={2.4} {...hidden} />,
+  board: () => <Kanban size={16} strokeWidth={2.4} {...hidden} />,
+  runs: () => <CirclePlay size={16} strokeWidth={2.4} {...hidden} />,
+  trees: () => <Waypoints size={16} strokeWidth={2.4} {...hidden} />,
+  log: () => <LuList size={16} strokeWidth={2.4} {...hidden} />,
+  gear: () => <LuSettings size={16} strokeWidth={2.4} {...hidden} />,
+  folder: () => <LuFolder size={16} strokeWidth={2.4} {...hidden} />,
+  plus: () => <LuPlus size={12} strokeWidth={3.4} {...hidden} />,
+  clip: () => <Paperclip size={15} strokeWidth={2.4} {...hidden} />,
+  chat: () => <MessageCircle size={15} strokeWidth={2.4} {...hidden} />,
+  check: () => <LuCheck size={15} strokeWidth={2.4} {...hidden} />,
+  crew: () => <Users size={15} strokeWidth={2.4} {...hidden} />,
+  pulse: () => <LuActivity size={15} strokeWidth={2.4} {...hidden} />,
+  arrow: () => <ArrowRight size={13} strokeWidth={2.4} {...hidden} />,
+  send: () => <ArrowUp size={14} strokeWidth={2.7} {...hidden} />,
+  copy: () => <LuCopy size={12} strokeWidth={2.4} {...hidden} />,
+  pencil: () => <LuPencil size={13} strokeWidth={2.4} {...hidden} />,
+  archive: () => <LuArchive size={13} strokeWidth={2.4} {...hidden} />,
+  branch: () => <GitBranch size={11} strokeWidth={2.4} {...hidden} />,
+  sidebar: () => <PanelLeft size={13} strokeWidth={2.1} {...hidden} />,
+  back: () => <ChevronLeft size={12} strokeWidth={2.25} {...hidden} />,
+  forward: () => <ChevronRight size={12} strokeWidth={2.25} {...hidden} />,
 };

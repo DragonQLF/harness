@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { greeting } from "../lib/format";
 import { useStore } from "../state/store";
-import { tabular, truncate } from "../components/ui";
+import { tabularStyle, truncateStyle } from "../components/ui";
 
 function Step({
   n,
@@ -31,7 +31,7 @@ function Step({
           justifyContent: "center",
           fontSize: 11.5,
           fontWeight: 800,
-          ...tabular,
+          ...tabularStyle,
         }}
       >
         {n}
@@ -288,7 +288,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                 <span style={{ flex: "none", minWidth: 96, fontSize: 12.5, fontWeight: 600 }}>
                   {row.label}
                 </span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: "var(--text3)", ...truncate }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: "var(--text3)", ...truncateStyle }}>
                   {row.ok ? row.good : row.bad}
                 </span>
                 {!row.ok && row.label === "Agent sidecar" && status?.sidecar.node_found && (
@@ -331,7 +331,7 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
                 fontSize: 11.5,
                 color: "var(--text3)",
                 fontFamily: "var(--mono)",
-                ...truncate,
+                ...truncateStyle,
               }}
             >
               {dataDir || "—"}

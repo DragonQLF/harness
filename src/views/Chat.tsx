@@ -7,7 +7,7 @@ import { clock, money, plural } from "../lib/format";
 import { ruleLabel, tone, type AllowRule, type PendingApproval } from "../lib/types";
 import { useStore, type ChatMsg } from "../state/store";
 import { api, reason } from "../lib/ipc";
-import { Caret, Glyph, Icon, Spinner, mono, truncate } from "../components/ui";
+import { Caret, Glyph, Icon, Spinner, monoStyle, truncateStyle } from "../components/ui";
 
 /** What a standing rule for this request would cover. Mirrors the backend: a
  *  shell call is scoped to its leading words, anything else to the tool. */
@@ -90,7 +90,7 @@ function ApprovalCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Glyph color={t.color} soft={t.soft} size={26} radius="50%" font={10}>
+        <Glyph tone={t} size={26} radius="50%" font={10}>
           {agent?.initial ?? "?"}
         </Glyph>
         <span style={{ flex: 1, minWidth: 0 }}>
@@ -98,12 +98,12 @@ function ApprovalCard({
             {agent?.name ?? "An agent"} is asking permission
           </span>
           <span
-            style={{ display: "block", marginTop: 2, ...mono, fontSize: 10.5, color: "var(--text3)" }}
+            style={{ display: "block", marginTop: 2, ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}
           >
             {request.card_id ?? "no card"} · the run is paused until you answer
           </span>
         </span>
-        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
           {clock(request.asked_ms)}
         </span>
       </div>
@@ -114,7 +114,7 @@ function ApprovalCard({
           padding: "6px 10px",
           borderRadius: 8,
           background: "var(--warnSoft)",
-          ...mono,
+          ...monoStyle,
           fontSize: 11.5,
           fontWeight: 500,
           color: "var(--warn)",
@@ -138,7 +138,7 @@ function ApprovalCard({
           style={{
             display: "block",
             marginTop: 6,
-            ...mono,
+            ...monoStyle,
             fontSize: 11.5,
             fontWeight: 500,
             color: "var(--warn)",
@@ -187,7 +187,7 @@ function ApprovalCard({
         <span style={{ flex: 1 }}>
           <span style={{ display: "block", font: "400 12.5px var(--sans)", color: "var(--text2)" }}>
             Always allow{" "}
-            <span style={{ ...mono, fontSize: 11.5, color: "var(--text2)" }}>{ruleLabel(rule)}</span>
+            <span style={{ ...monoStyle, fontSize: 11.5, color: "var(--text2)" }}>{ruleLabel(rule)}</span>
           </span>
           <span
             style={{
@@ -278,18 +278,18 @@ function RunPanel({ cardId }: { cardId: string }) {
           borderBottom: "1px solid var(--line2)",
         }}
       >
-        <Glyph color={t.color} soft={t.soft} size={16} font={8}>
+        <Glyph tone={t} size={16} font={8}>
           {agent?.initial ?? "?"}
         </Glyph>
-        <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)", ...truncate }}>
+        <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)", ...truncateStyle }}>
           {agent?.name ?? card.agent_id} · {card.id} · live
         </span>
-        <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
           {plural(card.turns, "turn")} · {money(card.cost_usd, 2)}
           {session ? ` · ${session.branch ?? "no branch"}` : ""}
         </span>
       </div>
-      <div style={{ padding: "8px 12px", ...mono, fontSize: 11.5, lineHeight: 1.9, color: "var(--text3)" }}>
+      <div style={{ padding: "8px 12px", ...monoStyle, fontSize: 11.5, lineHeight: 1.9, color: "var(--text3)" }}>
         {log.map((l, i) => (
           <div key={i}>
             <span style={{ color: l.labelColor }}>{l.label}</span>{" "}
@@ -341,7 +341,7 @@ function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
             gap: 8,
             padding: "6px 10px",
             cursor: msg.detail ? "pointer" : "default",
-            ...mono,
+            ...monoStyle,
             fontSize: 11.5,
           }}
         >
@@ -449,7 +449,7 @@ export function Chat() {
       const picked = await api.pickFiles();
       if (picked.length) setAttached((was) => [...new Set([...was, ...picked])]);
     } catch (e) {
-      toast("var(--bad)", "Could not open the file picker", reason(e));
+      toast("bad", "Could not open the file picker", reason(e));
     }
   };
 
@@ -532,7 +532,7 @@ export function Chat() {
           <div key={i} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {divider && (
               <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
+                <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
                   {divider}
                 </span>
                 <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
@@ -560,7 +560,7 @@ export function Chat() {
                     borderBottom: "1px solid var(--line2)",
                   }}
                 >
-                  <span style={{ flex: 1, ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
+                  <span style={{ flex: 1, ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
                     you
                   </span>
                   <CopyButton text={msg.text} />
@@ -568,7 +568,7 @@ export function Chat() {
                 <div
                   style={{
                     padding: "12px 14px",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 12.5,
                     lineHeight: 1.8,
                     color: "var(--text2)",
@@ -589,7 +589,7 @@ export function Chat() {
                     height: 28,
                     flex: "none",
                     borderRadius: 8,
-                    background: `linear-gradient(140deg,${t.color},${t.color})`,
+                    background: `linear-gradient(140deg,${t.cssColor},${t.cssColor})`,
                     color: "var(--onAccent)",
                     display: "grid",
                     placeItems: "center",
@@ -603,7 +603,7 @@ export function Chat() {
                     <span style={{ font: "600 12.5px var(--sans)", color: "var(--text)" }}>
                       {speaker?.name ?? "Director"}
                     </span>
-                    <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
+                    <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
                       {clock(msg.ts)}
                       {speaker?.model ? ` · ${speaker.model}` : ""}
                     </span>
@@ -623,7 +623,7 @@ export function Chat() {
                   <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--text4)" }}>
                     <CopyButton text={msg.text} />
                     {conversation && (
-                      <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+                      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                         this chat {money(conversation.cost_usd, 2)}
                       </span>
                     )}
@@ -667,7 +667,7 @@ export function Chat() {
                 padding: "4px 10px",
                 borderRadius: 8,
                 border: "1px solid var(--line3)",
-                ...mono,
+                ...monoStyle,
                 fontSize: 10.5,
                 color: "var(--text3)",
                 cursor: "pointer",
@@ -681,7 +681,7 @@ export function Chat() {
                 height: 28,
                 flex: "none",
                 borderRadius: 8,
-                background: t.color,
+                background: t.cssColor,
                 color: "var(--onAccent)",
                 display: "grid",
                 placeItems: "center",
@@ -758,18 +758,18 @@ export function Chat() {
                     borderRadius: 8,
                     background: "var(--surface2)",
                     border: "1px solid var(--line3)",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     color: "var(--text2)",
                     cursor: "pointer",
                   }}
                 >
                   <Icon.clip />
-                  <span style={{ ...truncate }}>{baseName(file)}</span>
+                  <span style={{ ...truncateStyle }}>{baseName(file)}</span>
                   <span style={{ color: "var(--text4)" }}>×</span>
                 </span>
               ))}
-              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", alignSelf: "center" }}>
+              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", alignSelf: "center" }}>
                 read from disk, not uploaded
               </span>
             </div>
@@ -808,7 +808,7 @@ export function Chat() {
                 width: 26,
                 height: 26,
                 borderRadius: 8,
-                background: attached.length ? tone("accent").soft : "var(--surface2)",
+                background: attached.length ? tone("accent").cssSoft : "var(--surface2)",
                 color: attached.length ? "var(--accent)" : "var(--text2)",
                 cursor: "pointer",
               }}
@@ -832,7 +832,7 @@ export function Chat() {
                   cursor: "pointer",
                 }}
               >
-                <span style={{ width: 14, height: 14, borderRadius: 4, background: t.color }} />
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: t.cssColor }} />
                 {speaker?.name ?? "Director"} ▾
               </span>
               {pickProfile && (
@@ -872,13 +872,13 @@ export function Chat() {
                             cursor: "pointer",
                           }}
                         >
-                          <Glyph color={at.color} soft={at.soft} size={18} radius={6} font={8.5}>
+                          <Glyph tone={at} size={18} radius={6} font={8.5}>
                             {a.initial}
                           </Glyph>
                           <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
                             {a.name}
                           </span>
-                          <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+                          <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                             {a.model ?? "auto"}
                           </span>
                         </div>
@@ -910,7 +910,7 @@ export function Chat() {
                   padding: "6px 12px",
                   borderRadius: 8,
                   background: "var(--surface2)",
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 11.5,
                   fontWeight: 500,
                   color: "var(--text2)",
@@ -955,8 +955,7 @@ export function Chat() {
                       }}
                     >
                       <Glyph
-                        color={tone(p.tone).color}
-                        soft={tone(p.tone).soft}
+                        tone={tone(p.tone)}
                         size={18}
                         radius={6}
                         font={8.5}
@@ -986,16 +985,16 @@ export function Chat() {
                   try {
                     await api.mirrorSetup();
                     await refreshProjects();
-                    toast("var(--ok)", "Relay is set up", "The app can be given cards now.");
+                    toast("ok", "Relay is set up", "The app can be given cards now.");
                   } catch (e) {
-                    toast("var(--bad)", "Could not set Relay up", reason(e));
+                    toast("bad", "Could not set Relay up", reason(e));
                   }
                 }}
                 style={{
                   padding: "6px 12px",
                   borderRadius: 8,
                   background: "var(--surface2)",
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 11.5,
                   fontWeight: 500,
                   color: "var(--text3)",
@@ -1007,13 +1006,13 @@ export function Chat() {
             )}
 
             {!conversation && project && (
-              <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
                 a new chat is pinned to {project.name}
               </span>
             )}
 
             <div style={{ flex: 1 }} />
-            <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+            <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
               ⏎ send · ⇧⏎ newline
             </span>
             <span

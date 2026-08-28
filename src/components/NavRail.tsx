@@ -3,7 +3,7 @@ import { initials, money, shortAgo } from "../lib/format";
 import { tone } from "../lib/types";
 import { useStore } from "../state/store";
 import type { View } from "../views/views";
-import { Eyebrow, Glyph, Icon, Spinner, mono, truncate } from "./ui";
+import { Eyebrow, Glyph, Icon, Spinner, monoStyle, truncateStyle } from "./ui";
 
 /** The 246px sidebar: where you are, what you were talking about, and which
  *  repository the answers are about. */
@@ -109,7 +109,7 @@ export function NavRail({
 
   const countToken = (n: number) =>
     n > 0 ? (
-      <span style={{ position: "relative", ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
+      <span style={{ position: "relative", ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
         {n}
       </span>
     ) : undefined;
@@ -212,7 +212,7 @@ export function NavRail({
         }}
       >
         {item("chat", "Chat", <Icon.chat />, "var(--accent)", (
-          <span style={{ position: "relative", ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
+          <span style={{ position: "relative", ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
             ⌘J
           </span>
         ))}
@@ -229,7 +229,7 @@ export function NavRail({
                 borderRadius: 8,
                 background: "var(--warnSoft)",
                 color: "var(--warn)",
-                ...mono,
+                ...monoStyle,
                 fontSize: 10.5,
                 fontWeight: 600,
               }}
@@ -265,7 +265,7 @@ export function NavRail({
           "var(--text2)",
           project ? (
             <span
-              style={{ position: "relative", ...mono, fontSize: 10.5, color: "var(--text4)", maxWidth: 74, ...truncate }}
+              style={{ position: "relative", ...monoStyle, fontSize: 10.5, color: "var(--text4)", maxWidth: 74, ...truncateStyle }}
             >
               {project.base_branch}
             </span>
@@ -284,7 +284,7 @@ export function NavRail({
               newConversation();
               go("chat");
             }}
-            style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+            style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
           >
             new
           </span>
@@ -331,7 +331,7 @@ export function NavRail({
                     height: 5,
                     flex: "none",
                     borderRadius: "50%",
-                    background: on ? t.color : "var(--line4)",
+                    background: on ? t.cssColor : "var(--line4)",
                   }}
                 />
                 <span
@@ -339,12 +339,12 @@ export function NavRail({
                     flex: 1,
                     font: "400 12.5px var(--sans)",
                     color: on ? "var(--text)" : "var(--text2)",
-                    ...truncate,
+                    ...truncateStyle,
                   }}
                 >
                   {c.title}
                 </span>
-                <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
+                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
                   {shortAgo(c.updated_ms)}
                 </span>
               </span>
@@ -354,7 +354,7 @@ export function NavRail({
                   alignItems: "center",
                   gap: 6,
                   paddingLeft: 12,
-                  ...mono,
+                  ...monoStyle,
                   fontSize: 10.5,
                   color: "var(--text4)",
                 }}
@@ -373,7 +373,7 @@ export function NavRail({
                     borderRadius: 8,
                     background: "var(--badSoft)",
                     color: "var(--bad2)",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     fontWeight: 500,
                   }}
@@ -391,7 +391,7 @@ export function NavRail({
           <span
             className="hv-soft"
             onClick={() => go("projects")}
-            style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
+            style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)", cursor: "pointer" }}
           >
             all
           </span>
@@ -430,10 +430,10 @@ export function NavRail({
                 background: on ? "var(--active)" : "transparent",
               }}
             >
-              <Glyph color={t.color} soft={t.soft} size={17} font={8.5}>
+              <Glyph tone={t} size={17} font={8.5}>
                 {p.glyph}
               </Glyph>
-              <span style={{ flex: 1, ...mono, fontSize: 12.5, fontWeight: 500, color: "var(--text1)", ...truncate }}>
+              <span style={{ flex: 1, ...monoStyle, fontSize: 12.5, fontWeight: 500, color: "var(--text1)", ...truncateStyle }}>
                 {p.name}
               </span>
               <span style={{ font: "500 10.5px var(--sans)", color: stateColor }}>{state}</span>
@@ -450,7 +450,7 @@ export function NavRail({
           </span>
           <span
             style={{
-              ...mono,
+              ...monoStyle,
               fontSize: 10.5,
               fontWeight: 500,
               color: spendToday > budget ? "var(--bad2)" : "var(--text4)",
@@ -469,14 +469,14 @@ export function NavRail({
               color: "var(--accent2)",
               display: "grid",
               placeItems: "center",
-              ...mono,
+              ...monoStyle,
               fontSize: 10.5,
               fontWeight: 600,
             }}
           >
             {initials(name)}
           </span>
-          <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)", ...truncate }}>
+          <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)", ...truncateStyle }}>
             {name}
           </span>
           <span

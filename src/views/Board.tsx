@@ -7,7 +7,7 @@ import {
   type Status,
 } from "../lib/types";
 import { useStore } from "../state/store";
-import { Glyph, Loading, mono, truncate } from "../components/ui";
+import { Glyph, Loading, monoStyle, truncateStyle } from "../components/ui";
 
 /** Moves the board offers by hand; anything else needs an override. */
 const LEGAL: Record<Status, Status[]> = {
@@ -302,7 +302,7 @@ export function Board({
                 >
                   {STATUS_NAME[status].toUpperCase()}
                 </span>
-                <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
+                <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
                   {list.length}
                 </span>
               </div>
@@ -394,14 +394,14 @@ export function Board({
                         {card.title}
                       </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <Glyph color={t.color} soft={t.soft} size={16} font={8}>
+                        <Glyph tone={t} size={16} font={8}>
                           {agent?.initial ?? "?"}
                         </Glyph>
-                        <span className="card-id" style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
+                        <span className="card-id" style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
                           {card.id}
                         </span>
                         <span style={{ flex: 1 }} />
-                        <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>{meta}</span>
+                        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>{meta}</span>
                         {!isRun && (
                           <span
                             className="hv-soft"
@@ -410,7 +410,7 @@ export function Board({
                               e.stopPropagation();
                               discard(card.id);
                             }}
-                            style={{ ...mono, fontSize: 11.5, color: "var(--text4)", cursor: "pointer" }}
+                            style={{ ...monoStyle, fontSize: 11.5, color: "var(--text4)", cursor: "pointer" }}
                           >
                             ✕
                           </span>
@@ -441,12 +441,12 @@ export function Board({
                             padding: "1px 8px",
                             borderRadius: 8,
                             background: "var(--surface2)",
-                            ...mono,
+                            ...monoStyle,
                             fontSize: 10.5,
                             fontWeight: 500,
                             color: "var(--text3)",
                             maxWidth: "100%",
-                            ...truncate,
+                            ...truncateStyle,
                           }}
                         >
                           Start continues session {card.session_id.slice(0, 8)}

@@ -8,7 +8,7 @@ import { MODELS, tone } from "../lib/types";
 import type { QueueRow } from "../lib/types";
 import { api } from "../lib/ipc";
 import { useStore } from "../state/store";
-import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
+import { Eyebrow, Glyph, monoStyle, truncateStyle } from "../components/ui";
 
 /** One line of a patch, coloured by what it does to the file. */
 function classify(text: string): { bg: string; color: string } {
@@ -69,19 +69,19 @@ function FileSection({ file }: { file: FilePatch }) {
           borderBottom: "1px solid var(--line)",
         }}
       >
-        <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)", width: 10 }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", width: 10 }}>
           {open ? "▾" : "▸"}
         </span>
         <span
           title={file.path}
-          style={{ flex: 1, minWidth: 0, ...mono, fontSize: 11.5, fontWeight: 600, color: "var(--text2)", ...truncate }}
+          style={{ flex: 1, minWidth: 0, ...monoStyle, fontSize: 11.5, fontWeight: 600, color: "var(--text2)", ...truncateStyle }}
         >
           {file.path}
         </span>
-        <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--ok)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--ok)" }}>
           +{file.added}
         </span>
-        <span style={{ ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--bad)" }}>
+        <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--bad)" }}>
           −{file.removed}
         </span>
       </div>
@@ -95,7 +95,7 @@ function FileSection({ file }: { file: FilePatch }) {
                 padding: "0 18px",
                 background: c.bg,
                 color: c.color,
-                ...mono,
+                ...monoStyle,
                 fontSize: 12.5,
                 lineHeight: 1.85,
                 whiteSpace: "pre",
@@ -223,14 +223,14 @@ export function Review({
           borderBottom: "1px solid var(--line)",
         }}
       >
-        <Glyph color={t.color} soft={t.soft} size={24} radius={8} font={10}>
+        <Glyph tone={t} size={24} radius={8} font={10}>
           {agent?.initial ?? "?"}
         </Glyph>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ font: "600 14px var(--sans)", color: "var(--text)", ...truncate }}>
+          <div style={{ font: "600 14px var(--sans)", color: "var(--text)", ...truncateStyle }}>
             {card.title}
           </div>
-          <div style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>
+          <div style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
             {card.id} · {agent?.name ?? card.agent_id} · {plural(card.turns, "turn")} ·{" "}
             {plural(card.runs, "run")} · {money(card.cost_usd, 4)}
           </div>
@@ -250,7 +250,7 @@ export function Review({
                     borderRadius: 999,
                     border: `1px solid ${c.id === card.id ? "var(--accentLine)" : "var(--line3)"}`,
                     background: c.id === card.id ? "var(--accentSoft)" : "transparent",
-                    ...mono,
+                    ...monoStyle,
                     fontSize: 10.5,
                     color: c.id === card.id ? "var(--accent2)" : "var(--text3)",
                     cursor: "pointer",
@@ -270,10 +270,10 @@ export function Review({
             })}
           </div>
         )}
-        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--ok)" }}>
+        <span style={{ ...monoStyle, fontSize: 11.5, fontWeight: 500, color: "var(--ok)" }}>
           +{diff?.added ?? 0}
         </span>
-        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--bad)" }}>
+        <span style={{ ...monoStyle, fontSize: 11.5, fontWeight: 500, color: "var(--bad)" }}>
           −{diff?.removed ?? 0}
         </span>
       </div>
@@ -307,8 +307,7 @@ export function Review({
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 6 }}>
                   <Glyph
-                    color="var(--onAccent)"
-                    soft="linear-gradient(140deg,var(--warn),#e0854a)"
+                    className="bg-[linear-gradient(140deg,#b5751a,#e0854a)] text-onAccent dark:bg-[linear-gradient(140deg,#ffb35c,#e0854a)] dark:text-onAccent-d"
                     size={18}
                     radius={6}
                     font={8.5}
@@ -326,7 +325,7 @@ export function Review({
               </div>
             )}
 
-            <Eyebrow style={{ display: "block", padding: "14px 2px 6px" }}>WHERE IT LIVES</Eyebrow>
+            <Eyebrow className="block px-0.5 pb-1.5 pt-3.5">WHERE IT LIVES</Eyebrow>
             {facts.map((f) => (
               <div key={f.k} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 2px" }}>
                 <span
@@ -341,14 +340,14 @@ export function Review({
                 </span>
                 <span
                   title={f.v}
-                  style={{ flex: 1, ...mono, fontSize: 10.5, fontWeight: 500, color: "var(--text2)", ...truncate }}
+                  style={{ flex: 1, ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text2)", ...truncateStyle }}
                 >
                   {f.v}
                 </span>
               </div>
             ))}
 
-            <Eyebrow style={{ display: "block", padding: "16px 2px 6px" }}>HISTORY</Eyebrow>
+            <Eyebrow className="block px-0.5 pb-1.5 pt-4">HISTORY</Eyebrow>
             {history.length === 0 && (
               <div style={{ font: "400 11.5px var(--sans)", color: "var(--text4)" }}>
                 Nothing recorded for this card yet.
@@ -384,7 +383,7 @@ export function Review({
               );
             })}
 
-            <Eyebrow style={{ display: "block", padding: "16px 2px 6px" }}>MODEL</Eyebrow>
+            <Eyebrow className="block px-0.5 pb-1.5 pt-4">MODEL</Eyebrow>
             <div style={{ font: "400 11.5px/1.6 var(--sans)", color: "var(--text2)" }}>
               {MODELS.find((m) => m.id === agent?.model)?.name ?? "auto"} ·{" "}
               {agent?.expected_output || "no expected output set"}
@@ -405,12 +404,12 @@ export function Review({
             className="logscroll"
             style={{ minHeight: 0, overflowY: "auto", padding: "14px 0", animation: "fadeIn .5s ease .1s both" }}
           >
-            <div style={{ padding: "0 18px 10px", ...mono, fontSize: 11.5, color: "var(--text4)" }}>
+            <div style={{ padding: "0 18px 10px", ...monoStyle, fontSize: 11.5, color: "var(--text4)" }}>
               git diff {diff?.base ?? project?.base_branch ?? "main"}…
               {diff?.branch ?? session?.branch ?? "the worktree"}
             </div>
             {!diff && (
-              <div style={{ padding: "0 18px", ...mono, fontSize: 12.5, color: "var(--text4)" }}>
+              <div style={{ padding: "0 18px", ...monoStyle, fontSize: 12.5, color: "var(--text4)" }}>
                 reading the worktree…
               </div>
             )}
@@ -473,7 +472,7 @@ export function Review({
                 }}
               >
                 Approving moves the card to Done. Relay does not merge:{" "}
-                <span style={{ ...mono, fontSize: 10.5, color: "var(--text3)" }}>
+                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
                   {diff?.branch ?? session?.branch ?? "the branch"}
                 </span>{" "}
                 and its worktree stay until you remove them.

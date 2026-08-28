@@ -1,0 +1,122 @@
+/* A folha de entrada do Tailwind. Não vive aqui nenhum token e nenhuma classe
+   utilitária: os tokens são literais no `tailwind.config.js` e tudo o que é
+   composição vive nas vistas ou nas variantes do `ui.tsx`.
+   O que fica é o que não se pode escrever numa className — as superfícies que
+   o browser desenha por nós, e a preferência de movimento reduzido. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-desk font-sans text-base text-text antialiased dark:bg-desk-d dark:text-text-d;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  /* O movimento aqui é decoração — linhas a chegar, painéis a subir. Nada
+     disto carrega sentido, por isso vai-se todo quando o operador pediu
+     quietude. O `motion` respeita a mesma preferência pelo seu lado, com
+     `useReducedMotion()`. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  a {
+    @apply text-accent no-underline hover:text-accent2 dark:text-accent-d dark:hover:text-accent2-d;
+  }
+
+  button,
+  textarea,
+  input,
+  select {
+    font-family: inherit;
+    color: inherit;
+  }
+
+  :where(button, input, textarea, a, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent, #0d74b8);
+    outline-offset: 2px;
+  }
+  [data-theme="dark"] :where(button, input, textarea, a, [tabindex]):focus-visible {
+    outline-color: var(--accent, #38adee);
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-line3 dark:bg-line3-d;
+    border-radius: 9px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-line4 dark:bg-line4-d;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-text4 dark:text-text4-d;
+  }
+
+  /* As superfícies que o browser desenha por nós e não entrega a sistema de
+     desenho nenhum: a selecção, o cursor de texto, o tom dos controlos e a
+     forma de um número. Deixadas nos valores de fábrica são a única parte da
+     janela que não é de ninguém.
+
+     A selecção tem peso próprio: `accentSoft` é uma lavagem, e uma lavagem não
+     consegue mostrar que palavras estão seguras. */
+  ::selection {
+    background: var(--select, #cae3f7);
+    @apply text-text;
+  }
+  [data-theme="dark"] ::selection {
+    background: var(--select, rgba(56, 173, 238, 0.32));
+    @apply text-text-d;
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--accent, #0d74b8);
+  }
+  [data-theme="dark"] input,
+  [data-theme="dark"] textarea,
+  [data-theme="dark"] [contenteditable] {
+    caret-color: var(--accent, #38adee);
+  }
+
+  :root {
+    accent-color: var(--accent, #0d74b8);
+  }
+  :root[data-theme="dark"] {
+    accent-color: var(--accent, #38adee);
+  }
+
+  /* Números lidos uns contra os outros — gastos, contagens, durações, ids —
+     não podem oscilar enquanto avançam. */
+  input[type="number"] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}

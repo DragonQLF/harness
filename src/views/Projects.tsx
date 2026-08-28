@@ -3,7 +3,7 @@ import { api, reason } from "../lib/ipc";
 import { ago, money, num, plural } from "../lib/format";
 import { tone, type CheckRow, type CommitRow, type ProjectDetail } from "../lib/types";
 import { useStore } from "../state/store";
-import { DiffBlocks, Loading, MiniBars, tabular, truncate } from "../components/ui";
+import { DiffBlocks, Loading, MiniBars, tabularStyle, truncateStyle } from "../components/ui";
 import type { View } from "./views";
 
 /** Lane geometry, copied from the design's LANES table. Each row is 64x62. */
@@ -55,7 +55,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         setDetail(d);
         setChecks(d.checks);
       })
-      .catch((e) => toast("var(--bad)", "Could not read the repository", reason(e)));
+      .catch((e) => toast("bad", "Could not read the repository", reason(e)));
     return () => {
       alive = false;
     };
@@ -90,7 +90,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
     try {
       setChecks(await api.runChecks(projectId));
     } catch (e) {
-      toast("var(--bad)", "Checks failed to run", reason(e));
+      toast("bad", "Checks failed to run", reason(e));
     } finally {
       setBusy(false);
     }
@@ -188,7 +188,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 right: 0,
                 top: 0,
                 height: 112,
-                background: `linear-gradient(180deg,${t.soft} 0%,transparent 100%)`,
+                background: `linear-gradient(180deg,${t.cssSoft} 0%,transparent 100%)`,
                 pointerEvents: "none",
               }}
             />
@@ -211,8 +211,8 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   alignItems: "center",
                   justifyContent: "center",
                   background: "var(--surface)",
-                  border: `1px solid ${t.color}`,
-                  color: t.color,
+                  border: `1px solid ${t.cssColor}`,
+                  color: t.cssColor,
                   fontSize: 20,
                   fontWeight: 800,
                 }}
@@ -253,7 +253,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                     color: "var(--text2)",
                     lineHeight: 1.55,
                     fontFamily: "var(--mono)",
-                    ...truncate,
+                    ...truncateStyle,
                   }}
                 >
                   {project.path}
@@ -261,7 +261,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               </div>
               <div style={{ flex: "none", display: "flex", alignItems: "flex-end", gap: 14 }}>
                 <span style={{ width: 112 }}>
-                  <MiniBars values={detail.week_commits.map(Number)} color={t.color} height={46} />
+                  <MiniBars values={detail.week_commits.map(Number)} tone={t} height={46} />
                 </span>
                 <span
                   style={{
@@ -272,7 +272,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   }}
                 >
                   <span
-                    style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...tabular }}
+                    style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...tabularStyle }}
                   >
                     {num(detail.week_lines)}
                   </span>
@@ -475,8 +475,8 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        background: at.soft,
-                        color: at.color,
+                        background: at.cssSoft,
+                        color: at.cssColor,
                         fontSize: 11.5,
                         fontWeight: 800,
                       }}
@@ -490,7 +490,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                           fontSize: 14,
                           fontWeight: 600,
                           letterSpacing: "-.01em",
-                          ...truncate,
+                          ...truncateStyle,
                         }}
                       >
                         {card?.title ?? c.subject ?? "(no message)"}
@@ -539,7 +539,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         gap: 8,
                         fontFamily: "var(--mono)",
                         fontSize: 11.5,
-                        ...tabular,
+                        ...tabularStyle,
                       }}
                     >
                       <span style={{ color: "var(--ok)", fontWeight: 700 }}>+{num(c.added)}</span>
@@ -627,7 +627,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                       minWidth: 0,
                       fontFamily: "var(--mono)",
                       fontSize: 11.5,
-                      ...truncate,
+                      ...truncateStyle,
                     }}
                   >
                     {b.name}
@@ -765,7 +765,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                   <span
                     style={{ width: 7, height: 7, flex: "none", borderRadius: "50%", background: dot }}
                   />
-                  <span style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11.5, ...truncate }}>
+                  <span style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11.5, ...truncateStyle }}>
                     {ck.name}
                   </span>
                   <span
@@ -773,7 +773,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                       fontSize: 10.5,
                       color: ck.status === "warn" || ck.status === "fail" ? dot : "var(--text3)",
                       fontWeight: ck.status === "ok" ? 500 : 700,
-                      ...tabular,
+                      ...tabularStyle,
                     }}
                   >
                     {ck.ran_ms ? ck.detail.slice(0, 22) : "not run"}
@@ -813,7 +813,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 marginTop: 8,
               }}
             >
-              <span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-.02em", ...tabular }}>
+              <span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-.02em", ...tabularStyle }}>
                 {money(project.stats.spend_total)}
               </span>
               <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
@@ -893,7 +893,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   right: 0,
                   top: 0,
                   height: 112,
-                  background: `linear-gradient(180deg,${t.soft} 0%,transparent 100%)`,
+                  background: `linear-gradient(180deg,${t.cssSoft} 0%,transparent 100%)`,
                   pointerEvents: "none",
                 }}
               />
@@ -916,8 +916,8 @@ export function Projects({ go }: { go: (v: View) => void }) {
                     alignItems: "center",
                     justifyContent: "center",
                     background: "var(--surface)",
-                    border: `1px solid ${t.color}`,
-                    color: t.color,
+                    border: `1px solid ${t.cssColor}`,
+                    color: t.cssColor,
                     fontSize: 16,
                     fontWeight: 800,
                   }}
@@ -927,7 +927,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span
-                      style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...truncate }}
+                      style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...truncateStyle }}
                     >
                       {p.name}
                     </span>
@@ -973,14 +973,14 @@ export function Projects({ go }: { go: (v: View) => void }) {
                       fontSize: 11.5,
                       color: "var(--text3)",
                       fontFamily: "var(--mono)",
-                      ...truncate,
+                      ...truncateStyle,
                     }}
                   >
                     {p.path}
                   </p>
                 </div>
                 <span style={{ width: 96, flex: "none" }}>
-                  <MiniBars values={p.stats.week_runs} color={t.color} height={40} />
+                  <MiniBars values={p.stats.week_runs} tone={t} height={40} />
                 </span>
               </div>
 
@@ -1014,7 +1014,7 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   style={{
                     background: "transparent",
                     border: "none",
-                    color: p.exists ? t.color : "var(--text3)",
+                    color: p.exists ? t.cssColor : "var(--text3)",
                     fontSize: 11.5,
                     fontWeight: 800,
                     cursor: p.exists ? "pointer" : "not-allowed",

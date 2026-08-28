@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../lib/ipc";
 import { money } from "../lib/format";
 import { useStore } from "../state/store";
-import { Icon, mono } from "./ui";
+import { Icon, monoStyle } from "./ui";
 import type { View } from "../views/views";
 
 const appWindow = getCurrentWindow();
@@ -92,7 +92,7 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
             >
               <span style={{ flex: 1 }}>{item.label}</span>
               {item.hint && (
-                <span style={{ ...mono, fontSize: 10.5, color: "var(--text4)" }}>{item.hint}</span>
+                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>{item.hint}</span>
               )}
             </div>
           ))}
@@ -252,11 +252,11 @@ export function TitleBar({
         data-tauri-drag-region
         style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
       >
-        <span style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: "var(--text3)" }}>{line}</span>
+        <span style={{ ...monoStyle, fontSize: 11.5, fontWeight: 500, color: "var(--text3)" }}>{line}</span>
         {stats != null && settings != null && stats.spend_today > settings.daily_budget_usd && (
           <span
             style={{
-              ...mono,
+              ...monoStyle,
               fontSize: 10.5,
               padding: "1px 6px",
               borderRadius: 8,
