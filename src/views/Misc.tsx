@@ -3,10 +3,32 @@
 
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
+import { cx } from "../lib/cx";
 import { clock, money } from "../lib/format";
-import { ruleIsRevoked, ruleLabel, type Provider, type WorktreeRow } from "../lib/types";
+import { ruleIsRevoked, ruleLabel, TONE, type Provider, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
-import { Loading, Switch, monoStyle, tabularStyle, truncateStyle } from "../components/ui";
+import { Loading, Switch, mono, tabular, truncate } from "../components/ui";
+
+/** O painel que estes três ecrãs repetem: linha de 1px, raio 20, superfície. */
+const PANEL = "overflow-hidden rounded-xl border border-line bg-surface dark:border-line-d dark:bg-surface-d";
+
+/** Uma linha de lista que responde ao ponteiro. */
+const HOVER_ROW = "transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d";
+
+/** Um botão de contorno discreto. */
+const QUIET =
+  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text focus-visible:bg-hovered focus-visible:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
+
+/** O mesmo botão quando desfaz alguma coisa. */
+const DANGER =
+  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text3 transition-colors duration-150 hover:border-transparent hover:bg-badSoft hover:text-bad focus-visible:border-transparent focus-visible:bg-badSoft focus-visible:text-bad dark:border-line-d dark:text-text3-d dark:hover:bg-badSoft-d dark:hover:text-bad-d";
+
+/** Uma pastilha numa fila de escolhas. */
+const CHOICE =
+  "min-h-6 cursor-pointer rounded-full border-none transition-colors duration-150";
+const CHOICE_ON = "bg-accent font-bold text-onAccent dark:bg-accent-d dark:text-onAccent-d";
+const CHOICE_OFF =
+  "bg-transparent font-medium text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
 
 export function Worktrees() {
   const { projectId, project, snapshot, toast } = useStore();
@@ -24,46 +46,31 @@ export function Worktrees() {
 
   if (!project) {
     return (
-      <div style={{ padding: "22px 26px", fontSize: 12.5, color: "var(--text3)" }}>
+      <div className="px-6.5 py-5.5 text-md text-text3 dark:text-text3-d">
         Add a git repository first.
       </div>
     );
   }
   if (!rows) return <Loading what="Listing worktrees" />;
 
-  const grid = "1.5fr 1fr 90px 1.4fr 150px";
+  const grid = "grid grid-cols-[1.5fr_1fr_90px_1.4fr_150px] gap-3.5";
   const cardFor = (branch: string | null) => {
     const id = branch?.split("/").slice(-1)[0] ?? "";
     return snapshot?.cards.find((c) => c.id === id) ?? null;
   };
 
   return (
-    <div style={{ padding: "22px 26px 28px" }}>
-      <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "var(--text2)" }}>
+    <div className="px-6.5 pb-7 pt-5.5">
+      <p className="mb-4 mt-0 text-md text-text2 dark:text-text2-d">
         One branch per card, created under app data. Finished runs commit themselves and leave a
         trailer pointing back at the card.
       </p>
-      <div
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 20,
-          overflow: "hidden",
-          background: "var(--surface)",
-        }}
-      >
+      <div className={PANEL}>
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: grid,
-            gap: 14,
-            padding: "12px 18px",
-            borderBottom: "1px solid var(--line)",
-            fontSize: 11.5,
-            fontWeight: 700,
-            letterSpacing: ".08em",
-            textTransform: "uppercase",
-            color: "var(--text3)",
-          }}
+          className={cx(
+            grid,
+            "border-b border-line px-4.5 py-3 text-sm font-bold uppercase tracking-[.08em] text-text3 dark:border-line-d dark:text-text3-d",
+          )}
         >
           <span>Branch</span>
           <span>Card</span>
@@ -74,74 +81,48 @@ export function Worktrees() {
         {rows.map((w) => {
           const card = cardFor(w.branch);
           const st = w.dirty
-            ? { label: "dirty", fg: "var(--accent)", soft: "var(--accentSoft)" }
-            : { label: "clean", fg: "var(--ok)", soft: "var(--okSoft)" };
+            ? { label: "dirty", tone: TONE.accent }
+            : { label: "clean", tone: TONE.ok };
           return (
             <div
               key={w.path}
-              className="hv-row"
-              style={{
-                display: "grid",
-                gridTemplateColumns: grid,
-                gap: 14,
-                alignItems: "center",
-                padding: "12px 18px",
-                borderBottom: "1px solid var(--line2)",
-                transition: "background .18s ease",
-              }}
+              className={cx(
+                grid,
+                HOVER_ROW,
+                "items-center border-b border-line2 px-4.5 py-3 dark:border-line2-d",
+              )}
             >
-              <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 500, ...truncateStyle }}>
+              <span className={cx(truncate, "font-mono text-md font-medium")}>
                 {w.branch ?? "(detached)"}
               </span>
               <span
                 title={card?.title}
-                style={{
-                  fontFamily: "var(--mono)",
-                  fontSize: 11.5,
-                  color: "var(--text3)",
-                  ...truncateStyle,
-                }}
+                className={cx(truncate, "font-mono text-sm text-text3 dark:text-text3-d")}
               >
                 {card?.id ?? "—"}
               </span>
               <span
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  justifySelf: "start",
-                  background: st.soft,
-                  color: st.fg,
-                }}
+                className={cx(
+                  "justify-self-start rounded-full px-2.5 py-1 text-sm font-bold",
+                  st.tone.soft,
+                  st.tone.fg,
+                )}
               >
                 {st.label}
               </span>
-              <span title={w.path} style={{ fontSize: 12.5, color: "var(--text2)", ...truncateStyle }}>
+              <span title={w.path} className={cx(truncate, "text-md text-text2 dark:text-text2-d")}>
                 {w.path}
               </span>
-              <span style={{ justifySelf: "end", display: "flex", gap: 6 }}>
+              <span className="flex justify-self-end gap-1.5">
                 <button
                   type="button"
-                  className="hv-soft"
                   onClick={() => api.reveal(w.path).catch(() => {})}
-                  style={{
-                    padding: "6px 14px",
-                    border: "1px solid var(--line)",
-                    borderRadius: 999,
-                    background: "transparent",
-                    color: "var(--text2)",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    transition: "all .18s ease",
-                  }}
+                  className={cx(QUIET, "px-3.5 py-1.5 text-sm")}
                 >
                   Open
                 </button>
                 <button
                   type="button"
-                  className="hv-danger"
                   onClick={() => {
                     if (!projectId) return;
                     api
@@ -152,17 +133,7 @@ export function Worktrees() {
                       })
                       .catch((e) => toast("bad", "Could not remove it", reason(e)));
                   }}
-                  style={{
-                    padding: "6px 14px",
-                    border: "1px solid var(--line)",
-                    borderRadius: 999,
-                    background: "transparent",
-                    color: "var(--text3)",
-                    fontSize: 11.5,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    transition: "all .18s ease",
-                  }}
+                  className={cx(DANGER, "px-3.5 py-1.5 text-sm")}
                 >
                   Drop
                 </button>
@@ -171,9 +142,7 @@ export function Worktrees() {
           );
         })}
         {rows.length === 0 && (
-          <div
-            style={{ padding: "22px 18px", textAlign: "center", fontSize: 12.5, color: "var(--text3)" }}
-          >
+          <div className="px-4.5 py-5.5 text-center text-md text-text3 dark:text-text3-d">
             No worktrees in this project. Agents open one the moment a card starts.
           </div>
         )}
@@ -190,7 +159,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
 
   if (!project) {
     return (
-      <div style={{ padding: "22px 26px", fontSize: 12.5, color: "var(--text3)" }}>
+      <div className="px-6.5 py-5.5 text-md text-text3 dark:text-text3-d">
         Add a git repository first.
       </div>
     );
@@ -207,40 +176,21 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
   );
 
   return (
-    <div style={{ padding: "22px 26px 28px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+    <div className="px-6.5 pb-7 pt-5.5">
+      <div className="mb-3.5 flex items-center gap-3.5">
         {/* The chrome above already names the screen and what it lists. Every
             other view leaves the heading to it; this one said it twice. */}
-        <div style={{ flex: 1 }} />
-        <div
-          style={{
-            display: "flex",
-            gap: 2,
-            padding: 4,
-            borderRadius: 999,
-            background: "var(--surface)",
-            border: "1px solid var(--line)",
-          }}
-        >
+        <div className="flex-1" />
+        <div className="flex gap-0.5 rounded-full border border-line bg-surface p-1 dark:border-line-d dark:bg-surface-d">
           {FILTERS.map((f) => {
             const on = filter === f;
             return (
               <button
-                className="hv-soft"
                 key={f}
                 type="button"
+                aria-pressed={on}
                 onClick={() => setFilter(f)}
-                style={{
-                  padding: "8px 16px",
-                  border: "none",
-                  borderRadius: 999,
-                  fontSize: 12.5,
-                  cursor: "pointer",
-                  transition: "all .18s ease",
-                  background: on ? "var(--accent)" : "transparent",
-                  color: on ? "var(--onAccent)" : "var(--text2)",
-                  fontWeight: on ? 700 : 500,
-                }}
+                className={cx(CHOICE, "px-4 py-2 text-md", on ? CHOICE_ON : CHOICE_OFF)}
               >
                 {f}
               </button>
@@ -249,14 +199,7 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
         </div>
       </div>
 
-      <div
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 20,
-          overflow: "hidden",
-          background: "var(--surface)",
-        }}
-      >
+      <div className={PANEL}>
         {rows.map((e, i) => {
           // Events written before the envelope carried a timestamp deserialize
           // to zero. Dating them 1 January 1970 is a confident wrong answer;
@@ -267,92 +210,58 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
           const prevDay = !prev ? null : !prev.ts_ms ? "undated" : new Date(prev.ts_ms).toDateString();
           const fresh = day !== prevDay;
           const today = new Date().toDateString();
+          const dot =
+            e.kind === "run"
+              ? TONE.accent
+              : e.kind === "approval"
+                ? TONE.warn
+                : e.kind === "review"
+                  ? TONE.ok
+                  : TONE.info;
           return (
-        <Fragment key={e.seq}>
-          {fresh && (
-            <div
-              style={{
-                padding: "10px 18px 8px",
-                borderBottom: "1px solid var(--line2)",
-                background: "var(--recess)",
-                font: "600 10.5px var(--sans)",
-                letterSpacing: ".08em",
-                color: "var(--text4)",
-              }}
-            >
-              {undated
-                ? "BEFORE TIMES WERE RECORDED"
-                : day === today
-                  ? "TODAY"
-                  : new Date(e.ts_ms)
-                      .toLocaleDateString(undefined, { day: "numeric", month: "long" })
-                      .toUpperCase()}
-            </div>
-          )}
-          <button
-            key={e.seq}
-            type="button"
-            className="hv-row"
-            onClick={() => openRun(e.card_id)}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "14px 190px 74px 1fr 60px",
-              gap: 14,
-              alignItems: "center",
-              width: "100%",
-              padding: "12px 18px",
-              border: "none",
-              borderBottom: "1px solid var(--line2)",
-              background: "transparent",
-              color: "var(--text)",
-              fontSize: 12.5,
-              textAlign: "left",
-              cursor: "pointer",
-              animation: "fadeIn .25s ease both",
-              transition: "background .18s ease",
-            }}
-          >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background:
-                  e.kind === "run"
-                    ? "var(--accent)"
-                    : e.kind === "approval"
-                      ? "var(--warn)"
-                      : e.kind === "review"
-                        ? "var(--ok)"
-                        : "var(--info)",
-              }}
-            />
-            <span style={{ fontWeight: 600, ...truncateStyle }}>{e.label}</span>
-            <span
-              title={e.card_id}
-              style={{
-                fontFamily: "var(--mono)",
-                fontSize: 11.5,
-                color: "var(--text3)",
-                ...truncateStyle,
-              }}
-            >
-              {e.card_id}
-            </span>
-            <span style={{ color: "var(--text2)", ...truncateStyle }}>
-              {e.detail || snapshot?.cards.find((c) => c.id === e.card_id)?.title || ""}
-            </span>
-            <span style={{ fontSize: 11.5, color: "var(--text3)", textAlign: "right", ...tabularStyle }}>
-              {undated ? "—" : clock(e.ts_ms)}
-            </span>
-          </button>
-        </Fragment>
+            <Fragment key={e.seq}>
+              {fresh && (
+                <div className="border-b border-line2 bg-recess px-4.5 pb-2 pt-2.5 text-xs font-semibold tracking-[.08em] text-text4 dark:border-line2-d dark:bg-recess-d dark:text-text4-d">
+                  {undated
+                    ? "BEFORE TIMES WERE RECORDED"
+                    : day === today
+                      ? "TODAY"
+                      : new Date(e.ts_ms)
+                          .toLocaleDateString(undefined, { day: "numeric", month: "long" })
+                          .toUpperCase()}
+                </div>
+              )}
+              <button
+                key={e.seq}
+                type="button"
+                onClick={() => openRun(e.card_id)}
+                className={cx(
+                  HOVER_ROW,
+                  "grid w-full animate-[fadeIn_.25s_ease_both] cursor-pointer grid-cols-[14px_190px_74px_1fr_60px] items-center gap-3.5 border-b border-line2 bg-transparent px-4.5 py-3 text-left text-md text-text dark:border-line2-d dark:text-text-d",
+                )}
+              >
+                <span className={cx("h-1.75 w-1.75 rounded-full", dot.solid)} />
+                <span className={cx(truncate, "font-semibold")}>{e.label}</span>
+                <span
+                  title={e.card_id}
+                  className={cx(truncate, "font-mono text-sm text-text3 dark:text-text3-d")}
+                >
+                  {e.card_id}
+                </span>
+                <span className={cx(truncate, "text-text2 dark:text-text2-d")}>
+                  {e.detail || snapshot?.cards.find((c) => c.id === e.card_id)?.title || ""}
+                </span>
+                <span
+                  className={cx(tabular, "text-right text-sm text-text3 dark:text-text3-d")}
+                >
+                  {undated ? "—" : clock(e.ts_ms)}
+                </span>
+              </button>
+            </Fragment>
           );
         })}
         {rows.length === 0 && (
-          <div
-            style={{ padding: "22px 18px", textAlign: "center", fontSize: 12.5, color: "var(--text3)" }}
-          >
+          <div className="px-4.5 py-5.5 text-center text-md text-text3 dark:text-text3-d">
             Nothing logged yet. Every card created, moved, run or reviewed in this
             project lands here, newest first.
           </div>
@@ -375,20 +284,16 @@ function Row({
 }) {
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 22,
-        padding: "18px 18px",
-        borderBottom: last ? "none" : "1px solid var(--line2)",
-      }}
+      className={cx(
+        "flex items-center justify-between gap-5.5 p-4.5",
+        !last && "border-b border-line2 dark:border-line2-d",
+      )}
     >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{name}</div>
-        <div style={{ fontSize: 12.5, color: "var(--text3)", lineHeight: 1.5 }}>{note}</div>
+      <div className="min-w-0">
+        <div className="mb-1 text-lg font-bold">{name}</div>
+        <div className="text-md leading-normal text-text3 dark:text-text3-d">{note}</div>
       </div>
-      <div style={{ flex: "none" }}>{children}</div>
+      <div className="flex-none">{children}</div>
     </div>
   );
 }
@@ -396,8 +301,9 @@ function Row({
 /** The accent choices, drawn from the palette rather than from four loose
  *  hexes. The first follows the theme's own accent, which is what an operator
  *  who never opened this row is already using. */
-const ACCENTS: { name: string; value: string; swatch: string }[] = [
-  { name: "Theme default", value: "", swatch: "var(--accent)" },
+const ACCENTS: { name: string; value: string; swatch: string | null }[] = [
+  // Sem amostra própria: segue o acento do tema, seja ele qual for.
+  { name: "Theme default", value: "", swatch: null },
   { name: "Mint", value: "#4fd1a5", swatch: "#4fd1a5" },
   { name: "Periwinkle", value: "#9b8cff", swatch: "#9b8cff" },
   { name: "Amber", value: "#ffb35c", swatch: "#ffb35c" },
@@ -433,17 +339,11 @@ const PROVIDER_TEMPLATES: { id: string; name: string; base_url: string; token: s
   },
 ];
 
-const providerInput = (width: number) => ({
-  width,
-  padding: "8px 10px",
-  borderRadius: 8,
-  background: "var(--surface2)",
-  border: "1px solid var(--line3)",
-  color: "var(--text)",
-  fontFamily: "var(--mono)",
-  fontSize: 11.5,
-  outline: "none",
-});
+const PROVIDER_INPUT =
+  "rounded-sm border border-line3 bg-surface2 px-2.5 py-2 font-mono text-sm text-text outline-none focus-visible:border-accentLine dark:border-line3-d dark:bg-surface2-d dark:text-text-d dark:focus-visible:border-accentLine-d";
+
+/** O painel de definições traz margem por baixo; o último não. */
+const SECTION = cx(PANEL, "mb-3");
 
 export function Settings() {
   const { settings, status, dataDir, saveSettings, installSidecar, toast, projects, refreshProjects } =
@@ -467,44 +367,22 @@ export function Settings() {
 
   if (!settings) return <Loading what="Reading settings" />;
 
-  const card = {
-    border: "1px solid var(--line)",
-    borderRadius: 20,
-    background: "var(--surface)",
-    overflow: "hidden" as const,
-    marginBottom: 12,
-  };
-
   const pillRow = (options: string[], value: string, pick: (v: string) => void, wide?: boolean) => (
-    <div
-      style={{
-        display: "flex",
-        gap: 2,
-        padding: 4,
-        borderRadius: 999,
-        background: "var(--surface2)",
-        border: "1px solid var(--line)",
-      }}
-    >
+    <div className="flex gap-0.5 rounded-full border border-line bg-surface2 p-1 dark:border-line-d dark:bg-surface2-d">
       {options.map((o) => {
         const on = value === o;
         return (
           <button
-            className="hv-soft"
             key={o}
             type="button"
+            aria-pressed={on}
             onClick={() => pick(o)}
-            style={{
-              padding: wide ? "8px 18px" : "8px 13px",
-              border: "none",
-              borderRadius: 999,
-              fontSize: 12.5,
-              cursor: "pointer",
-              transition: "all .18s ease",
-              background: on ? "var(--accent)" : "transparent",
-              color: on ? "var(--onAccent)" : "var(--text2)",
-              fontWeight: on ? 700 : 500,
-            }}
+            className={cx(
+              CHOICE,
+              "py-2 text-md",
+              wide ? "px-4.5" : "px-3.25",
+              on ? CHOICE_ON : CHOICE_OFF,
+            )}
           >
             {o}
           </button>
@@ -514,38 +392,32 @@ export function Settings() {
   );
 
   return (
-    <div style={{ padding: "22px 26px 28px", maxWidth: 880 }}>
-      <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "var(--text2)" }}>
+    <div className="max-w-[880px] px-6.5 pb-7 pt-5.5">
+      <p className="mb-4 mt-0 text-md text-text2 dark:text-text2-d">
         Applies to new runs. Anything already running keeps the profile it started with.
       </p>
 
-      <div style={card}>
+      <div className={SECTION}>
         <Row name="Appearance" note="Light by day, dark for late sessions" last>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="flex items-center gap-2.5">
             {ACCENTS.map((a) => {
               const picked = settings.accent === a.value;
               return (
                 <button
-                  className="hv-soft"
                   key={a.value || "theme"}
                   type="button"
                   title={a.name}
                   aria-label={a.name}
                   aria-pressed={picked}
                   onClick={() => saveSettings({ accent: a.value })}
-                  style={{
-                    width: 20,
-                    height: 20,
-                    padding: 0,
-                    borderRadius: "50%",
-                    background: a.swatch,
-                    border: picked
-                      ? "2px solid var(--text)"
-                      : "1px solid var(--line3)",
-                    boxShadow: picked ? "0 0 0 3px var(--accentSoft)" : "none",
-                    cursor: "pointer",
-                    transition: "box-shadow .16s ease, border-color .16s ease",
-                  }}
+                  className={cx(
+                    "h-6 w-6 cursor-pointer rounded-full p-0 transition-[box-shadow,border-color] duration-150",
+                    a.swatch ? "" : "bg-accent dark:bg-accent-d",
+                    picked
+                      ? "border-2 border-text ring-[3px] ring-accentSoft dark:border-text-d dark:ring-accentSoft-d"
+                      : "border border-line3 dark:border-line3-d",
+                  )}
+                  style={a.swatch ? { background: a.swatch } : undefined}
                 />
               );
             })}
@@ -554,18 +426,17 @@ export function Settings() {
         </Row>
       </div>
 
-      <div style={card}>
+      <div className={SECTION}>
         <Row
           name="Work on Relay itself"
           note="Relay can be given cards like anything else it works on. This finds its source on this machine, or fetches it if this machine has not got it."
           last
         >
           {mirror ? (
-            <span style={{ ...monoStyle, fontSize: 11.5, color: "var(--ok)" }}>on · {mirror.path}</span>
+            <span className={cx(mono, "text-sm text-ok dark:text-ok-d")}>on · {mirror.path}</span>
           ) : (
             <button
               type="button"
-              className="chip"
               disabled={fetchingRelay}
               onClick={async () => {
                 setFetchingRelay(true);
@@ -578,16 +449,7 @@ export function Settings() {
                   setFetchingRelay(false);
                 }
               }}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 8,
-                background: "var(--surface2)",
-                border: "1px solid var(--line3)",
-                color: "var(--text2)",
-                font: "500 12.5px var(--sans)",
-                cursor: fetchingRelay ? "default" : "pointer",
-                opacity: fetchingRelay ? 0.6 : 1,
-              }}
+              className="min-h-6 cursor-pointer rounded-sm border border-line3 bg-surface2 px-3.5 py-2 text-md font-medium text-text2 transition-colors duration-150 hover:border-line4 hover:text-text disabled:cursor-default disabled:opacity-60 dark:border-line3-d dark:bg-surface2-d dark:text-text2-d dark:hover:border-line4-d dark:hover:text-text-d"
             >
               {fetchingRelay ? "fetching…" : "Set it up"}
             </button>
@@ -595,20 +457,19 @@ export function Settings() {
         </Row>
       </div>
 
-      <div style={card}>
+      <div className={SECTION}>
         <Row
           name="Model endpoints"
           note="Where agents run. Anything speaking the Anthropic Messages protocol works — an agent profile picks one, so a local model can do the work while a hosted one reviews it."
           last={(settings.providers ?? []).length === 0}
         >
-          <div style={{ display: "flex", gap: 6 }}>
+          <div className="flex gap-1.5">
             {PROVIDER_TEMPLATES.filter(
               (t) => !(settings.providers ?? []).some((p) => p.id === t.id),
             ).map((t) => (
               <button
                 key={t.id}
                 type="button"
-                className="chip"
                 title={t.hint}
                 onClick={() =>
                   saveSettings({
@@ -618,15 +479,7 @@ export function Settings() {
                     ],
                   })
                 }
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  background: "var(--surface2)",
-                  border: "1px solid var(--line3)",
-                  color: "var(--text2)",
-                  font: "500 11.5px var(--sans)",
-                  cursor: "pointer",
-                }}
+                className="min-h-6 cursor-pointer rounded-sm border border-line3 bg-surface2 px-3 py-1.5 text-sm font-medium text-text2 transition-colors duration-150 hover:border-line4 hover:text-text dark:border-line3-d dark:bg-surface2-d dark:text-text2-d dark:hover:border-line4-d dark:hover:text-text-d"
               >
                 + {t.name}
               </button>
@@ -641,40 +494,33 @@ export function Settings() {
             note={provider.id === "ollama" ? "Nothing leaves this machine." : "Sent over the wire."}
             last={i === all.length - 1}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div className="flex items-center gap-1.5">
               <input
                 defaultValue={provider.base_url}
                 placeholder="http://localhost:11434"
                 spellCheck={false}
+                aria-label={`${provider.name} base URL`}
                 onBlur={(e) => updateProvider(provider.id, { base_url: e.target.value.trim() })}
-                style={providerInput(180)}
+                className={cx(PROVIDER_INPUT, "w-[180px]")}
               />
               <input
                 type="password"
                 defaultValue={provider.token}
                 placeholder="key"
                 spellCheck={false}
+                aria-label={`${provider.name} key`}
                 onBlur={(e) => updateProvider(provider.id, { token: e.target.value.trim() })}
-                style={providerInput(120)}
+                className={cx(PROVIDER_INPUT, "w-[120px]")}
               />
               <button
                 type="button"
-                className="hv-danger"
                 title={`Remove ${provider.name}`}
                 onClick={() =>
                   saveSettings({
                     providers: (settings.providers ?? []).filter((p) => p.id !== provider.id),
                   })
                 }
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  background: "transparent",
-                  border: "1px solid var(--line3)",
-                  color: "var(--text4)",
-                  font: "500 11.5px var(--sans)",
-                  cursor: "pointer",
-                }}
+                className="min-h-6 cursor-pointer rounded-sm border border-line3 bg-transparent px-2.5 py-1.5 text-sm font-medium text-text4 transition-colors duration-150 hover:border-transparent hover:bg-badSoft hover:text-bad dark:border-line3-d dark:text-text4-d dark:hover:bg-badSoft-d dark:hover:text-bad-d"
               >
                 Remove
               </button>
@@ -683,7 +529,7 @@ export function Settings() {
         ))}
       </div>
 
-      <div style={card}>
+      <div className={SECTION}>
         <Row
           name="Node sidecar"
           note="Runs agents through the Claude Agent SDK. Off falls back to the claude command line."
@@ -717,49 +563,25 @@ export function Settings() {
           )}
         </Row>
         <Row name="Daily budget" note="Across every agent in this workspace" last>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              className="hv-soft"
+              aria-label="Lower the daily budget"
               onClick={() =>
                 saveSettings({ daily_budget_usd: Math.max(0, settings.daily_budget_usd - 1) })
               }
-              style={{
-                width: 30,
-                height: 30,
-                border: "1px solid var(--line)",
-                borderRadius: 12,
-                background: "transparent",
-                color: "var(--text2)",
-                cursor: "pointer",
-              }}
+              className="h-[30px] w-[30px] cursor-pointer rounded-md border border-line bg-transparent text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d"
             >
               −
             </button>
-            <span
-              style={{
-                fontSize: 20,
-                fontWeight: 800,
-                minWidth: 66,
-                textAlign: "center",
-                ...tabularStyle,
-              }}
-            >
+            <span className={cx(tabular, "min-w-[66px] text-center text-[20px] font-extrabold")}>
               {money(settings.daily_budget_usd)}
             </span>
             <button
               type="button"
-              className="hv-soft"
+              aria-label="Raise the daily budget"
               onClick={() => saveSettings({ daily_budget_usd: settings.daily_budget_usd + 1 })}
-              style={{
-                width: 30,
-                height: 30,
-                border: "1px solid var(--line)",
-                borderRadius: 12,
-                background: "transparent",
-                color: "var(--text2)",
-                cursor: "pointer",
-              }}
+              className="h-[30px] w-[30px] cursor-pointer rounded-md border border-line bg-transparent text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d"
             >
               +
             </button>
@@ -767,7 +589,7 @@ export function Settings() {
         </Row>
       </div>
 
-      <div style={card}>
+      <div className={SECTION}>
         <Row
           name="Claude"
           note={
@@ -776,30 +598,17 @@ export function Settings() {
               : "not logged in — open a terminal and run /login"
           }
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="flex items-center gap-2.5">
             <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: status?.claude.logged_in ? "var(--ok)" : "var(--bad)",
-              }}
+              className={cx(
+                "h-1.75 w-1.75 rounded-full",
+                status?.claude.logged_in ? "bg-ok dark:bg-ok-d" : "bg-bad dark:bg-bad-d",
+              )}
             />
             <button
               type="button"
-              className="hv-text"
               onClick={() => api.openClaudeTerminal().catch(() => {})}
-              style={{
-                padding: "8px 16px",
-                border: "1px solid var(--line)",
-                borderRadius: 999,
-                background: "transparent",
-                color: "var(--text2)",
-                fontSize: 12.5,
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all .18s ease",
-              }}
+              className={cx(QUIET, "px-4 py-2 text-md")}
             >
               Open a terminal
             </button>
@@ -812,30 +621,18 @@ export function Settings() {
           }${status?.sidecar.development ? " · running from the checkout" : ""}`}
           last
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="flex items-center gap-2.5">
             <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: status?.sidecar.ready ? "var(--ok)" : "var(--warn)",
-              }}
+              className={cx(
+                "h-1.75 w-1.75 rounded-full",
+                status?.sidecar.ready ? "bg-ok dark:bg-ok-d" : "bg-warn dark:bg-warn-d",
+              )}
             />
             {!status?.sidecar.ready && (
               <button
                 type="button"
-                className="hv-bright"
                 onClick={installSidecar}
-                style={{
-                  padding: "8px 16px",
-                  border: "none",
-                  borderRadius: 999,
-                  background: "var(--accent)",
-                  color: "var(--onAccent)",
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
+                className="min-h-6 cursor-pointer rounded-full border-none bg-accent px-4 py-2 text-md font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] dark:bg-accent-d dark:text-onAccent-d"
               >
                 Install
               </button>
@@ -845,13 +642,13 @@ export function Settings() {
       </div>
 
       {settings.always_allow.length > 0 && (
-        <div style={card}>
+        <div className={SECTION}>
           <Row
             name="Standing allowances"
             note="Calls Relay stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
             last
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+            <div className="flex flex-wrap justify-end gap-1.5">
               {settings.always_allow.map((rule) => {
                 const label = ruleLabel(rule);
                 // An unscoped shell rule from an older build. It authorises
@@ -861,7 +658,6 @@ export function Settings() {
                   <button
                     key={label}
                     type="button"
-                    className="hv-danger"
                     title={
                       revoked
                         ? "This allowed every command, so it no longer allows any. Approve once more to record a scoped rule."
@@ -874,33 +670,17 @@ export function Settings() {
                         ),
                       })
                     }
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "6px 12px",
-                      border: "1px solid var(--line)",
-                      borderRadius: 999,
-                      background: "transparent",
-                      color: revoked ? "var(--text3)" : "var(--text2)",
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "var(--mono)",
-                      textDecoration: revoked ? "line-through" : "none",
-                    }}
+                    className={cx(
+                      DANGER,
+                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-sm",
+                      revoked
+                        ? "text-text3 line-through dark:text-text3-d"
+                        : "text-text2 no-underline dark:text-text2-d",
+                    )}
                   >
                     {label}
                     {revoked && (
-                      <span
-                        style={{
-                          fontFamily: "var(--sans)",
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          color: "var(--warn)",
-                          textDecoration: "none",
-                        }}
-                      >
+                      <span className="font-sans text-xs font-bold text-warn no-underline dark:text-warn-d">
                         revoked
                       </span>
                     )}
@@ -913,65 +693,32 @@ export function Settings() {
         </div>
       )}
 
-      <div style={{ ...card, marginBottom: 0 }}>
-        <div style={{ padding: "18px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}
-          >
-            <span style={{ fontSize: 12.5 }}>Where everything is written</span>
+      <div className={PANEL}>
+        <div className="flex flex-col gap-2.5 p-4.5">
+          <div className="flex items-center justify-between gap-3.5">
+            <span className="text-md">Where everything is written</span>
             <span
               title={dataDir}
-              style={{
-                fontSize: 12.5,
-                color: "var(--text3)",
-                fontFamily: "var(--mono)",
-                maxWidth: 460,
-                ...truncateStyle,
-              }}
+              className={cx(truncate, "max-w-[460px] font-mono text-md text-text3 dark:text-text3-d")}
             >
               {dataDir}
             </span>
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--text3)", lineHeight: 1.6 }}>
+          <div className="text-sm leading-relaxed text-text3 dark:text-text3-d">
             Event logs, run transcripts, agent profiles and worktrees all live there — never inside
             the repositories you point Relay at.
           </div>
           <button
             type="button"
-            className="hv-text"
             onClick={() =>
               api.reveal(dataDir).catch((e) => toast("bad", "Could not open it", reason(e)))
             }
-            style={{
-              alignSelf: "flex-start",
-              marginTop: 6,
-              padding: "8px 16px",
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              background: "transparent",
-              color: "var(--text2)",
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all .18s ease",
-            }}
+            className={cx(QUIET, "mt-1.5 self-start px-4 py-2 text-md")}
           >
             Show files
           </button>
           {log.length > 0 && (
-            <pre
-              style={{
-                margin: 0,
-                padding: "10px 12px",
-                borderRadius: 12,
-                background: "var(--surface2)",
-                border: "1px solid var(--line)",
-                fontFamily: "var(--mono)",
-                fontSize: 11.5,
-                whiteSpace: "pre-wrap",
-                color: "var(--text2)",
-              }}
-            >
+            <pre className="m-0 whitespace-pre-wrap rounded-md border border-line bg-surface2 px-3 py-2.5 font-mono text-sm text-text2 dark:border-line-d dark:bg-surface2-d dark:text-text2-d">
               {log.join("\n")}
             </pre>
           )}
