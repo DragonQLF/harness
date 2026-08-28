@@ -414,6 +414,8 @@ function Shell() {
     deleteConversation,
     navigation,
     clearNavigation,
+    settings,
+    saveSettings,
   } = useStore();
 
   // One history of screens, so the title bar's arrows mean something.
@@ -437,6 +439,73 @@ function Shell() {
       return { list, at: list.length - 1 };
     });
   }, []);
+
+  // macOS puts Relay's commands in the menu bar at the top of the screen. The
+  // items carry no behaviour of their own — each one names something this
+  // screen already does, so the menu and the window can never disagree.
+  useEffect(() => {
+    const un = events.onMenuPick((id) => {
+      switch (id) {
+        case "new-chat":
+          newConversation();
+          go("chat");
+          break;
+        case "add-project":
+          addProject();
+          break;
+        case "projects":
+          go("projects");
+          break;
+        case "settings":
+          go("settings");
+          break;
+        case "palette":
+          setPalette(true);
+          break;
+        case "toggle-sidebar":
+          setSidebar((v) => !v);
+          break;
+        case "toggle-rail":
+          setRail((v) => !v);
+          break;
+        case "toggle-theme":
+          saveSettings({ theme: settings?.theme === "light" ? "dark" : "light" });
+          break;
+        case "trees":
+          go("trees");
+          break;
+        case "activity":
+          go("activity");
+          break;
+        case "claude-terminal":
+          api.openClaudeTerminal().catch(() => {});
+          break;
+      }
+    });
+    return () => {
+      un.then((off) => off()).catch(() => {});
+    };
+  }, [go, newConversation, addProject, saveSettings, settings?.theme]);
+
+  // The Help lines describe the world, so they have to be told when it moves.
+  useEffect(() => {
+    if (!status && !settings) return;
+    api
+      .syncMenu(
+        status?.claude.logged_in ? "Claude is signed in" : "Sign in to Claude…",
+        status?.claude.cli_version
+          ? `Claude CLI ${status.claude.cli_version}`
+          : "Claude CLI not found",
+        settings ? `Daily budget ${money(settings.daily_budget_usd)}` : "No settings",
+      )
+      .catch(() => {});
+  }, [
+    status?.claude.logged_in,
+    status?.claude.cli_version,
+    settings?.daily_budget_usd,
+    status,
+    settings,
+  ]);
 
   const back = useCallback(
     () => setHistory((h) => ({ ...h, at: Math.max(0, h.at - 1) })),

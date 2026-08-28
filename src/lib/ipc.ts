@@ -181,6 +181,10 @@ export const api = {
     invoke<Proposal>("inbox_dismiss", { proposalId }),
 
   sidecarInstall: () => invoke<string>("sidecar_install"),
+  /** Keep the three describing lines in the macOS menu bar true. The wording
+   *  is settled here, where the window already formats the same facts. */
+  syncMenu: (claude: string, cli: string, budget: string) =>
+    invoke<void>("sync_menu", { claude, cli, budget }),
   openClaudeTerminal: (projectId?: string) =>
     invoke<void>("open_claude_terminal", { projectId: projectId ?? null }),
   openAgentTerminal: (projectId: string, cardId: string) =>
@@ -206,6 +210,9 @@ export const events = {
   /** A proposal was filed, accepted or dismissed on the backend. */
   onInbox: (fn: (list: Proposal[]) => void) =>
     listen<Proposal[]>("inbox://proposals", (evt) => fn(evt.payload)),
+  /** An item was picked in the macOS menu bar; the payload is its id. */
+  onMenuPick: (fn: (id: string) => void) =>
+    listen<string>("menu://picked", (evt) => fn(evt.payload)),
   onSidecarLog: (fn: (line: string) => void) =>
     listen<string>("sidecar://log", (evt) => fn(evt.payload)),
   /** The window is being held: what for, and for how long at most. */

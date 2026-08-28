@@ -9,7 +9,8 @@ import type { View } from "../views/views";
 const appWindow = getCurrentWindow();
 
 /** macOS draws its own close/minimise/zoom buttons over the top-left of the
- *  window, so we neither draw ours nor sit where they land. */
+ *  window, and carries Relay's menus in the bar at the top of the screen, so
+ *  the window draws neither. */
 const IS_MAC = navigator.userAgent.includes("Macintosh");
 
 /** How much room the system's three buttons take, with the margin it leaves
@@ -203,44 +204,48 @@ export function TitleBar({
         {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, 24)}
         {chrome("Back", <Icon.back />, () => canBack && back(), 22, !canBack)}
         {chrome("Forward", <Icon.forward />, () => canForward && forward(), 22, !canForward)}
-        <Menu
-          name="File"
-          items={[
-            { label: "New chat", hint: "⌘N", run: onNewChat },
-            { label: "Add a project…", run: addProject },
-            { label: "Projects", run: () => go("projects") },
-            { label: "Settings", hint: "⌘,", run: () => go("settings") },
-          ]}
-        />
-        <Menu
-          name="View"
-          items={[
-            { label: "Command palette", hint: "⌘K", run: onPalette },
-            { label: "Toggle the sidebar", run: toggleSidebar },
-            { label: "Toggle Right now", run: toggleRail },
-            {
-              label: settings?.theme === "light" ? "Dark theme" : "Light theme",
-              run: () => saveSettings({ theme: settings?.theme === "light" ? "dark" : "light" }),
-            },
-            { label: "Worktrees", run: () => go("trees") },
-            { label: "Activity", run: () => go("activity") },
-          ]}
-        />
-        <Menu
-          name="Help"
-          items={[
-            {
-              label: status?.claude.logged_in ? "Claude is signed in" : "Sign in to Claude…",
-              run: () => api.openClaudeTerminal().catch(() => {}),
-            },
-            {
-              label: status?.claude.cli_version
-                ? `Claude CLI ${status.claude.cli_version}`
-                : "Claude CLI not found",
-            },
-            { label: settings ? `Daily budget ${money(settings.daily_budget_usd)}` : "No settings" },
-          ]}
-        />
+        {!IS_MAC && (
+          <>
+            <Menu
+              name="File"
+              items={[
+                { label: "New chat", hint: "⌘N", run: onNewChat },
+                { label: "Add a project…", run: addProject },
+                { label: "Projects", run: () => go("projects") },
+                { label: "Settings", hint: "⌘,", run: () => go("settings") },
+              ]}
+            />
+            <Menu
+              name="View"
+              items={[
+                { label: "Command palette", hint: "⌘K", run: onPalette },
+                { label: "Toggle the sidebar", run: toggleSidebar },
+                { label: "Toggle Right now", run: toggleRail },
+                {
+                  label: settings?.theme === "light" ? "Dark theme" : "Light theme",
+                  run: () => saveSettings({ theme: settings?.theme === "light" ? "dark" : "light" }),
+                },
+                { label: "Worktrees", run: () => go("trees") },
+                { label: "Activity", run: () => go("activity") },
+              ]}
+            />
+            <Menu
+              name="Help"
+              items={[
+                {
+                  label: status?.claude.logged_in ? "Claude is signed in" : "Sign in to Claude…",
+                  run: () => api.openClaudeTerminal().catch(() => {}),
+                },
+                {
+                  label: status?.claude.cli_version
+                    ? `Claude CLI ${status.claude.cli_version}`
+                    : "Claude CLI not found",
+                },
+                { label: settings ? `Daily budget ${money(settings.daily_budget_usd)}` : "No settings" },
+              ]}
+            />
+          </>
+        )}
       </div>
 
       <div
