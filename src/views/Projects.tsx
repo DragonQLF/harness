@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, reason } from "../lib/ipc";
+import { cx } from "../lib/cx";
 import { ago, money, num, plural } from "../lib/format";
-import { tone, type CheckRow, type CommitRow, type ProjectDetail } from "../lib/types";
+import { TONE, tone, type CheckRow, type CommitRow, type ProjectDetail } from "../lib/types";
 import { useStore } from "../state/store";
-import { DiffBlocks, Loading, MiniBars, tabularStyle, truncateStyle } from "../components/ui";
+import { DiffBlocks, Loading, MiniBars, tabular, truncate } from "../components/ui";
 import type { View } from "./views";
 
 /** Lane geometry, copied from the design's LANES table. Each row is 64x62. */
@@ -38,6 +39,17 @@ function clipTop(d: string): string {
     .replace("M40 0 V31 C", "M40 31 C");
 }
 
+/** O painel destes ecrãs: raio 20, superfície, linha de 1px. */
+const PANEL =
+  "overflow-hidden rounded-xl border border-line bg-surface dark:border-line-d dark:bg-surface-d";
+
+/** Uma ligação de texto discreta que acende ao passar por cima. */
+const LINK =
+  "cursor-pointer border-none bg-transparent transition-colors duration-150 hover:text-text focus-visible:text-text disabled:cursor-not-allowed dark:hover:text-text-d dark:focus-visible:text-text-d";
+
+/** As cinco cores por que as linguagens passam, na ordem do desenho. */
+const LANG = [TONE.accent, TONE.info, TONE.ok, TONE.warn, TONE.bad];
+
 export function ProjectPage({ go }: { go: (v: View) => void }) {
   const { projectId, project, snapshot, agents, toast } = useStore();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
@@ -63,7 +75,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
 
   if (!project) {
     return (
-      <div style={{ padding: "22px 26px 28px", fontSize: 12.5, color: "var(--text3)" }}>
+      <div className="px-6.5 pb-7 pt-5.5 text-md text-text3 dark:text-text3-d">
         Add a git repository from the switcher first.
       </div>
     );
@@ -72,17 +84,15 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
 
   const t = tone(project.tone);
   const langs = detail.languages;
-  const langColors = ["var(--accent)", "var(--info)", "var(--ok)", "var(--warn)", "var(--bad)"];
   const langUsed = langs.reduce((a, l) => a + l.pct, 0);
   const worst = checks.some((c) => c.status === "fail")
-    ? { label: "failing", fg: "var(--bad)", soft: "var(--badSoft)" }
+    ? { label: "failing", tone: TONE.bad }
     : checks.some((c) => c.status === "warn")
-      ? { label: "warnings", fg: "var(--warn)", soft: "var(--warnSoft)" }
+      ? { label: "warnings", tone: TONE.warn }
       : checks.some((c) => c.status === "ok")
-        ? { label: "passing", fg: "var(--ok)", soft: "var(--okSoft)" }
-        : { label: "not run", fg: "var(--text3)", soft: "var(--surface2)" };
+        ? { label: "passing", tone: TONE.ok }
+        : { label: "not run", tone: TONE.neutral };
   const agentNames = new Set(detail.commits.map((c) => c.agent).filter(Boolean));
-
 
   const runChecks = async () => {
     if (!projectId) return;
@@ -97,55 +107,25 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
   };
 
   return (
-    <div style={{ padding: "22px 26px 28px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+    <div className="px-6.5 pb-7 pt-5.5">
+      <div className="mb-4 flex items-center gap-2.5">
         <button
           type="button"
-          className="hv-link"
           onClick={() => go("projects")}
-          style={{
-            padding: 0,
-            border: "none",
-            background: "transparent",
-            color: "var(--text3)",
-            fontSize: 20,
-            fontWeight: 800,
-            letterSpacing: "-.02em",
-            cursor: "pointer",
-            transition: "color .16s ease",
-          }}
+          className={cx(
+            LINK,
+            "p-0 text-[20px] font-extrabold tracking-[-.02em] text-text3 dark:text-text3-d",
+          )}
         >
           Projects
         </button>
-        <span style={{ color: "var(--text3)", fontSize: 14 }}>›</span>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>
-          {project.name}
-        </h1>
-        <span
-          style={{
-            padding: "4px 10px",
-            borderRadius: 999,
-            background: "var(--surface)",
-            border: "1px solid var(--line)",
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--text2)",
-            fontFamily: "var(--mono)",
-          }}
-        >
+        <span className="text-lg text-text3 dark:text-text3-d">›</span>
+        <h1 className="m-0 text-[20px] font-extrabold tracking-[-.02em]">{project.name}</h1>
+        <span className="rounded-full border border-line bg-surface px-2.5 py-1 font-mono text-sm font-bold text-text2 dark:border-line-d dark:bg-surface-d dark:text-text2-d">
           {detail.default_branch}
         </span>
         <span
-          style={{
-            padding: "4px 10px",
-            borderRadius: 999,
-            background: "var(--surface2)",
-            border: "1px solid var(--line)",
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: "var(--text3)",
-            fontFamily: "var(--mono)",
-          }}
+          className="rounded-full border border-line bg-surface2 px-2.5 py-1 font-mono text-sm font-bold text-text3 dark:border-line-d dark:bg-surface2-d dark:text-text3-d"
           title={
             detail.remote
               ? detail.remote
@@ -154,228 +134,112 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         >
           {detail.remote ? "origin" : "local only"}
         </span>
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
+        <span className="text-md text-text3 dark:text-text3-d">
           Every commit with a card trailer was written by an agent in its own worktree
         </span>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0,1fr) 292px",
-          gap: 14,
-          alignItems: "start",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+      <div className="grid grid-cols-[minmax(0,1fr)_292px] items-start gap-3.5">
+        <div className="flex min-w-0 flex-col gap-3.5">
           <section
-            style={{
-              position: "relative",
-              display: "flex",
-              flexDirection: "column",
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              overflow: "hidden",
-              boxShadow: "var(--panel)",
-              animation: "fadeUp .45s ease both",
-            }}
+            className={cx(
+              PANEL,
+              "relative flex animate-[fadeUp_.45s_ease_both] flex-col shadow-panel dark:shadow-panel-d",
+            )}
           >
             <span
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                top: 0,
-                height: 112,
-                background: `linear-gradient(180deg,${t.cssSoft} 0%,transparent 100%)`,
-                pointerEvents: "none",
-              }}
+              className={cx(
+                "pointer-events-none absolute inset-x-0 top-0 h-[112px] bg-gradient-to-b to-transparent",
+                t.wash,
+              )}
             />
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 14,
-                padding: "20px 20px 0",
-              }}
-            >
+            <div className="relative flex items-start gap-3.5 px-5 pt-5">
               <span
-                style={{
-                  width: 54,
-                  height: 54,
-                  flex: "none",
-                  borderRadius: 16,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "var(--surface)",
-                  border: `1px solid ${t.cssColor}`,
-                  color: t.cssColor,
-                  fontSize: 20,
-                  fontWeight: 800,
-                }}
+                className={cx(
+                  "flex h-[54px] w-[54px] flex-none items-center justify-center rounded-lg border bg-surface text-[20px] font-extrabold dark:bg-surface-d",
+                  t.edge,
+                  t.fg,
+                )}
               >
                 {project.glyph}
               </span>
-              <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 800,
-                      letterSpacing: "-.02em",
-                      fontFamily: "var(--mono)",
-                    }}
-                  >
+              <div className="min-w-0 flex-1 pt-0.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="font-mono text-xl font-extrabold tracking-[-.02em]">
                     {project.name}
                   </span>
-                  <span
-                    style={{
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      background: "var(--surface2)",
-                      border: "1px solid var(--line)",
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      color: "var(--text3)",
-                    }}
-                  >
+                  <span className="rounded-full border border-line bg-surface2 px-2 py-0.5 text-xs font-bold text-text3 dark:border-line-d dark:bg-surface2-d dark:text-text3-d">
                     {langs.slice(0, 2).map((l) => l.name).join(" · ") || "no code yet"}
                   </span>
                 </div>
                 <p
-                  style={{
-                    margin: "7px 0 0",
-                    maxWidth: 560,
-                    fontSize: 12.5,
-                    color: "var(--text2)",
-                    lineHeight: 1.55,
-                    fontFamily: "var(--mono)",
-                    ...truncateStyle,
-                  }}
+                  className={cx(
+                    truncate,
+                    "mb-0 mt-1.75 max-w-[560px] font-mono text-md leading-[1.55] text-text2 dark:text-text2-d",
+                  )}
                 >
                   {project.path}
                 </p>
               </div>
-              <div style={{ flex: "none", display: "flex", alignItems: "flex-end", gap: 14 }}>
-                <span style={{ width: 112 }}>
+              <div className="flex flex-none items-end gap-3.5">
+                <span className="w-[112px]">
                   <MiniBars values={detail.week_commits.map(Number)} tone={t} height={46} />
                 </span>
-                <span
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-end",
-                    gap: 1,
-                  }}
-                >
-                  <span
-                    style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...tabularStyle }}
-                  >
+                <span className="flex flex-col items-end gap-px">
+                  <span className={cx(tabular, "text-xl font-extrabold tracking-[-.02em]")}>
                     {num(detail.week_lines)}
                   </span>
-                  <span style={{ fontSize: 10.5, color: "var(--text3)" }}>lines this week</span>
+                  <span className="text-xs text-text3 dark:text-text3-d">lines this week</span>
                 </span>
               </div>
             </div>
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                marginTop: 18,
-                padding: "14px 20px",
-                borderTop: "1px solid var(--line2)",
-                fontSize: 11.5,
-                color: "var(--text3)",
-              }}
-            >
-              <span style={{ fontWeight: 700, color: "var(--text2)" }}>
+            <div className="relative mt-4.5 flex items-center gap-2.5 border-t border-line2 px-5 py-3.5 text-sm text-text3 dark:border-line2-d dark:text-text3-d">
+              <span className="font-bold text-text2 dark:text-text2-d">
                 {num(detail.commit_count)} commits
               </span>
-              <span style={{ opacity: 0.5 }}>·</span>
+              <span className="opacity-50">·</span>
               <span>{plural(detail.branches.length, "branch", "branches")}</span>
-              <span style={{ opacity: 0.5 }}>·</span>
+              <span className="opacity-50">·</span>
               <span>{plural(agentNames.size, "agent")}</span>
-              <span style={{ opacity: 0.5 }}>·</span>
+              <span className="opacity-50">·</span>
               <span>
                 last commit{" "}
                 {detail.commits[0]
                   ? ago(detail.commits[0].at_secs * 1000)
                   : "never"}
               </span>
-              <span style={{ flex: 1 }} />
+              <span className="flex-1" />
               {project.mirror ? (
                 <span
                   title="Relay's own source: accepted proposals are born here and read_docs reads this repository's docs/"
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "var(--okSoft)",
-                    border: "1px solid var(--ok)",
-                    color: "var(--ok)",
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
+                  className="rounded-full border border-ok bg-okSoft px-2.5 py-1 text-sm font-bold text-ok dark:border-ok-d dark:bg-okSoft-d dark:text-ok-d"
                 >
                   mirror mode
                 </span>
               ) : (
                 <span />
               )}
-              <span style={{ opacity: 0.5 }}>·</span>
+              <span className="opacity-50">·</span>
               <button
                 type="button"
-                className="hv-link"
                 onClick={() => go("trees")}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text3)",
-                  fontSize: 11.5,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                }}
+                className={cx(LINK, "text-sm font-bold text-text3 dark:text-text3-d")}
               >
                 Worktrees →
               </button>
             </div>
           </section>
 
-          <section
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              overflow: "hidden",
-              boxShadow: "var(--panel)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px 14px" }}>
-              <h2 style={{ margin: 0, fontSize: 14, fontWeight: 800, letterSpacing: "-.01em" }}>
-                History
-              </h2>
-              <span
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  background: "var(--surface2)",
-                  border: "1px solid var(--line)",
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  color: "var(--text3)",
-                  fontFamily: "var(--mono)",
-                }}
-              >
+          <section className={cx(PANEL, "shadow-panel dark:shadow-panel-d")}>
+            <div className="flex items-center gap-2.5 px-4.5 pb-3.5 pt-4">
+              <h2 className="m-0 text-lg font-extrabold tracking-[-.01em]">History</h2>
+              <span className="rounded-full border border-line bg-surface2 px-2 py-0.5 font-mono text-xs font-bold text-text3 dark:border-line-d dark:bg-surface2-d dark:text-text3-d">
                 {detail.branches.length > 1
                   ? `${detail.default_branch} + ${plural(detail.branches.length - 1, "branch", "branches")}`
                   : `${detail.default_branch} only`}
               </span>
-              <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
+              <span className="flex-1" />
+              <span className="text-sm text-text3 dark:text-text3-d">
                 Click a commit to open its session
               </span>
             </div>
@@ -391,49 +255,38 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 <button
                   key={c.sha}
                   type="button"
-                  className="hv-hover"
                   onClick={() => {
                     if (c.card) go("sessions");
                   }}
                   title={c.card ? `Open the session for ${c.card}` : undefined}
-                  style={{
-                    display: "flex",
-                    alignItems: "stretch",
-                    width: "100%",
-                    height: 62,
-                    padding: 0,
-                    border: "none",
-                    borderTop: "1px solid var(--line2)",
-                    background: "transparent",
-                    color: "var(--text)",
-                    cursor: c.card ? "pointer" : "default",
-                    textAlign: "left",
-                    transition: "background .16s ease",
-                  }}
+                  className={cx(
+                    "flex h-[62px] w-full items-stretch border-t border-line2 bg-transparent p-0 text-left text-text transition-colors duration-150 hover:bg-hovered dark:border-line2-d dark:text-text-d dark:hover:bg-hovered-d",
+                    c.card ? "cursor-pointer" : "cursor-default",
+                  )}
                 >
-                  <span
-                    style={{
-                      flex: "none",
-                      width: 64,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
+                  <span className="flex w-16 flex-none items-center justify-center">
+                    {/* O grafo de commits é geometria, não um ícone: as linhas
+                        vêm da história real e nenhuma biblioteca as desenha. */}
                     <svg
                       width="64"
                       height="62"
                       viewBox="0 0 64 62"
                       fill="none"
-                      style={{ display: "block", overflow: "visible" }}
+                      className="block overflow-visible"
+                      aria-hidden="true"
                     >
                       {d1 && (
-                        <path d={d1} stroke="var(--text3)" strokeWidth="2" strokeLinecap="round" />
+                        <path
+                          d={d1}
+                          className="stroke-text3 dark:stroke-text3-d"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
                       )}
                       {d2 && (
                         <path
                           d={d2}
-                          stroke="var(--accent)"
+                          className="stroke-accent dark:stroke-accent-d"
                           strokeWidth="2"
                           strokeLinecap="round"
                           strokeDasharray={lane.dash}
@@ -443,119 +296,62 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                         cx={lane.lane ? 40 : 16}
                         cy="31"
                         r={lane.d2 && lane.dash === "0" && !lane.lane ? 6.5 : 5.5}
-                        fill={
+                        className={cx(
                           lane.dash !== "0"
-                            ? "var(--bg)"
+                            ? "fill-bg dark:fill-bg-d"
                             : lane.lane
-                              ? "var(--accent)"
-                              : "var(--text3)"
-                        }
-                        stroke={lane.lane ? "var(--accent)" : "var(--text3)"}
+                              ? "fill-accent dark:fill-accent-d"
+                              : "fill-text3 dark:fill-text3-d",
+                          lane.lane
+                            ? "stroke-accent dark:stroke-accent-d"
+                            : "stroke-text3 dark:stroke-text3-d",
+                        )}
                         strokeWidth="2.4"
                       />
                     </svg>
                   </span>
 
-                  <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 14,
-                      paddingRight: 18,
-                    }}
-                  >
+                  <span className="flex min-w-0 flex-1 items-center gap-3.5 pr-4.5">
                     <span
-                      style={{
-                        flex: "none",
-                        width: 26,
-                        height: 26,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: at.cssSoft,
-                        color: at.cssColor,
-                        fontSize: 11.5,
-                        fontWeight: 800,
-                      }}
+                      className={cx(
+                        "flex h-6.5 w-6.5 flex-none items-center justify-center rounded-full text-sm font-extrabold",
+                        at.soft,
+                        at.fg,
+                      )}
                     >
                       {agent?.initial ?? (c.author[0]?.toUpperCase() ?? "?")}
                     </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="min-w-0 flex-1">
                       <span
-                        style={{
-                          display: "block",
-                          fontSize: 14,
-                          fontWeight: 600,
-                          letterSpacing: "-.01em",
-                          ...truncateStyle,
-                        }}
+                        className={cx(truncate, "block text-lg font-semibold tracking-[-.01em]")}
                       >
                         {card?.title ?? c.subject ?? "(no message)"}
                       </span>
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          marginTop: 4,
-                          fontSize: 11.5,
-                          color: "var(--text3)",
-                        }}
-                      >
-                        <span style={{ fontWeight: 700, color: "var(--text2)" }}>
+                      <span className="mt-1 flex items-center gap-2 text-sm text-text3 dark:text-text3-d">
+                        <span className="font-bold text-text2 dark:text-text2-d">
                           {agent?.name ?? c.author}
                         </span>
-                        <span style={{ opacity: 0.5 }}>·</span>
-                        <span style={{ fontFamily: "var(--mono)" }}>
+                        <span className="opacity-50">·</span>
+                        <span className="font-mono">
                           {c.on_default ? detail.default_branch : (c.card ? `harness/${c.card}` : "—")}
                         </span>
-                        <span style={{ opacity: 0.5 }}>·</span>
+                        <span className="opacity-50">·</span>
                         <span>{c.when}</span>
                         {c.card && (
-                          <span
-                            style={{
-                              padding: "1px 8px",
-                              borderRadius: 999,
-                              background: "var(--okSoft)",
-                              color: "var(--ok)",
-                              fontSize: 10.5,
-                              fontWeight: 800,
-                              fontFamily: "var(--mono)",
-                            }}
-                          >
+                          <span className="rounded-full bg-okSoft px-2 py-px font-mono text-xs font-extrabold text-ok dark:bg-okSoft-d dark:text-ok-d">
                             {c.card}
                           </span>
                         )}
                       </span>
                     </span>
                     <span
-                      style={{
-                        flex: "none",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontFamily: "var(--mono)",
-                        fontSize: 11.5,
-                        ...tabularStyle,
-                      }}
+                      className={cx(tabular, "flex flex-none items-center gap-2 font-mono text-sm")}
                     >
-                      <span style={{ color: "var(--ok)", fontWeight: 700 }}>+{num(c.added)}</span>
-                      <span style={{ color: "var(--bad)", fontWeight: 700 }}>−{num(c.removed)}</span>
+                      <span className="font-bold text-ok dark:text-ok-d">+{num(c.added)}</span>
+                      <span className="font-bold text-bad dark:text-bad-d">−{num(c.removed)}</span>
                     </span>
                     <DiffBlocks added={c.added} removed={c.removed} />
-                    <span
-                      style={{
-                        flex: "none",
-                        minWidth: 60,
-                        textAlign: "right",
-                        fontFamily: "var(--mono)",
-                        fontSize: 11.5,
-                        color: "var(--text3)",
-                      }}
-                    >
+                    <span className="min-w-[60px] flex-none text-right font-mono text-sm text-text3 dark:text-text3-d">
                       {c.short}
                     </span>
                   </span>
@@ -563,82 +359,47 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               );
             })}
             {detail.commits.length === 0 && (
-              <div
-                style={{
-                  padding: 22,
-                  borderTop: "1px solid var(--line2)",
-                  textAlign: "center",
-                  fontSize: 12.5,
-                  color: "var(--text3)",
-                }}
-              >
+              <div className="border-t border-line2 p-5.5 text-center text-md text-text3 dark:border-line2-d dark:text-text3-d">
                 No commits yet. The first agent run will make one.
               </div>
             )}
           </section>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <section
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ padding: "14px 16px 12px", fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em" }}>
+        <div className="flex flex-col gap-3.5">
+          <section className={PANEL}>
+            <div className="px-4 pb-3 pt-3.5 text-md font-extrabold tracking-[-.01em]">
               Branches
             </div>
             {detail.branches.map((b) => {
               const dot =
                 b.state === "live"
-                  ? "var(--accent)"
+                  ? "bg-accent dark:bg-accent-d"
                   : b.state === "merged"
-                    ? "var(--ok)"
+                    ? "bg-ok dark:bg-ok-d"
                     : b.state === "default"
-                      ? "var(--text2)"
-                      : "var(--text3)";
+                      ? "bg-text2 dark:bg-text2-d"
+                      : "bg-text3 dark:bg-text3-d";
               return (
                 <div
                   key={b.name}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "12px 16px",
-                    borderTop: "1px solid var(--line2)",
-                  }}
+                  className="flex items-center gap-2.5 border-t border-line2 px-4 py-3 dark:border-line2-d"
                 >
                   <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      flex: "none",
-                      borderRadius: "50%",
-                      background: dot,
-                      animation:
-                        b.state === "live" ? "breathe 2.2s ease-in-out infinite" : undefined,
-                    }}
+                    className={cx(
+                      "h-1.75 w-1.75 flex-none rounded-full",
+                      dot,
+                      b.state === "live" && "animate-[breathe_2.2s_ease-in-out_infinite]",
+                    )}
                   />
+                  <span className={cx(truncate, "flex-1 font-mono text-sm")}>{b.name}</span>
                   <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontFamily: "var(--mono)",
-                      fontSize: 11.5,
-                      ...truncateStyle,
-                    }}
-                  >
-                    {b.name}
-                  </span>
-                  <span
-                    style={{
-                      flex: "none",
-                      fontSize: 10.5,
-                      color: b.state === "live" ? "var(--accent)" : "var(--text3)",
-                      fontWeight: b.state === "live" ? 700 : 500,
-                    }}
+                    className={cx(
+                      "flex-none text-xs",
+                      b.state === "live"
+                        ? "font-bold text-accent dark:text-accent-d"
+                        : "font-medium text-text3 dark:text-text3-d",
+                    )}
                   >
                     {b.state === "default" ? "default" : b.state === "live" ? "working" : b.when}
                   </span>
@@ -647,50 +408,29 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
             })}
           </section>
 
-          <section
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              padding: "16px 16px 16px",
-            }}
-          >
-            <div
-              style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em", marginBottom: 12 }}
-            >
-              Languages
-            </div>
-            <div style={{ display: "flex", gap: 2, height: 8, borderRadius: 4, overflow: "hidden" }}>
+          <section className={cx(PANEL, "p-4")}>
+            <div className="mb-3 text-md font-extrabold tracking-[-.01em]">Languages</div>
+            <div className="flex h-2 gap-0.5 overflow-hidden rounded-[4px]">
               {langs.map((l, i) => (
                 <span
                   key={l.name}
                   title={`${l.name} ${l.pct.toFixed(1)}%`}
-                  style={{ width: `${l.pct}%`, background: langColors[i % langColors.length] }}
+                  className={LANG[i % LANG.length].solid}
+                  style={{ width: `${l.pct}%` }}
                 />
               ))}
               {langUsed < 100 && (
-                <span style={{ width: `${100 - langUsed}%`, background: "var(--line)" }} />
+                <span
+                  className="bg-line dark:bg-line-d"
+                  style={{ width: `${100 - langUsed}%` }}
+                />
               )}
             </div>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "6px 14px",
-                marginTop: 12,
-                fontSize: 11.5,
-                color: "var(--text3)",
-              }}
-            >
+            <div className="mt-3 flex flex-wrap gap-x-3.5 gap-y-1.5 text-sm text-text3 dark:text-text3-d">
               {langs.map((l, i) => (
-                <span key={l.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span key={l.name} className="flex items-center gap-1.5">
                   <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: "50%",
-                      background: langColors[i % langColors.length],
-                    }}
+                    className={cx("h-1.75 w-1.75 rounded-full", LANG[i % LANG.length].solid)}
                   />
                   {l.name} {l.pct.toFixed(1)}%
                 </span>
@@ -699,82 +439,60 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
             </div>
           </section>
 
-          <section
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px 12px" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em" }}>
+          <section className={PANEL}>
+            <div className="flex items-center gap-2.5 px-4 pb-3 pt-3.5">
+              <span className="text-md font-extrabold tracking-[-.01em]">
                 Checks on {detail.default_branch}
               </span>
               <span
-                style={{
-                  padding: "1px 8px",
-                  borderRadius: 999,
-                  background: worst.soft,
-                  color: worst.fg,
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                }}
+                className={cx(
+                  "rounded-full px-2 py-px text-xs font-extrabold",
+                  worst.tone.soft,
+                  worst.tone.fg,
+                )}
               >
                 {worst.label}
               </span>
-              <span style={{ flex: 1 }} />
+              <span className="flex-1" />
               <button
                 type="button"
-                className="hv-link"
                 disabled={busy}
                 onClick={runChecks}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text3)",
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  cursor: busy ? "progress" : "pointer",
-                }}
+                className={cx(
+                  LINK,
+                  "text-sm font-bold text-text3 dark:text-text3-d",
+                  busy && "cursor-progress",
+                )}
               >
                 {busy ? "Running…" : "Run →"}
               </button>
             </div>
             {checks.map((ck) => {
-              const dot =
+              const st =
                 ck.status === "ok"
-                  ? "var(--ok)"
+                  ? TONE.ok
                   : ck.status === "warn"
-                    ? "var(--warn)"
+                    ? TONE.warn
                     : ck.status === "fail"
-                      ? "var(--bad)"
-                      : "var(--text3)";
+                      ? TONE.bad
+                      : TONE.neutral;
               return (
                 <div
                   key={ck.name}
                   title={ck.detail}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "10px 16px",
-                    borderTop: "1px solid var(--line2)",
-                  }}
+                  className="flex items-center gap-2.5 border-t border-line2 px-4 py-2.5 dark:border-line2-d"
                 >
+                  <span className={cx("h-1.75 w-1.75 flex-none rounded-full", st.solid)} />
+                  <span className={cx(truncate, "flex-1 font-mono text-sm")}>{ck.name}</span>
                   <span
-                    style={{ width: 7, height: 7, flex: "none", borderRadius: "50%", background: dot }}
-                  />
-                  <span style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11.5, ...truncateStyle }}>
-                    {ck.name}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      color: ck.status === "warn" || ck.status === "fail" ? dot : "var(--text3)",
-                      fontWeight: ck.status === "ok" ? 500 : 700,
-                      ...tabularStyle,
-                    }}
+                    className={cx(
+                      tabular,
+                      "text-xs",
+                      ck.status === "warn" || ck.status === "fail"
+                        ? st.fg
+                        : "text-text3 dark:text-text3-d",
+                      ck.status === "ok" ? "font-medium" : "font-bold",
+                    )}
                   >
                     {ck.ran_ms ? ck.detail.slice(0, 22) : "not run"}
                   </span>
@@ -782,41 +500,19 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               );
             })}
             {checks.length === 0 && (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  borderTop: "1px solid var(--line2)",
-                  fontSize: 11.5,
-                  color: "var(--text3)",
-                  lineHeight: 1.5,
-                }}
-              >
+              <div className="border-t border-line2 px-4 py-3.5 text-sm leading-normal text-text3 dark:border-line2-d dark:text-text3-d">
                 No checks recognised for this repository.
               </div>
             )}
           </section>
 
-          <section
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              padding: "16px 16px",
-            }}
-          >
-            <div style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: "-.01em" }}>Spend</div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "space-between",
-                marginTop: 8,
-              }}
-            >
-              <span style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-.02em", ...tabularStyle }}>
+          <section className={cx(PANEL, "p-4")}>
+            <div className="text-md font-extrabold tracking-[-.01em]">Spend</div>
+            <div className="mt-2 flex items-end justify-between">
+              <span className={cx(tabular, "text-2xl font-extrabold tracking-[-.02em]")}>
                 {money(project.stats.spend_total)}
               </span>
-              <span style={{ fontSize: 11.5, color: "var(--text3)" }}>
+              <span className="text-sm text-text3 dark:text-text3-d">
                 {plural(project.stats.runs_total, "run")}
               </span>
             </div>
@@ -831,227 +527,137 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
 export function Projects({ go }: { go: (v: View) => void }) {
   const { projects, selectProject, addProject, removeProject } = useStore();
 
-
   return (
-    <div style={{ padding: "22px 26px 28px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+    <div className="px-6.5 pb-7 pt-5.5">
+      <div className="mb-4 flex items-center gap-2.5">
         {/* The chrome above already carries "Projects" and the repository
             count. What it cannot say is what registering one means. */}
-        <span style={{ fontSize: 12.5, color: "var(--text3)" }}>
+        <span className="text-md text-text3 dark:text-text3-d">
           Every repository Relay is allowed to touch
         </span>
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
         <button
           type="button"
-          className="hv-bright"
           onClick={addProject}
-          style={{
-            padding: "8px 16px",
-            border: "none",
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--onAccent)",
-            fontSize: 12.5,
-            fontWeight: 700,
-            cursor: "pointer",
-            transition: "filter .18s ease",
-          }}
+          className="min-h-6 cursor-pointer rounded-full border-none bg-accent px-4 py-2 text-md font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] dark:bg-accent-d dark:text-onAccent-d"
         >
           Add a project
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 14 }}>
+      <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-3.5">
         {projects.map((p) => {
           const t = tone(p.tone);
           const st = !p.exists
-            ? { label: "folder missing", fg: "var(--bad)", soft: "var(--badSoft)" }
+            ? { label: "folder missing", tone: TONE.bad }
             : p.paused
-              ? { label: "paused", fg: "var(--text3)", soft: "var(--surface2)" }
+              ? { label: "paused", tone: TONE.neutral }
               : p.stats.running
-                ? { label: "working", fg: "var(--accent)", soft: "var(--accentSoft)" }
+                ? { label: "working", tone: TONE.accent }
                 : p.stats.review
-                  ? { label: "needs you", fg: "var(--warn)", soft: "var(--warnSoft)" }
-                  : { label: "idle", fg: "var(--text3)", soft: "var(--surface2)" };
+                  ? { label: "needs you", tone: TONE.warn }
+                  : { label: "idle", tone: TONE.neutral };
           return (
             <section
               key={p.id}
-              style={{
-                position: "relative",
-                border: "1px solid var(--line)",
-                borderRadius: 20,
-                background: "var(--surface)",
-                overflow: "hidden",
-                boxShadow: "var(--panel)",
-                animation: "fadeUp .45s ease both",
-              }}
+              className={cx(
+                PANEL,
+                "relative animate-[fadeUp_.45s_ease_both] shadow-panel dark:shadow-panel-d",
+              )}
             >
               <span
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: 112,
-                  background: `linear-gradient(180deg,${t.cssSoft} 0%,transparent 100%)`,
-                  pointerEvents: "none",
-                }}
+                className={cx(
+                  "pointer-events-none absolute inset-x-0 top-0 h-[112px] bg-gradient-to-b to-transparent",
+                  t.wash,
+                )}
               />
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 14,
-                  padding: "20px 20px 0",
-                }}
-              >
+              <div className="relative flex items-start gap-3.5 px-5 pt-5">
                 <span
-                  style={{
-                    width: 46,
-                    height: 46,
-                    flex: "none",
-                    borderRadius: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "var(--surface)",
-                    border: `1px solid ${t.cssColor}`,
-                    color: t.cssColor,
-                    fontSize: 16,
-                    fontWeight: 800,
-                  }}
+                  className={cx(
+                    "flex h-[46px] w-[46px] flex-none items-center justify-center rounded-lg border bg-surface text-xl font-extrabold dark:bg-surface-d",
+                    t.edge,
+                    t.fg,
+                  )}
                 >
                   {p.glyph}
                 </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5">
                     <span
-                      style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-.02em", ...truncateStyle }}
+                      className={cx(truncate, "text-xl font-extrabold tracking-[-.02em]")}
                     >
                       {p.name}
                     </span>
                     <span
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        background: st.soft,
-                        color: st.fg,
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                        flex: "none",
-                      }}
+                      className={cx(
+                        "flex flex-none items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-bold",
+                        st.tone.soft,
+                        st.tone.fg,
+                      )}
                     >
-                      <span
-                        style={{ width: 5, height: 5, borderRadius: "50%", background: st.fg }}
-                      />
+                      <span className={cx("h-1.25 w-1.25 rounded-full", st.tone.solid)} />
                       {st.label}
                     </span>
                     {p.mirror && (
                       <span
                         title="Mirror mode: the project Relay improves itself in"
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 999,
-                          background: "var(--okSoft)",
-                          color: "var(--ok)",
-                          fontSize: 11.5,
-                          fontWeight: 700,
-                          flex: "none",
-                        }}
+                        className="flex-none rounded-full bg-okSoft px-2.5 py-1 text-sm font-bold text-ok dark:bg-okSoft-d dark:text-ok-d"
                       >
                         mirror
                       </span>
                     )}
                   </div>
                   <p
-                    style={{
-                      margin: "6px 0 0",
-                      fontSize: 11.5,
-                      color: "var(--text3)",
-                      fontFamily: "var(--mono)",
-                      ...truncateStyle,
-                    }}
+                    className={cx(
+                      truncate,
+                      "mb-0 mt-1.5 font-mono text-sm text-text3 dark:text-text3-d",
+                    )}
                   >
                     {p.path}
                   </p>
                 </div>
-                <span style={{ width: 96, flex: "none" }}>
+                <span className="w-24 flex-none">
                   <MiniBars values={p.stats.week_runs} tone={t} height={40} />
                 </span>
               </div>
 
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  marginTop: 16,
-                  padding: "12px 20px",
-                  borderTop: "1px solid var(--line2)",
-                  fontSize: 11.5,
-                  color: "var(--text3)",
-                }}
-              >
-                <span style={{ fontWeight: 700, color: "var(--text2)" }}>
+              <div className="relative mt-4 flex items-center gap-2.5 border-t border-line2 px-5 py-3 text-sm text-text3 dark:border-line2-d dark:text-text3-d">
+                <span className="font-bold text-text2 dark:text-text2-d">
                   {plural(p.stats.cards, "card")}
                 </span>
-                <span style={{ opacity: 0.5 }}>·</span>
+                <span className="opacity-50">·</span>
                 <span>{money(p.stats.spend_total)} all time</span>
-                <span style={{ flex: 1 }} />
+                <span className="flex-1" />
                 <button
                   type="button"
-                  className="hv-link"
                   disabled={!p.exists}
                   onClick={() => {
                     selectProject(p.id);
                     go("board");
                   }}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: p.exists ? t.cssColor : "var(--text3)",
-                    fontSize: 11.5,
-                    fontWeight: 800,
-                    cursor: p.exists ? "pointer" : "not-allowed",
-                  }}
+                  className={cx(
+                    LINK,
+                    "text-sm font-extrabold",
+                    p.exists ? t.fg : "text-text3 dark:text-text3-d",
+                  )}
                 >
                   Board →
                 </button>
                 <button
                   type="button"
-                  className="hv-link"
                   disabled={!p.exists}
                   onClick={() => {
                     selectProject(p.id);
                     go("code");
                   }}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text3)",
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    cursor: p.exists ? "pointer" : "not-allowed",
-                  }}
+                  className={cx(LINK, "text-sm font-bold text-text3 dark:text-text3-d")}
                 >
                   Code →
                 </button>
                 <button
                   type="button"
-                  className="hv-link"
                   onClick={() => removeProject(p.id, false)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text3)",
-                    fontSize: 11.5,
-                    cursor: "pointer",
-                  }}
+                  className={cx(LINK, "text-sm text-text3 dark:text-text3-d")}
                 >
                   Forget
                 </button>
@@ -1062,38 +668,13 @@ export function Projects({ go }: { go: (v: View) => void }) {
 
         <button
           type="button"
-          className="hv-border"
           onClick={addProject}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            minHeight: 168,
-            border: "1px dashed var(--line)",
-            borderRadius: 20,
-            background: "transparent",
-            color: "var(--text3)",
-            cursor: "pointer",
-            transition: "all .22s cubic-bezier(.2,.8,.2,1)",
-          }}
+          className="flex min-h-[168px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-line bg-transparent text-text3 transition-[border-color,color] duration-200 hover:border-accentLine hover:text-text2 focus-visible:border-accentLine dark:border-line-d dark:text-text3-d dark:hover:border-accentLine-d dark:hover:text-text2-d dark:focus-visible:border-accentLine-d"
         >
-          <span
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              border: "1px dashed currentColor",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 16,
-            }}
-          >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full border border-dashed border-current text-xl">
             +
           </span>
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Add a git repository</span>
+          <span className="text-md font-semibold">Add a git repository</span>
         </button>
       </div>
     </div>

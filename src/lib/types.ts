@@ -304,8 +304,12 @@ export interface Tone {
   soft: string;
   /** O preenchimento cheio: pontos, barras, medidores. */
   solid: string;
-  /** A linha. */
+  /** A linha ténue. */
   line: string;
+  /** A linha à força toda, na própria cor do tom. */
+  edge: string;
+  /** O lavado como princípio de um degradê que se apaga. */
+  wash: string;
   /** Andaime da migração: a cor como custom property, para as vistas que ainda
    *  a espalham dentro de um `style`. Sai com o `theme.css`.
    *  @deprecated usa `fg` / `solid`. */
@@ -322,6 +326,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-surface2 dark:bg-surface2-d",
     solid: "bg-text3 dark:bg-text3-d",
     line: "border-line3 dark:border-line3-d",
+    edge: "border-text3 dark:border-text3-d",
+    wash: "from-surface2 dark:from-surface2-d",
     cssColor: "var(--text3)",
     cssSoft: "var(--surface2)",
   },
@@ -330,6 +336,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-accentSoft dark:bg-accentSoft-d",
     solid: "bg-accent dark:bg-accent-d",
     line: "border-accentLine dark:border-accentLine-d",
+    edge: "border-accent dark:border-accent-d",
+    wash: "from-accentSoft dark:from-accentSoft-d",
     cssColor: "var(--accent)",
     cssSoft: "var(--accentSoft)",
   },
@@ -338,6 +346,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-infoSoft dark:bg-infoSoft-d",
     solid: "bg-info dark:bg-info-d",
     line: "border-info dark:border-info-d",
+    edge: "border-info dark:border-info-d",
+    wash: "from-infoSoft dark:from-infoSoft-d",
     cssColor: "var(--info)",
     cssSoft: "var(--infoSoft)",
   },
@@ -346,6 +356,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-okSoft dark:bg-okSoft-d",
     solid: "bg-ok dark:bg-ok-d",
     line: "border-ok dark:border-ok-d",
+    edge: "border-ok dark:border-ok-d",
+    wash: "from-okSoft dark:from-okSoft-d",
     cssColor: "var(--ok)",
     cssSoft: "var(--okSoft)",
   },
@@ -354,6 +366,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-warnSoft dark:bg-warnSoft-d",
     solid: "bg-warn dark:bg-warn-d",
     line: "border-warn dark:border-warn-d",
+    edge: "border-warn dark:border-warn-d",
+    wash: "from-warnSoft dark:from-warnSoft-d",
     cssColor: "var(--warn)",
     cssSoft: "var(--warnSoft)",
   },
@@ -362,6 +376,8 @@ export const TONE: Record<ToneName, Tone> = {
     soft: "bg-badSoft dark:bg-badSoft-d",
     solid: "bg-bad dark:bg-bad-d",
     line: "border-bad dark:border-bad-d",
+    edge: "border-bad dark:border-bad-d",
+    wash: "from-badSoft dark:from-badSoft-d",
     cssColor: "var(--bad)",
     cssSoft: "var(--badSoft)",
   },
