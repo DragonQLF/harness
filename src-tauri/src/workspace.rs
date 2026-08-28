@@ -1019,9 +1019,18 @@ impl Workspace {
                     .to_string(),
             );
         };
-        let created =
-            crate::commands::board::create_card_inner(self, &mirror.id, &proposal.title, agents::DEFAULT_WORKER, false, true)
-                .await?;
+        // The whole proposal, not only its title. The title is the prompt the
+        // agent receives, so a card born from a title alone reaches the builder
+        // with none of the reasons that motivated it.
+        let created = crate::commands::board::create_card_inner(
+            self,
+            &mirror.id,
+            &proposal.as_card_text(),
+            agents::DEFAULT_WORKER,
+            false,
+            true,
+        )
+        .await?;
         let accepted = {
             let mut guard = self.inbox.lock().unwrap();
             match guard.accept(

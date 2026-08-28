@@ -503,7 +503,10 @@ impl Engine {
                         // like history; the ids live in the body and in the
                         // trailers, where machines look. The agent's own
                         // summary — when it gave one — is the body.
-                        let subject = match task_title.trim() {
+                        // One line, always: a title may carry a body under the
+                        // request (an accepted proposal brings its reasoning
+                        // with it), and a commit subject has no room for it.
+                        let subject = match harness_domain::one_line(&task_title) {
                             "" => format!("harness: work for card {done_card}"),
                             title => format!("harness: {title}"),
                         };

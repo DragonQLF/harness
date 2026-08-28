@@ -36,6 +36,30 @@ pub struct Proposal {
     pub project_id: Option<String>,
 }
 
+impl Proposal {
+    /// The card an accepted proposal becomes, as text.
+    ///
+    /// A card's title *is* the prompt the agent is given, and for a long time
+    /// only the title survived acceptance: the observation and the reasoning —
+    /// the whole body of the proposal — were thrown away the moment the
+    /// operator said yes, so the builder arrived with none of the reasons that
+    /// motivated the work. The first line stays the one-line request, which is
+    /// what the board shows and what the commit subject reads; the body
+    /// follows it, which is what the agent reads.
+    pub fn as_card_text(&self) -> String {
+        let mut out = self.title.trim().to_string();
+        if !self.observation.trim().is_empty() {
+            out.push_str("\n\nWhat was seen: ");
+            out.push_str(self.observation.trim());
+        }
+        if !self.proposal.trim().is_empty() {
+            out.push_str("\n\nWhat was proposed: ");
+            out.push_str(self.proposal.trim());
+        }
+        out
+    }
+}
+
 /// The whole inbox plus the mark of the last end-of-day look.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InboxState {
@@ -188,6 +212,40 @@ mod tests {
             Some("c_9"),
             "accept records where the card was born"
         );
+    }
+
+    /// The bug: accepting a proposal built the card from `proposal.title`
+    /// alone, so the observation and the reasoning died in the inbox — and
+    /// since the title is the agent's prompt, the builder got the request
+    /// without a single reason behind it.
+    #[test]
+    fn an_accepted_proposal_carries_its_body_to_the_card() {
+        let mut inbox = InboxState::default();
+        let p = inbox.propose(
+            "p1".into(),
+            NOW,
+            "widen propose_improvement",
+            "four tool refusals in one session, each a real capability hole",
+            "say that one occurrence is enough to file",
+        );
+        let text = p.as_card_text();
+        assert_eq!(
+            harness_domain::one_line(&text),
+            "widen propose_improvement",
+            "the first line stays the one-line request"
+        );
+        assert!(text.contains("four tool refusals"), "the observation survives: {text}");
+        assert!(text.contains("one occurrence is enough"), "the reasoning survives: {text}");
+        assert!(text.lines().count() > 1, "the body is below the title");
+    }
+
+    /// A proposal with nothing under the title is still just a title — no
+    /// empty headings, no trailing blank lines.
+    #[test]
+    fn a_proposal_with_no_body_is_still_one_line() {
+        let mut inbox = InboxState::default();
+        let p = inbox.propose("p1".into(), NOW, "  just a title  ", "", "");
+        assert_eq!(p.as_card_text(), "just a title");
     }
 
     #[test]

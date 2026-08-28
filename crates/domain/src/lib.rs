@@ -159,6 +159,24 @@ fn default_agent() -> String {
     "builder".to_string()
 }
 
+/// The one-line form of a card's title: everything up to the first newline.
+///
+/// A title is the prompt the agent receives, so it may carry a body under the
+/// request — an accepted proposal arrives with its observation and its
+/// reasoning attached. The places that need exactly one line (a commit
+/// subject, a board line inside a prompt) ask for it here rather than each
+/// spilling the body into a place with no room for it.
+pub fn one_line(title: &str) -> &str {
+    title.trim().lines().next().unwrap_or("").trim_end()
+}
+
+impl Card {
+    /// What this card is called in one line. See [`one_line`].
+    pub fn subject(&self) -> &str {
+        one_line(&self.title)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -1559,6 +1577,27 @@ mod tests {
             "the refusal says why: {refused}"
         );
         assert_eq!(board.get(&id).unwrap().title, "t", "the title did not move");
+    }
+
+    /// A title may carry a body — an accepted proposal brings its reasoning
+    /// with it — and the one-line places must take one line.
+    #[test]
+    fn a_title_with_a_body_still_has_a_one_line_subject() {
+        let mut board = Board::default();
+        let id = CardId::new("s1");
+        card_in(&mut board, &id, Backlog);
+        drive(
+            &mut board,
+            &Command::EditCard {
+                card_id: id.clone(),
+                title: "widen propose_improvement\n\nWhat was seen: four refusals".into(),
+            },
+        );
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.subject(), "widen propose_improvement");
+        assert!(card.title.contains("four refusals"), "the body is kept on the card");
+        assert_eq!(super::one_line("  "), "");
+        assert_eq!(super::one_line("only one line"), "only one line");
     }
 
     #[test]

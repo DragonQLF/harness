@@ -146,10 +146,13 @@ fn render(brief: &ProjectBrief) -> String {
             return out;
         }
     for card in &brief.cards {
+        // One line per card: a title may carry a body under the request, and
+        // a list of every board is not where it belongs. `read_diff` and the
+        // card itself have the rest.
         out.push_str(&format!(
             "- [{}] {} — {} ({})",
             status_word(card.status),
-            card.title,
+            harness_domain::one_line(&card.title),
             card.agent_id,
             card.id
         ));
