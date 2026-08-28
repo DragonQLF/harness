@@ -60,6 +60,13 @@ export const paneIn: Variants = {
   gone: { opacity: 0, y: 6, transition: { duration: 0.16, ease: RISE } },
 };
 
+/** O mesmo painel, mas a deixar o resto do ecrã entrar primeiro. */
+export const paneInDelayed: Variants = {
+  hidden: { opacity: 0, y: 10 },
+  shown: { opacity: 1, y: 0, transition: { ...rise(0.42), delay: 0.06 } },
+  gone: { opacity: 0, y: 6, transition: { duration: 0.16, ease: RISE } },
+};
+
 /** Uma folha modal: sobe e encolhe um nada, como o `sheetIn` do desenho. */
 export const sheetIn: Variants = {
   hidden: { opacity: 0, y: 12, scale: 0.985 },
@@ -86,6 +93,13 @@ export const railIn: Variants = {
   hidden: { opacity: 0, x: 18 },
   shown: { opacity: 1, x: 0, transition: rise(0.36) },
   gone: { opacity: 0, x: 12, transition: { duration: 0.18, ease: RISE } },
+};
+
+/** Um painel que sai de uma pastilha: aparece depressa e desaparece igual. */
+export const popover: Variants = {
+  hidden: { opacity: 0 },
+  shown: { opacity: 1, transition: { duration: 0.14, ease: "easeInOut" } },
+  gone: { opacity: 0, transition: { duration: 0.12, ease: "easeInOut" } },
 };
 
 /** Um véu por trás de uma folha. */

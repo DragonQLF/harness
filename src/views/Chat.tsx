@@ -3,11 +3,22 @@
  *  that can hold a conversation gets the same screen. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { clock, money, plural } from "../lib/format";
+import { cx } from "../lib/cx";
+import { paneInDelayed, popover, rowIn, sheetIn } from "../lib/motion";
 import { ruleLabel, tone, type AllowRule, type PendingApproval } from "../lib/types";
 import { useStore, type ChatMsg } from "../state/store";
 import { api, reason } from "../lib/ipc";
-import { Caret, Glyph, Icon, Spinner, monoStyle, truncateStyle } from "../components/ui";
+import { Caret, Glyph, Icon, Spinner, mono, truncate } from "../components/ui";
+
+/** Uma pastilha assente na superfície de trás. */
+const CHIP =
+  "min-h-6 cursor-pointer rounded-sm border-none bg-surface2 text-text2 transition-[border-color,background,color] duration-150 hover:bg-hovered hover:text-text dark:bg-surface2-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
+
+/** O painel que sai de uma pastilha para cima. */
+const POPOVER =
+  "absolute bottom-[calc(100%+6px)] left-0 z-40 rounded-md border border-line3 bg-elev p-1.5 shadow-soft dark:border-line3-d dark:bg-elev-d dark:shadow-soft-d";
 
 /** What a standing rule for this request would cover. Mirrors the backend: a
  *  shell call is scoped to its leading words, anything else to the tool. */
@@ -34,8 +45,9 @@ function scopable(request: PendingApproval): boolean {
 function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
-    <span
-      className="hv-soft"
+    <button
+      type="button"
+      aria-label={done ? "Copied" : "Copy this message"}
       title={done ? "Copied" : "Copy"}
       onClick={() => {
         navigator.clipboard
@@ -44,17 +56,13 @@ function CopyButton({ text }: { text: string }) {
           .catch(() => {});
         window.setTimeout(() => setDone(false), 1400);
       }}
-      style={{
-        display: "grid",
-        placeItems: "center",
-        width: 16,
-        height: 16,
-        color: done ? "var(--ok)" : "var(--text3)",
-        cursor: "pointer",
-      }}
+      className={cx(
+        "grid h-6 w-6 cursor-pointer place-items-center rounded-sm border-none bg-transparent transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d",
+        done ? "text-ok dark:text-ok-d" : "text-text3 hover:text-text dark:text-text3-d dark:hover:text-text-d",
+      )}
     >
       {done ? <Icon.check /> : <Icon.copy />}
-    </span>
+    </button>
   );
 }
 
@@ -77,173 +85,113 @@ function ApprovalCard({
   const canScope = scopable(request);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        padding: "14px 16px",
-        borderRadius: 12,
-        background: "var(--surface)",
-        border: "1px solid var(--warn)",
-        animation: "sheetIn .42s cubic-bezier(.2,.8,.25,1) both",
-      }}
+    <motion.div
+      variants={sheetIn}
+      initial="hidden"
+      animate="shown"
+      exit="gone"
+      className="flex flex-col gap-2.5 rounded-md border border-warn bg-surface px-4 py-3.5 dark:border-warn-d dark:bg-surface-d"
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="flex items-center gap-2.5">
         <Glyph tone={t} size={26} radius="50%" font={10}>
           {agent?.initial ?? "?"}
         </Glyph>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", font: "600 12.5px var(--sans)", color: "var(--text)" }}>
+        <span className="min-w-0 flex-1">
+          <span className="block text-md font-semibold text-text dark:text-text-d">
             {agent?.name ?? "An agent"} is asking permission
           </span>
-          <span
-            style={{ display: "block", marginTop: 2, ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}
-          >
+          <span className={cx(mono, "mt-0.5 block text-xs text-text3 dark:text-text3-d")}>
             {request.card_id ?? "no card"} · the run is paused until you answer
           </span>
         </span>
-        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+        <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
           {clock(request.asked_ms)}
         </span>
       </div>
 
       <span
-        style={{
-          alignSelf: "flex-start",
-          padding: "6px 10px",
-          borderRadius: 8,
-          background: "var(--warnSoft)",
-          ...monoStyle,
-          fontSize: 11.5,
-          fontWeight: 500,
-          color: "var(--warn)",
-        }}
+        className={cx(
+          mono,
+          "self-start rounded-sm bg-warnSoft px-2.5 py-1.5 text-sm font-medium text-warn dark:bg-warnSoft-d dark:text-warn-d",
+        )}
       >
         {request.tool}
       </span>
 
-      <span
-        style={{
-          padding: "12px 14px",
-          borderRadius: 12,
-          background: "var(--bg)",
-          font: "400 12.5px/1.65 var(--sans)",
-          color: "var(--text2)",
-          wordBreak: "break-word",
-        }}
-      >
+      <span className="break-words rounded-md bg-bg px-3.5 py-3 text-md font-normal leading-[1.65] text-text2 dark:bg-bg-d dark:text-text2-d">
         {card?.title ?? "It asked for a tool outside its permissions."}
         <span
-          style={{
-            display: "block",
-            marginTop: 6,
-            ...monoStyle,
-            fontSize: 11.5,
-            fontWeight: 500,
-            color: "var(--warn)",
-          }}
+          className={cx(
+            mono,
+            "mt-1.5 block text-sm font-medium text-warn dark:text-warn-d",
+          )}
         >
           {request.summary || "no details given"}
         </span>
       </span>
 
-      <span
-        className="hv-soft"
-        onClick={() => canScope && setAlways((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 10,
-          cursor: canScope ? "pointer" : "default",
-          opacity: canScope ? 1 : 0.6,
-        }}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={always}
+        disabled={!canScope}
+        onClick={() => setAlways((v) => !v)}
+        className={cx(
+          "flex cursor-pointer items-start gap-2.5 rounded-sm border-none bg-transparent text-left transition-colors duration-150 disabled:cursor-default disabled:opacity-60",
+        )}
       >
         <span
-          style={{
-            width: 18,
-            height: 18,
-            flex: "none",
-            marginTop: 1,
-            borderRadius: 8,
-            border: `1px solid ${always ? "var(--accent)" : "var(--line3)"}`,
-            background: always ? "var(--accent)" : "transparent",
-            display: "grid",
-            placeItems: "center",
-            transition: "background .16s ease,border-color .16s ease",
-          }}
+          className={cx(
+            "mt-px grid h-4.5 w-4.5 flex-none place-items-center rounded-sm border transition-[background,border-color] duration-150",
+            always
+              ? "border-accent bg-accent dark:border-accent-d dark:bg-accent-d"
+              : "border-line3 bg-transparent dark:border-line3-d",
+          )}
         >
           <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 2,
-              background: "var(--onAccent)",
-              transform: `scale(${always ? 1 : 0})`,
-              transition: "transform .18s cubic-bezier(.2,.8,.25,1)",
-            }}
+            className={cx(
+              "h-2 w-2 rounded-2px bg-onAccent transition-transform duration-200 ease-rise dark:bg-onAccent-d",
+              always ? "scale-100" : "scale-0",
+            )}
           />
         </span>
-        <span style={{ flex: 1 }}>
-          <span style={{ display: "block", font: "400 12.5px var(--sans)", color: "var(--text2)" }}>
+        <span className="flex-1">
+          <span className="block text-md font-normal text-text2 dark:text-text2-d">
             Always allow{" "}
-            <span style={{ ...monoStyle, fontSize: 11.5, color: "var(--text2)" }}>{ruleLabel(rule)}</span>
+            <span className={cx(mono, "text-sm text-text2 dark:text-text2-d")}>
+              {ruleLabel(rule)}
+            </span>
           </span>
-          <span
-            style={{
-              display: "block",
-              marginTop: 2,
-              font: "400 10.5px/1.5 var(--sans)",
-              color: "var(--text4)",
-            }}
-          >
+          <span className="mt-0.5 block text-xs font-normal leading-normal text-text4 dark:text-text4-d">
             {canScope
               ? "Scoped to that command. A bare shell rule authorises nothing, so Relay will not record one."
               : "This command chains others, so it cannot be narrowed into a rule. It is allowed once."}
           </span>
         </span>
-      </span>
+      </button>
 
-      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span
-          className="primary"
+      <span className="flex items-center gap-2.5">
+        <button
+          type="button"
           onClick={() => answerApproval(request.request_id, true, always && canScope)}
-          style={{
-            flex: 1,
-            padding: 10,
-            borderRadius: 999,
-            background: "var(--accent)",
-            color: "var(--onAccent)",
-            font: "600 12.5px var(--sans)",
-            textAlign: "center",
-            cursor: "pointer",
-          }}
+          className="min-h-6 flex-1 cursor-pointer rounded-full border-none bg-accent p-2.5 text-center text-md font-semibold text-onAccent transition-[filter,transform] duration-150 hover:-translate-y-px hover:brightness-[1.08] active:translate-y-px dark:bg-accent-d dark:text-onAccent-d"
         >
           Allow
-        </span>
-        <span
-          className="quiet"
+        </button>
+        <button
+          type="button"
           onClick={() => answerApproval(request.request_id, false, false)}
-          style={{
-            flex: 1,
-            padding: 10,
-            borderRadius: 999,
-            border: "1px solid var(--line3)",
-            color: "var(--text2)",
-            font: "500 12.5px var(--sans)",
-            textAlign: "center",
-            cursor: "pointer",
-          }}
+          className="min-h-6 flex-1 cursor-pointer rounded-full border border-line3 bg-transparent p-2.5 text-center text-md font-medium text-text2 transition-colors duration-150 hover:border-line4 hover:text-text dark:border-line3-d dark:text-text2-d dark:hover:border-line4-d dark:hover:text-text-d"
         >
           Deny
-        </span>
+        </button>
       </span>
       {more > 0 && (
-        <span style={{ font: "400 11.5px var(--sans)", color: "var(--text3)", textAlign: "center" }}>
+        <span className="text-center text-sm font-normal text-text3 dark:text-text3-d">
           {more} more waiting after this one
         </span>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -259,45 +207,33 @@ function RunPanel({ cardId }: { cardId: string }) {
   if (!card) return null;
 
   return (
-    <div
-      style={{
-        flex: "none",
-        borderRadius: 12,
-        border: "1px solid var(--line2)",
-        background: "var(--elev)",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: "8px 12px",
-          background: "var(--elev)",
-          borderBottom: "1px solid var(--line2)",
-        }}
-      >
+    <div className="flex-none overflow-hidden rounded-md border border-line2 bg-elev dark:border-line2-d dark:bg-elev-d">
+      <div className="flex items-center gap-2.5 border-b border-line2 bg-elev px-3 py-2 dark:border-line2-d dark:bg-elev-d">
         <Glyph tone={t} size={16} font={8}>
           {agent?.initial ?? "?"}
         </Glyph>
-        <span style={{ flex: 1, font: "500 11.5px var(--sans)", color: "var(--text2)", ...truncateStyle }}>
+        <span className={cx(truncate, "flex-1 text-sm font-medium text-text2 dark:text-text2-d")}>
           {agent?.name ?? card.agent_id} · {card.id} · live
         </span>
-        <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
+        <span className={cx(mono, "text-xs text-text3 dark:text-text3-d")}>
           {plural(card.turns, "turn")} · {money(card.cost_usd, 2)}
           {session ? ` · ${session.branch ?? "no branch"}` : ""}
         </span>
       </div>
-      <div style={{ padding: "8px 12px", ...monoStyle, fontSize: 11.5, lineHeight: 1.9, color: "var(--text3)" }}>
+      <div className={cx(mono, "px-3 py-2 text-sm leading-[1.9] text-text3 dark:text-text3-d")}>
         {log.map((l, i) => (
           <div key={i}>
-            <span style={{ color: l.labelColor }}>{l.label}</span>{" "}
-            <span style={{ color: "var(--text3)" }}>{l.text}</span>
+            <span className={l.labelColor}>{l.label}</span>{" "}
+            <span className="text-text3 dark:text-text3-d">{l.text}</span>
           </div>
         ))}
         {(stream?.text || stream?.thinking) && (
-          <div style={{ color: "var(--text2)", fontStyle: stream.text ? "normal" : "italic" }}>
+          <div
+            className={cx(
+              "text-text2 dark:text-text2-d",
+              stream.text ? "not-italic" : "italic",
+            )}
+          >
             {(stream.text || stream.thinking).slice(-160)}
             <Caret />
           </div>
@@ -313,73 +249,57 @@ function RunPanel({ cardId }: { cardId: string }) {
 function ToolBubble({ msg, depth = 0 }: { msg: ChatMsg; depth?: number }) {
   const [open, setOpen] = useState(false);
   const isResult = msg.ok != null;
-  const accent =
-    !isResult
-      ? "var(--info)"
-      : msg.ok
-        ? "var(--ok)"
-        : "var(--bad)";
-  return (
-    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", paddingLeft: depth * 16 }}>
-      <span style={{ width: 28, flex: "none" }} />
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: `1px solid ${isResult && msg.ok === false ? "var(--bad)" : "var(--line2)"}`,
-          overflow: "hidden",
-        }}
+  const accent = !isResult
+    ? "text-info dark:text-info-d"
+    : msg.ok
+      ? "text-ok dark:text-ok-d"
+      : "text-bad dark:text-bad-d";
+  const head = (
+    <>
+      <b className={cx(accent, "font-semibold")}>
+        {isResult ? (msg.ok ? "↳ ok" : "↳ failed") : "tool"}
+      </b>
+      <span
+        title={msg.tool}
+        className={cx(truncate, "flex-1 text-text3 dark:text-text3-d")}
       >
-        <div
-          className="row"
-          onClick={msg.detail ? () => setOpen((o) => !o) : undefined}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 10px",
-            cursor: msg.detail ? "pointer" : "default",
-            ...monoStyle,
-            fontSize: 11.5,
-          }}
-        >
-          <b style={{ color: accent, fontWeight: 600 }}>
-            {isResult ? (msg.ok ? "↳ ok" : "↳ failed") : "tool"}
-          </b>
-          <span
-            title={msg.tool}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              color: "var(--text3)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
+        {msg.tool ? `${msg.tool} · ` : ""}
+        {msg.text}
+      </span>
+      {msg.detail && (
+        <span className="flex-none text-text4 dark:text-text4-d">{open ? "▾" : "▸"}</span>
+      )}
+    </>
+  );
+  const headSkin = cx(mono, "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm");
+  return (
+    <div className="flex items-start gap-3" style={{ paddingLeft: depth * 16 }}>
+      <span className="w-7 flex-none" />
+      <div
+        className={cx(
+          "min-w-0 flex-1 overflow-hidden rounded-sm border bg-surface dark:bg-surface-d",
+          isResult && msg.ok === false
+            ? "border-bad dark:border-bad-d"
+            : "border-line2 dark:border-line2-d",
+        )}
+      >
+        {msg.detail ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+            className={cx(
+              headSkin,
+              "cursor-pointer bg-transparent transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d",
+            )}
           >
-            {msg.tool ? `${msg.tool} · ` : ""}
-            {msg.text}
-          </span>
-          {msg.detail && (
-            <span style={{ color: "var(--text4)", flex: "none" }}>{open ? "▾" : "▸"}</span>
-          )}
-        </div>
+            {head}
+          </button>
+        ) : (
+          <div className={headSkin}>{head}</div>
+        )}
         {open && msg.detail && (
-          <div
-            style={{
-              borderTop: "1px solid var(--line)",
-              padding: "8px 10px",
-              maxHeight: 260,
-              overflowY: "auto",
-              color: "var(--text3)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              fontSize: 11.5,
-              lineHeight: 1.7,
-            }}
-          >
+          <div className="max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words border-t border-line px-2.5 py-2 text-sm leading-[1.7] text-text3 dark:border-line-d dark:text-text3-d">
             {msg.detail}
           </div>
         )}
@@ -487,41 +407,25 @@ export function Chat() {
   }, [chat]);
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {conversation?.resume_failed && (
-        <div
-          style={{
-            flex: "none",
-            padding: "10px 20px",
-            background: "var(--badSoft)",
-            borderBottom: "1px solid var(--line)",
-            font: "400 11.5px/1.55 var(--sans)",
-            color: "var(--bad2)",
-          }}
-        >
+        <div className="flex-none border-b border-line bg-badSoft px-5 py-2.5 text-sm font-normal leading-[1.55] text-bad2 dark:border-line-d dark:bg-badSoft-d dark:text-bad2-d">
           The Claude session behind this conversation could not be resumed. Everything below is still
           readable; your next message starts a new session.
         </div>
       )}
 
-      <div
-        className="stagger"
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          padding: "18px 20px 10px",
-          display: "flex",
-          flexDirection: "column",
-          // A short conversation belongs against the composer, not stranded at
-          // the top of the pane with a screen of nothing under it. Once the
-          // transcript is long enough to scroll, this stops having any effect.
-          justifyContent: "flex-end",
-          gap: 16,
-        }}
+      {/* A conversa chega mensagem a mensagem — o `.stagger` do desenho.
+          Uma conversa curta encosta ao compositor em vez de ficar perdida no
+          topo do painel com um ecrã de nada por baixo; assim que a transcrição
+          é comprida ao ponto de rolar, isto deixa de ter efeito. */}
+      <motion.div
+        initial="hidden"
+        animate="shown"
+        className="flex min-h-0 flex-1 flex-col justify-end gap-4 overflow-y-auto px-5 pb-2.5 pt-4.5"
       >
         {chat.length === 0 && !chatBusy && (
-          <div style={{ maxWidth: 620, font: "400 14px/1.75 var(--sans)", color: "var(--text3)" }}>
+          <div className="max-w-[620px] text-lg font-normal leading-[1.75] text-text3 dark:text-text3-d">
             Ask {speaker?.name ?? "the Director"} about anything — a plan, a question, work you want
             done. It can put cards on the board and read the diffs, and every one of those calls comes
             back to you as a permission request. This conversation is kept, so it survives a restart.
@@ -529,52 +433,31 @@ export function Chat() {
         )}
 
         {dated.map(({ msg, depth, divider }, i) => (
-          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <motion.div key={i} custom={i} variants={rowIn} className="flex flex-col gap-4">
             {divider && (
-              <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text3)" }}>
+              <div className="flex flex-none items-center gap-2.5">
+                <span className={cx(mono, "text-xs font-medium text-text3 dark:text-text3-d")}>
                   {divider}
                 </span>
-                <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+                <span className="h-px flex-1 bg-line dark:bg-line-d" />
               </div>
             )}
 
             {msg.role === "user" && (
-              <div
-                style={{
-                  flex: "none",
-                  alignSelf: "flex-end",
-                  maxWidth: 600,
-                  borderRadius: "14px 14px 5px 14px",
-                  background: "var(--surface)",
-                  border: "1px solid var(--line3)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 14px",
-                    borderBottom: "1px solid var(--line2)",
-                  }}
-                >
-                  <span style={{ flex: 1, ...monoStyle, fontSize: 10.5, fontWeight: 500, color: "var(--text4)" }}>
+              <div className="max-w-[600px] flex-none self-end overflow-hidden rounded-[14px_14px_5px_14px] border border-line3 bg-surface dark:border-line3-d dark:bg-surface-d">
+                <div className="flex items-center gap-2.5 border-b border-line2 px-3.5 py-2 dark:border-line2-d">
+                  <span
+                    className={cx(mono, "flex-1 text-xs font-medium text-text4 dark:text-text4-d")}
+                  >
                     you
                   </span>
                   <CopyButton text={msg.text} />
                 </div>
                 <div
-                  style={{
-                    padding: "12px 14px",
-                    ...monoStyle,
-                    fontSize: 12.5,
-                    lineHeight: 1.8,
-                    color: "var(--text2)",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                  }}
+                  className={cx(
+                    mono,
+                    "whitespace-pre-wrap break-words px-3.5 py-3 text-md leading-[1.8] text-text2 dark:text-text2-d",
+                  )}
                 >
                   {msg.text}
                 </div>
@@ -582,48 +465,34 @@ export function Chat() {
             )}
 
             {msg.role === "agent" && (
-              <div style={{ flex: "none", display: "flex", gap: 12 }}>
+              <div className="flex flex-none gap-3">
                 <span
-                  style={{
-                    width: 28,
-                    height: 28,
-                    flex: "none",
-                    borderRadius: 8,
-                    background: `linear-gradient(140deg,${t.cssColor},${t.cssColor})`,
-                    color: "var(--onAccent)",
-                    display: "grid",
-                    placeItems: "center",
-                    font: "700 11.5px var(--sans)",
-                  }}
+                  className={cx(
+                    "grid h-7 w-7 flex-none place-items-center rounded-sm text-sm font-bold text-onAccent dark:text-onAccent-d",
+                    // O desenho pedia um degradê de uma cor para si própria, o
+                    // que é a cor lisa; fica a cor lisa.
+                    t.solid,
+                  )}
                 >
                   {speaker?.initial ?? "D"}
                 </span>
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                    <span style={{ font: "600 12.5px var(--sans)", color: "var(--text)" }}>
+                <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+                  <div className="flex items-baseline gap-2.5">
+                    <span className="text-md font-semibold text-text dark:text-text-d">
                       {speaker?.name ?? "Director"}
                     </span>
-                    <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text3)" }}>
+                    <span className={cx(mono, "text-xs text-text3 dark:text-text3-d")}>
                       {clock(msg.ts)}
                       {speaker?.model ? ` · ${speaker.model}` : ""}
                     </span>
                   </div>
-                  <div
-                    style={{
-                      maxWidth: 660,
-                      font: "400 14px/1.72 var(--sans)",
-                      color: "var(--text1)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      textWrap: "pretty",
-                    }}
-                  >
+                  <div className="max-w-[660px] whitespace-pre-wrap break-words text-lg font-normal leading-[1.72] text-text1 [text-wrap:pretty] dark:text-text1-d">
                     {msg.text}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--text4)" }}>
+                  <div className="flex items-center gap-3.5 text-text4 dark:text-text4-d">
                     <CopyButton text={msg.text} />
                     {conversation && (
-                      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+                      <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
                         this chat {money(conversation.cost_usd, 2)}
                       </span>
                     )}
@@ -632,74 +501,44 @@ export function Chat() {
               </div>
             )}
 
-            {msg.role === "tool" && (
-              <ToolBubble msg={msg} depth={depth} />
-            )}
+            {msg.role === "tool" && <ToolBubble msg={msg} depth={depth} />}
 
             {msg.role === "notice" && (
-              <div
-                style={{
-                  flex: "none",
-                  alignSelf: "stretch",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background: "var(--surface)",
-                  border: "1px solid var(--line2)",
-                  font: "400 11.5px/1.6 var(--sans)",
-                  color: "var(--text3)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
+              <div className="flex-none self-stretch whitespace-pre-wrap rounded-md border border-line2 bg-surface px-3 py-2.5 text-sm font-normal leading-relaxed text-text3 dark:border-line2-d dark:bg-surface-d dark:text-text3-d">
                 {msg.text}
               </div>
             )}
-          </div>
+          </motion.div>
         ))}
 
         {chatBusy && (
-          <div style={{ flex: "none", display: "flex", gap: 12, alignItems: "center" }}>
-            <span
-              className="hv-soft"
+          <div className="flex flex-none items-center gap-3">
+            <button
+              type="button"
               onClick={stopTurn}
               title="stop this turn"
-              style={{
-                marginLeft: "auto",
-                padding: "4px 10px",
-                borderRadius: 8,
-                border: "1px solid var(--line3)",
-                ...monoStyle,
-                fontSize: 10.5,
-                color: "var(--text3)",
-                cursor: "pointer",
-              }}
+              className={cx(
+                mono,
+                "ml-auto min-h-6 cursor-pointer rounded-sm border border-line3 bg-transparent px-2.5 py-1 text-xs text-text3 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line3-d dark:text-text3-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+              )}
             >
               ■ stop
-            </span>
+            </button>
             <span
-              style={{
-                width: 28,
-                height: 28,
-                flex: "none",
-                borderRadius: 8,
-                background: t.cssColor,
-                color: "var(--onAccent)",
-                display: "grid",
-                placeItems: "center",
-                font: "700 11.5px var(--sans)",
-              }}
+              className={cx(
+                "grid h-7 w-7 flex-none place-items-center rounded-sm text-sm font-bold text-onAccent dark:text-onAccent-d",
+                t.solid,
+              )}
             >
               {speaker?.initial ?? "D"}
             </span>
-            <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
               <Spinner size={14} />
               <span
-                style={{
-                  font: "400 12.5px/1.6 var(--sans)",
-                  color: "var(--text3)",
-                  fontStyle: chatThinking ? "italic" : "normal",
-                  maxHeight: 60,
-                  overflow: "hidden",
-                }}
+                className={cx(
+                  "max-h-[60px] overflow-hidden text-md font-normal leading-relaxed text-text3 dark:text-text3-d",
+                  chatThinking ? "italic" : "not-italic",
+                )}
               >
                 {chatThinking || "thinking…"}
               </span>
@@ -712,64 +551,48 @@ export function Chat() {
           <RunPanel key={c.id} cardId={c.id} />
         ))}
 
-        {approvals.length > 0 && (
-          <ApprovalCard request={approvals[0]!} more={approvals.length - 1} />
-        )}
+        <AnimatePresence>
+          {approvals.length > 0 && (
+            <ApprovalCard
+              key={approvals[0]!.request_id}
+              request={approvals[0]!}
+              more={approvals.length - 1}
+            />
+          )}
+        </AnimatePresence>
 
         <div ref={end} />
-      </div>
+      </motion.div>
 
-      <div
-        style={{
-          flex: "none",
-          padding: "10px 20px 16px",
-          animation: "paneIn .42s cubic-bezier(.2,.8,.25,1) .06s both",
-        }}
+      <motion.div
+        variants={paneInDelayed}
+        initial="hidden"
+        animate="shown"
+        className="flex-none px-5 pb-4 pt-2.5"
       >
-        <div
-          style={{
-            position: "relative",
-            borderRadius: 16,
-            background: "var(--surface)",
-            border: "1px solid var(--line3)",
-          }}
-        >
+        <div className="relative rounded-lg border border-line3 bg-surface focus-within:border-accentLine dark:border-line3-d dark:bg-surface-d dark:focus-within:border-accentLine-d">
           {attached.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                padding: "10px 12px 0",
-              }}
-            >
+            <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
               {attached.map((file) => (
-                <span
-                  className="hv-soft"
+                <button
                   key={file}
+                  type="button"
                   title={file}
+                  aria-label={`Remove ${baseName(file)}`}
                   onClick={() => setAttached((was) => was.filter((f) => f !== file))}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    maxWidth: 260,
-                    padding: "4px 10px",
-                    borderRadius: 8,
-                    background: "var(--surface2)",
-                    border: "1px solid var(--line3)",
-                    ...monoStyle,
-                    fontSize: 10.5,
-                    color: "var(--text2)",
-                    cursor: "pointer",
-                  }}
+                  className={cx(
+                    mono,
+                    "flex min-h-6 max-w-[260px] cursor-pointer items-center gap-1.5 rounded-sm border border-line3 bg-surface2 px-2.5 py-1 text-xs text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line3-d dark:bg-surface2-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+                  )}
                 >
                   <Icon.clip />
-                  <span style={{ ...truncateStyle }}>{baseName(file)}</span>
-                  <span style={{ color: "var(--text4)" }}>×</span>
-                </span>
+                  <span className={truncate}>{baseName(file)}</span>
+                  <span className="text-text4 dark:text-text4-d">×</span>
+                </button>
               ))}
-              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", alignSelf: "center" }}>
+              <span
+                className={cx(mono, "self-center text-xs text-text4 dark:text-text4-d")}
+              >
                 read from disk, not uploaded
               </span>
             </div>
@@ -786,200 +609,139 @@ export function Chat() {
                 send();
               }
             }}
+            aria-label={`Ask ${speaker?.name ?? "the Director"}`}
             placeholder={`Ask ${speaker?.name ?? "the Director"}…`}
-            style={{
-              width: "100%",
-              resize: "none",
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              padding: "14px 16px 6px",
-              font: "400 12.5px/1.6 var(--sans)",
-              color: "var(--text)",
-            }}
+            className="w-full resize-none border-none bg-transparent px-4 pb-1.5 pt-3.5 text-md font-normal leading-relaxed text-text outline-none dark:text-text-d"
           />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px 10px 12px" }}>
-            <span
+          <div className="flex items-center gap-2 pb-2.5 pl-3 pr-2.5 pt-2">
+            <button
+              type="button"
               title="Attach files to this message"
+              aria-label="Attach files to this message"
               onClick={attach}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                width: 26,
-                height: 26,
-                borderRadius: 8,
-                background: attached.length ? tone("accent").cssSoft : "var(--surface2)",
-                color: attached.length ? "var(--accent)" : "var(--text2)",
-                cursor: "pointer",
-              }}
+              className={cx(
+                "grid h-6.5 w-6.5 cursor-pointer place-items-center rounded-sm border-none transition-colors duration-150",
+                attached.length
+                  ? "bg-accentSoft text-accent dark:bg-accentSoft-d dark:text-accent-d"
+                  : "bg-surface2 text-text2 hover:bg-hovered hover:text-text dark:bg-surface2-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+              )}
             >
               <Icon.clip />
-            </span>
+            </button>
 
-            <span style={{ position: "relative" }}>
-              <span
-                className="chip"
+            <span className="relative">
+              <button
+                type="button"
+                aria-expanded={pickProfile}
                 onClick={() => setPickProfile((v) => !v)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  background: "var(--surface2)",
-                  font: "500 11.5px var(--sans)",
-                  color: "var(--text2)",
-                  cursor: "pointer",
-                }}
+                className={cx(CHIP, "flex items-center gap-2 px-3 py-1.5 text-sm font-medium")}
               >
-                <span style={{ width: 14, height: 14, borderRadius: 4, background: t.cssColor }} />
+                <span className={cx("h-3.5 w-3.5 rounded-[4px]", t.solid)} />
                 {speaker?.name ?? "Director"} ▾
-              </span>
-              {pickProfile && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 6px)",
-                    left: 0,
-                    zIndex: 40,
-                    minWidth: 210,
-                    padding: 6,
-                    borderRadius: 12,
-                    background: "var(--elev)",
-                    border: "1px solid var(--line3)",
-                    boxShadow: "var(--shadow)",
-                    animation: "fadeIn .14s ease both",
-                  }}
-                >
-                  {agents
-                    .filter((a) => a.chat_enabled && !a.paused)
-                    .map((a) => {
-                      const at = tone(a.tone);
-                      return (
-                        <div
-                          key={a.id}
-                          className="row"
-                          onClick={() => {
-                            setPickProfile(false);
-                            newConversation(a.id);
-                          }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            padding: "8px 10px",
-                            borderRadius: 8,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <Glyph tone={at} size={18} radius={6} font={8.5}>
-                            {a.initial}
-                          </Glyph>
-                          <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
-                            {a.name}
-                          </span>
-                          <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
-                            {a.model ?? "auto"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  <div
-                    style={{
-                      padding: "6px 10px 4px",
-                      font: "400 10.5px/1.5 var(--sans)",
-                      color: "var(--text4)",
-                    }}
+              </button>
+              <AnimatePresence>
+                {pickProfile && (
+                  <motion.div
+                    variants={popover}
+                    initial="hidden"
+                    animate="shown"
+                    exit="gone"
+                    className={cx(POPOVER, "min-w-[210px]")}
                   >
-                    Picking one starts a new chat: a different profile means a
-                    different session.
-                  </div>
-                </div>
-              )}
+                    {agents
+                      .filter((a) => a.chat_enabled && !a.paused)
+                      .map((a) => {
+                        const at = tone(a.tone);
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => {
+                              setPickProfile(false);
+                              newConversation(a.id);
+                            }}
+                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-2 text-left transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d"
+                          >
+                            <Glyph tone={at} size={18} radius={6} font={8.5}>
+                              {a.initial}
+                            </Glyph>
+                            <span className="flex-1 text-md font-medium text-text1 dark:text-text1-d">
+                              {a.name}
+                            </span>
+                            <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
+                              {a.model ?? "auto"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    <div className="px-2.5 pb-1 pt-1.5 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                      Picking one starts a new chat: a different profile means a
+                      different session.
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </span>
 
-            <span style={{ position: "relative" }}>
-              <span
-                className="chip"
+            <span className="relative">
+              <button
+                type="button"
                 title="The code this chat may read"
+                aria-expanded={pickProject}
+                disabled={!conversation}
                 onClick={() => setPickProject((v) => !v)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  background: "var(--surface2)",
-                  ...monoStyle,
-                  fontSize: 11.5,
-                  fontWeight: 500,
-                  color: "var(--text2)",
-                  cursor: conversation ? "pointer" : "default",
-                  opacity: conversation ? 1 : 0.6,
-                }}
+                className={cx(
+                  CHIP,
+                  mono,
+                  "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium disabled:cursor-default disabled:opacity-60",
+                )}
               >
                 <Icon.branch />
                 {pinned?.name ?? "no project"} ▾
-              </span>
-              {pickProject && conversation && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 6px)",
-                    left: 0,
-                    zIndex: 40,
-                    minWidth: 200,
-                    padding: 6,
-                    borderRadius: 12,
-                    background: "var(--elev)",
-                    border: "1px solid var(--line3)",
-                    boxShadow: "var(--shadow)",
-                    animation: "fadeIn .14s ease both",
-                  }}
-                >
-                  {[{ id: "", name: "No project", glyph: "·", tone: "accent" }, ...projects].map((p) => (
-                    <div
-                      key={p.id || "none"}
-                      className="row"
-                      onClick={() => {
-                        setPickProject(false);
-                        pinConversation(conversation.id, p.id || null);
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Glyph
-                        tone={tone(p.tone)}
-                        size={18}
-                        radius={6}
-                        font={8.5}
-                      >
-                        {p.glyph}
-                      </Glyph>
-                      <span style={{ flex: 1, font: "500 12.5px var(--sans)", color: "var(--text1)" }}>
-                        {p.name}
-                      </span>
-                      {conversation.project_id === (p.id || null) && (
-                        <span style={{ color: "var(--accent)", fontSize: 11.5 }}>✓</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              </button>
+              <AnimatePresence>
+                {pickProject && conversation && (
+                  <motion.div
+                    variants={popover}
+                    initial="hidden"
+                    animate="shown"
+                    exit="gone"
+                    className={cx(POPOVER, "min-w-[200px]")}
+                  >
+                    {[{ id: "", name: "No project", glyph: "·", tone: "accent" }, ...projects].map(
+                      (p) => (
+                        <button
+                          key={p.id || "none"}
+                          type="button"
+                          onClick={() => {
+                            setPickProject(false);
+                            pinConversation(conversation.id, p.id || null);
+                          }}
+                          className="flex w-full cursor-pointer items-center gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-2 text-left transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d"
+                        >
+                          <Glyph tone={tone(p.tone)} size={18} radius={6} font={8.5}>
+                            {p.glyph}
+                          </Glyph>
+                          <span className="flex-1 text-md font-medium text-text1 dark:text-text1-d">
+                            {p.name}
+                          </span>
+                          {conversation.project_id === (p.id || null) && (
+                            <span className="text-sm text-accent dark:text-accent-d">✓</span>
+                          )}
+                        </button>
+                      ),
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </span>
 
             {/* Working on the app itself is a mode, not a repository the
                 operator has to know to register first. Offered once, here,
                 and gone the moment it is on. */}
             {!projects.some((p) => p.mirror) && (
-              <span
-                className="chip"
+              <button
+                type="button"
                 title="Sets Relay's own source up so the app can be given cards. Finds it on this machine, or fetches it."
                 onClick={async () => {
                   try {
@@ -990,51 +752,37 @@ export function Chat() {
                     toast("bad", "Could not set Relay up", reason(e));
                   }
                 }}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  background: "var(--surface2)",
-                  ...monoStyle,
-                  fontSize: 11.5,
-                  fontWeight: 500,
-                  color: "var(--text3)",
-                  cursor: "pointer",
-                }}
+                className={cx(CHIP, mono, "px-3 py-1.5 text-sm font-medium")}
               >
                 work on Relay
-              </span>
+              </button>
             )}
 
             {!conversation && project && (
-              <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+              <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
                 a new chat is pinned to {project.name}
               </span>
             )}
 
-            <div style={{ flex: 1 }} />
-            <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
+            <div className="flex-1" />
+            <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
               ⏎ send · ⇧⏎ newline
             </span>
-            <span
-              className="primary"
+            <button
+              type="button"
+              aria-label="Send"
               onClick={send}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                background: "var(--accent)",
-                color: "var(--onAccent)",
-                cursor: "pointer",
-                opacity: text.trim() && !chatBusy ? 1 : 0.5,
-              }}
+              disabled={(!text.trim() && attached.length === 0) || chatBusy}
+              className={cx(
+                "grid h-7 w-7 cursor-pointer place-items-center rounded-sm border-none bg-accent text-onAccent transition-[filter,transform] duration-150 hover:-translate-y-px hover:brightness-[1.08] active:translate-y-px disabled:cursor-default disabled:hover:translate-y-0 disabled:hover:brightness-100 dark:bg-accent-d dark:text-onAccent-d",
+                text.trim() && !chatBusy ? "opacity-100" : "opacity-50",
+              )}
             >
               <Icon.send />
-            </span>
+            </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
