@@ -35,7 +35,7 @@ function loadBuilders() {
      const z = {
        string: () => chain(),
        array: () => chain(),
-       enum: () => ({ describe: () => chain() }),
+       enum: () => chain(),
        record: () => chain(),
        boolean: () => chain(),
        number: () => chain(),
