@@ -24,6 +24,26 @@ export function summarizeUse(name, input = {}) {
     case "WebFetch":
     case "WebSearch":
       return str("url") || str("query").slice(0, 120) || name;
+    // The three grants. Each line has to answer the question the approval
+    // sheet is actually asking — what does this give, and to whom — because a
+    // sheet that only names the tool makes every grant look the same.
+    case "mcp__harness__install_skill":
+      return `install the skill "${str("name")}" on ${str("agent_id")} — from ${
+        str("source") || "an unnamed source"
+      }; ${String(input.instructions ?? "").length} characters enter its prompt`;
+    case "mcp__harness__add_mcp_server": {
+      const tools = Array.isArray(input.tools) ? input.tools : [];
+      const reach = str("url") || [str("command"), ...(input.args ?? [])].join(" ").trim();
+      return `add the MCP server "${str("name")}" to ${str("agent_id")} — ${
+        reach ? `${reach}; ` : ""
+      }grants ${tools.length ? tools.join(", ") : "(no tools declared)"}`;
+    }
+    case "mcp__harness__grant_agent_tools": {
+      const tools = Array.isArray(input.tools) ? input.tools : [];
+      return `${str("agent_id")} would hold ${tools.length ? tools.join(", ") : "nothing"} afterwards`;
+    }
+    case "mcp__harness__revoke_grant":
+      return `remove the ${str("kind")} "${str("name")}" from ${str("agent_id")}`;
     default: {
       // Unknown tools: first string value wins, else the name alone.
       for (const v of Object.values(input)) {

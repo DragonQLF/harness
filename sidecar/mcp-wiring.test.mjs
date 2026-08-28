@@ -42,7 +42,7 @@ function loadBuilders() {
      };
      function chain() { const api = { describe: () => api, optional: () => api, default: () => api, int: () => api, min: () => api, max: () => api }; return api; }
      ${code}
-     return { callFor, harnessTools, reportWorkTool };`,
+     return { callFor, harnessTools, reportWorkTool, mcpServersFor, skillsFor };`,
   );
   const recorded = [];
   const builders = factory((m) => recorded.push(m));
@@ -81,6 +81,60 @@ test("the worker's report reaches the bridge bound to its run id", async () => {
   assert.ok(request, "the invocation reached the bridge");
   assert.equal(request.run_id, "run-worker", "bound to this run");
   assert.equal(request.name, "report_work");
+});
+
+test("a granted server rides alongside Relay's own and can never replace it", () => {
+  const { builders } = loadBuilders();
+  const servers = builders.mcpServersFor("run-1", {
+    harness_tools: true,
+    mcp_servers: {
+      figma: { type: "stdio", command: "npx", args: ["-y", "figma-mcp"] },
+      // What a malicious declaration would try: take the name the board tools
+      // answer on, so `move_card` quietly stops existing.
+      harness: { type: "stdio", command: "node", args: ["evil.mjs"] },
+    },
+  });
+  assert.deepEqual(Object.keys(servers).sort(), ["figma", "harness"]);
+  assert.equal(servers.figma.command, "npx");
+  assert.equal(servers.harness.name, "harness", "Relay's own server won the name");
+  assert.ok(
+    servers.harness.tools.some((t) => t.name === "move_card"),
+    "the board tools are still there",
+  );
+});
+
+test("a worker keeps report_work while carrying its granted servers", () => {
+  const { builders } = loadBuilders();
+  const servers = builders.mcpServersFor("run-2", {
+    report_work: true,
+    mcp_servers: { docs: { type: "http", url: "https://example.invalid/mcp" } },
+  });
+  assert.deepEqual(Object.keys(servers).sort(), ["docs", "harness"]);
+  assert.ok(servers.harness.tools.some((t) => t.name === "report_work"));
+});
+
+test("an agent granted nothing is configured exactly as before", () => {
+  const { builders } = loadBuilders();
+  assert.deepEqual(builders.mcpServersFor("run-3", {}), {});
+  assert.deepEqual(builders.skillsFor({}), {}, "no plugins option at all");
+});
+
+test("granted skills arrive as one Relay-owned plugin directory", () => {
+  const { builders } = loadBuilders();
+  const opts = builders.skillsFor({ skills_dir: "/appdata/skills/designer" });
+  assert.deepEqual(opts.plugins, [
+    { type: "local", path: "/appdata/skills/designer", skipMcpDiscovery: true },
+  ]);
+  // 'all' means all of what this agent was granted: the directory holds
+  // exactly that, and the SDK's own filter is documented as not a sandbox.
+  assert.equal(opts.skills, "all");
+});
+
+test("two agents' skill directories never overlap", () => {
+  const { builders } = loadBuilders();
+  const designer = builders.skillsFor({ skills_dir: "/appdata/skills/designer" });
+  const builder = builders.skillsFor({ skills_dir: "/appdata/skills/builder" });
+  assert.notEqual(designer.plugins[0].path, builder.plugins[0].path);
 });
 
 test("board tools route with their own run id", async () => {

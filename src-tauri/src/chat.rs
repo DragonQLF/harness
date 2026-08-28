@@ -168,8 +168,12 @@ pub async fn send(
     // SDK sends each call through the approver first: the operator sees "the
     // Director wants to move c_7b30" before anything moves.
     let delegating = profile.can_delegate;
-    let tools: ToolRunner =
-        crate::director_tools::runner(ws, conversation.project_id.clone(), delegating);
+    let tools: ToolRunner = crate::director_tools::runner(
+        ws,
+        conversation.project_id.clone(),
+        delegating,
+        profile.id.clone(),
+    );
 
     let mut allowed_tools = profile.allowed_tools();
     allowed_tools.extend(READ_ONLY_TOOLS.iter().map(|t| t.to_string()));
@@ -201,7 +205,14 @@ pub async fn send(
         report_work: false,
     };
 
-    let agent = ws.agent_port();
+    // What this profile was granted, resolved now rather than held anywhere:
+    // an approval that landed a minute ago is in the profile, so the next turn
+    // carries it. Nothing is inherited — a profile with no grants gets exactly
+    // the isolated run it got before any of this existed.
+    let agent = crate::chat::granted_agent_for(
+        ws,
+        harness_app::grants::for_profile(ws.paths.root(), &profile),
+    );
     let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
     // Registered by conversation id so the operator has a stop: a turn that
     // never emits `done` must not leave them without an exit.
@@ -357,9 +368,23 @@ pub async fn stop_turn(ws: &Workspace, conversation_id: &str) {
 /// The agent used for conversations: the sidecar or the command line, decided
 /// per run so the Settings toggle applies immediately (decision #13).
 pub fn agent_for(ws: &Workspace) -> Arc<dyn AgentPort> {
+    granted_agent_for(ws, harness_ports::Grants::default())
+}
+
+/// The same port, carrying what one agent was granted.
+///
+/// Grants hang off the **port**, not off the `RunSpec`, because a conversation
+/// builds its own port and serves exactly one profile. The engine holds a
+/// single port shared by every card run, so this cannot reach worker runs
+/// without the engine passing the grants through — see `DEBT.md`.
+///
+/// The CLI adapter ignores them: `claude --print` has no equivalent of the
+/// SDK's `plugins` option, and inventing one would mean writing into the
+/// operator's `~/.claude`, which is the thing this design exists to avoid.
+pub fn granted_agent_for(ws: &Workspace, grants: harness_ports::Grants) -> Arc<dyn AgentPort> {
     let script = sidecar::script_in(ws.sidecar_dir());
     Arc::new(SwitchingAgent {
-        sidecar: Arc::new(SidecarAgent::new("node", script.clone())),
+        sidecar: Arc::new(SidecarAgent::new("node", script.clone()).with_grants(grants)),
         cli: Arc::new(ClaudeCliAgent::new("claude")),
         settings: Arc::clone(&ws.settings),
     })

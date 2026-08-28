@@ -17,6 +17,44 @@ test("use summaries name the attempt per tool", () => {
   );
 });
 
+test("a grant is summarised as the declaration, not as the intention", () => {
+  // This line is what the operator reads on the approval sheet. It has to say
+  // what the grant gives and to whom, because every grant otherwise looks the
+  // same: one MCP call from the Director.
+  const mcp = summarizeUse("mcp__harness__add_mcp_server", {
+    agent_id: "designer",
+    name: "figma",
+    command: "npx",
+    args: ["-y", "figma-mcp"],
+    tools: ["get_file", "export_frame"],
+    source: "https://example.invalid/figma",
+  });
+  assert.match(mcp, /add the MCP server "figma" to designer/);
+  assert.match(mcp, /npx -y figma-mcp/);
+  assert.match(mcp, /grants get_file, export_frame/);
+
+  // A declaration that names no tools must not read like a harmless one.
+  assert.match(
+    summarizeUse("mcp__harness__add_mcp_server", { agent_id: "designer", name: "x", url: "https://e.invalid" }),
+    /no tools declared/,
+  );
+
+  const skill = summarizeUse("mcp__harness__install_skill", {
+    agent_id: "designer",
+    name: "colour-audit",
+    source: "https://example.invalid/skills/colour",
+    instructions: "abc",
+  });
+  assert.match(skill, /install the skill "colour-audit" on designer/);
+  assert.match(skill, /example\.invalid/);
+  assert.match(skill, /3 characters enter its prompt/);
+
+  assert.equal(
+    summarizeUse("mcp__harness__grant_agent_tools", { agent_id: "builder", tools: ["Read", "Shell"] }),
+    "builder would hold Read, Shell afterwards",
+  );
+});
+
 test("results distinguish failure from success and keep an excerpt", () => {
   const failed = summarizeResult("Bash", "error: link failed\nat main.rs", true);
   assert.match(failed, /^failed/);

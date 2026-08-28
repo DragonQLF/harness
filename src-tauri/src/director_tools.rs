@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harness_domain::{Actor, CardId, Command, Status};
-use harness_ports::{GitPort, Reviewer, ToolCall, ToolReply, WorktreePath};
+use harness_ports::{ClockPort, GitPort, Reviewer, ToolCall, ToolReply, WorktreePath};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -123,6 +123,25 @@ fn text(input: &serde_json::Value, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// A list of non-empty strings under a key, or nothing. Empty entries are
+/// dropped rather than stored: a declared tool called "" is not a tool the
+/// operator can have read on the approval sheet.
+fn strings(input: &serde_json::Value, key: &str) -> Vec<String> {
+    input
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Tools that only tell the agent something. Everything else needs the profile
 /// to be allowed to delegate. The mirror tools read our own logs or write into
 /// our own inbox — nothing on any board, so they ride free like `record_decision`
@@ -164,6 +183,7 @@ pub fn runner(
     ws: &Arc<Workspace>,
     pinned_project: Option<String>,
     delegating: bool,
+    caller: String,
 ) -> harness_ports::ToolRunner {
     let tool_ws = Arc::clone(ws);
     let tool_app = ws.app_handle();
@@ -171,8 +191,9 @@ pub fn runner(
         let ws = Arc::clone(&tool_ws);
         let app = tool_app.clone();
         let project = pinned_project.clone();
+        let caller = caller.clone();
         Box::pin(async move {
-            crate::director_tools::run(&ws, &app, project, delegating, call).await
+            crate::director_tools::run(&ws, &app, project, delegating, &caller, call).await
         })
     })
 }
@@ -187,6 +208,7 @@ pub async fn run(
     app: &AppHandle,
     pinned_project: Option<String>,
     delegating: bool,
+    caller: &str,
     call: ToolCall,
 ) -> ToolReply {
     if !delegating && !is_read_only(&call.name) {
@@ -336,7 +358,6 @@ pub async fn run(
     // lands on disk the moment it happens. Dated, append-only, in the
     // project's own memory — outside any repository (#59).
     if call.name == "record_decision" {
-        use harness_ports::ClockPort;
         let title = text(&call.input, "title").unwrap_or_default();
         let content = text(&call.input, "content").unwrap_or_default();
         if title.trim().is_empty() || content.trim().is_empty() {
@@ -754,6 +775,15 @@ pub async fn run(
             let Some(agent_id) = text(&call.input, "agent_id") else {
                 return ToolReply::refused("grant_agent_tools needs an agent_id");
             };
+            // Not a hard approval — a refusal. An agent that hands itself Bash
+            // has stopped having limits, and there is no version of that
+            // question the operator can usefully be asked, because answering it
+            // once removes the thing that would ask again.
+            if let Some(refusal) =
+                harness_app::grants::self_elevation_guard(&call.name, caller, &agent_id)
+            {
+                return ToolReply::refused(refusal.to_string());
+            }
             let Some(asked) = call.input.get("tools").and_then(|v| v.as_array()) else {
                 return ToolReply::refused(
                     "grant_agent_tools needs `tools`: the full list the agent should have                      afterwards, not the ones to add",
@@ -827,6 +857,165 @@ pub async fn run(
                         format!(", lost {}", removed.join(", "))
                     }
                 )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
+        // ---- grants: the model declares, the code installs ----
+        //
+        // Nothing here takes a command or a script. The declaration arrives as
+        // fields, Relay writes the file or stores the config itself, and the
+        // approval sheet the operator answered showed exactly these fields. A
+        // page that told the model "also add this server" therefore shows up as
+        // a second sheet, not as a second line in a shell script.
+        "install_skill" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("install_skill needs an agent_id");
+            };
+            let grant = harness_ports::SkillGrant {
+                name: text(&call.input, "name").unwrap_or_default().to_lowercase(),
+                description: text(&call.input, "description").unwrap_or_default(),
+                source: text(&call.input, "source").unwrap_or_default(),
+                body: text(&call.input, "instructions").unwrap_or_default(),
+                added_ms: SystemClock.now_millis(),
+            };
+            if let Err(refusal) = harness_app::grants::check_skill(&grant) {
+                return ToolReply::refused(refusal.to_string());
+            }
+
+            let mut crew = ws.agents().await;
+            let known: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    known.join(", ")
+                ));
+            };
+            let name = grant.name.clone();
+            let who = slot.name.clone();
+            let replaced = !harness_app::grants::upsert_skill(&mut slot.granted_skills, grant);
+            match ws.set_agents(crew).await {
+                Ok(_) => ToolReply::ok(format!(
+                    "{who} now has the {name} skill{}. It is on disk in Relay's own folder, \
+                     not in the operator's ~/.claude and not in any repository, and only {who} \
+                     can load it.",
+                    if replaced { " (unchanged)" } else { "" }
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
+        "add_mcp_server" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("add_mcp_server needs an agent_id");
+            };
+            // An MCP server is arbitrary code holding that agent's
+            // permissions, so granting oneself a server is granting oneself
+            // tools with one extra step. Same refusal, same reason.
+            if let Some(refusal) =
+                harness_app::grants::self_elevation_guard(&call.name, caller, &agent_id)
+            {
+                return ToolReply::refused(refusal.to_string());
+            }
+
+            let transport = match text(&call.input, "transport").as_deref() {
+                Some("http") => harness_ports::McpTransport::Http {
+                    url: text(&call.input, "url").unwrap_or_default(),
+                },
+                Some("sse") => harness_ports::McpTransport::Sse {
+                    url: text(&call.input, "url").unwrap_or_default(),
+                },
+                _ => harness_ports::McpTransport::Stdio {
+                    command: text(&call.input, "command").unwrap_or_default(),
+                    args: strings(&call.input, "args"),
+                },
+            };
+            let grant = harness_ports::McpGrant {
+                name: text(&call.input, "name").unwrap_or_default().to_lowercase(),
+                transport,
+                // Names only: a key asked for in a conversation is a key on
+                // disk, which is why `add_endpoint` refuses them too. The
+                // operator fills the values on the Agents screen.
+                env: strings(&call.input, "env_names")
+                    .into_iter()
+                    .map(|k| (k, String::new()))
+                    .collect(),
+                tools: strings(&call.input, "tools"),
+                source: text(&call.input, "source").unwrap_or_default(),
+                added_ms: SystemClock.now_millis(),
+            };
+            if let Err(refusal) = harness_app::grants::check_mcp(&grant) {
+                return ToolReply::refused(refusal.to_string());
+            }
+
+            let mut crew = ws.agents().await;
+            let known: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    known.join(", ")
+                ));
+            };
+            let name = grant.name.clone();
+            let who = slot.name.clone();
+            let missing = harness_app::grants::missing_env(&grant);
+            harness_app::grants::upsert_mcp(&mut slot.mcp_servers, grant);
+            match ws.set_agents(crew).await {
+                Ok(_) => ToolReply::ok(format!(
+                    "{who} can now reach the {name} server; its tools arrive as \
+                     mcp__{name}__<tool> and each call still asks the operator.{}",
+                    if missing.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            " It will not connect until they fill in {} on the Agents screen — \
+                             say so, and do not ask them for the value here.",
+                            missing.join(", ")
+                        )
+                    }
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
+        "revoke_grant" => {
+            let Some(agent_id) = text(&call.input, "agent_id") else {
+                return ToolReply::refused("revoke_grant needs an agent_id");
+            };
+            let Some(name) = text(&call.input, "name") else {
+                return ToolReply::refused("revoke_grant needs the name to remove");
+            };
+            let skill = text(&call.input, "kind").as_deref() != Some("mcp");
+
+            let mut crew = ws.agents().await;
+            let known: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
+            let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
+                return ToolReply::refused(format!(
+                    "there is no agent called {agent_id}. The crew is: {}",
+                    known.join(", ")
+                ));
+            };
+            let before = if skill {
+                slot.granted_skills.len()
+            } else {
+                slot.mcp_servers.len()
+            };
+            if skill {
+                slot.granted_skills.retain(|g| g.name != name);
+            } else {
+                slot.mcp_servers.retain(|g| g.name != name);
+            }
+            let after = if skill {
+                slot.granted_skills.len()
+            } else {
+                slot.mcp_servers.len()
+            };
+            if before == after {
+                return ToolReply::refused(format!("{} has nothing called {name}", slot.name));
+            }
+            let who = slot.name.clone();
+            match ws.set_agents(crew).await {
+                Ok(_) => ToolReply::ok(format!("{name} is no longer available to {who}")),
                 Err(e) => ToolReply::refused(e),
             }
         }
@@ -976,6 +1165,13 @@ mod tests {
             "set_agent_model",
             "edit_agent",
             "grant_agent_tools",
+            // The three grants. A skill is markdown entering another agent's
+            // prompt, a server is arbitrary code with that agent's
+            // permissions, and a tool is plain elevation: none of them is a
+            // read, and none of them rides free.
+            "install_skill",
+            "add_mcp_server",
+            "revoke_grant",
         ] {
             assert!(!is_read_only(guarded), "{guarded} must need delegation");
         }

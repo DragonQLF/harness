@@ -174,6 +174,69 @@ function harnessTools(runId) {
         call("grant_agent_tools"),
       ),
       tool(
+        "install_skill",
+        "Install a skill on an agent: a short document it reads before every run, so it does " +
+          "a recurring job the same way each time. Look up how the skill works first, then " +
+          "declare it here — you never run an install command, and you never write a script; " +
+          "Relay writes the file itself from what you declare. Say where the text came from in " +
+          "`source`: the operator is shown it, and a skill from a page that asked to be " +
+          "installed is exactly what they need to see.",
+        {
+          agent_id: z.string().describe("Which agent gets it, by id"),
+          name: z
+            .string()
+            .describe("Lowercase letters, digits and hyphens, for example figma-export"),
+          description: z
+            .string()
+            .describe("One line telling the agent when to reach for it"),
+          instructions: z
+            .string()
+            .describe("The skill itself, in markdown. This enters the agent's prompt."),
+          source: z
+            .string()
+            .describe("Where the text came from: a URL, a package name, or 'written here'"),
+        },
+        call("install_skill"),
+      ),
+      tool(
+        "add_mcp_server",
+        "Give an agent an MCP server. This is arbitrary code running with that agent's " +
+          "permissions, so declare it rather than installing it: the name, how it is reached, " +
+          "and every tool it brings. List the tools from its documentation — the operator " +
+          "approves the list, so an incomplete one is a false approval. Never ask the operator " +
+          "for a key here; this conversation is written to disk. Name the environment " +
+          "variables it needs and send them to the Agents screen to fill them in.",
+        {
+          agent_id: z.string().describe("Which agent gets it, by id"),
+          name: z
+            .string()
+            .describe("Server name; its tools arrive as mcp__<name>__<tool>. Not 'harness'."),
+          transport: z.enum(["stdio", "http", "sse"]).describe("How it is reached"),
+          command: z.string().optional().describe("For stdio: the program to run"),
+          args: z.array(z.string()).optional().describe("For stdio: its arguments"),
+          url: z.string().optional().describe("For http or sse: the endpoint"),
+          tools: z
+            .array(z.string())
+            .describe("Every tool this server grants, from its documentation"),
+          env_names: z
+            .array(z.string())
+            .optional()
+            .describe("Environment variables it needs. Names only, never values."),
+          source: z.string().describe("Where the declaration came from: a URL or a package"),
+        },
+        call("add_mcp_server"),
+      ),
+      tool(
+        "revoke_grant",
+        "Take a skill or an MCP server away from an agent again.",
+        {
+          agent_id: z.string().describe("Which agent, by id"),
+          kind: z.enum(["skill", "mcp"]),
+          name: z.string().describe("Which one, by name"),
+        },
+        call("revoke_grant"),
+      ),
+      tool(
         "set_agent_model",
         "Point an existing agent at a different model, or a different endpoint, when the operator asks.",
         {
@@ -391,6 +454,46 @@ function reportWorkTool(runId, call) {
   });
 }
 
+/** Relay's own in-process server, plus whatever this agent was granted.
+ *
+ *  `harness` is written last and unconditionally: a granted server by that
+ *  name would replace the board tools the Director answers with, and a config
+ *  that silently loses `move_card` is worse than one that loses a connector.
+ *  The Rust side refuses the name too — this is the last of three locks. */
+function mcpServersFor(id, spec, build = { harnessTools, reportWorkTool, callFor }) {
+  const servers = {};
+  for (const [name, config] of Object.entries(spec.mcp_servers ?? {})) {
+    if (!name || name === "harness") continue;
+    servers[name] = config;
+  }
+  if (spec.harness_tools) servers.harness = build.harnessTools(id);
+  else if (spec.report_work) servers.harness = build.reportWorkTool(id, build.callFor(id));
+  return servers;
+}
+
+/** The skills this run may load, as a plugin directory Relay owns.
+ *
+ *  Why a plugin and not `settingSources: ['project']`: that would bring the
+ *  operator's repository `.claude/settings.json`, its hooks and its `.mcp.json`
+ *  along with the skills — configuration injected with no approval at all.
+ *  Why not `CLAUDE_CONFIG_DIR` either: it moves where the CLI looks for its
+ *  credentials, so pointing it at a Relay folder logs every run out on the
+ *  platforms that keep the token in a file. A plugin path is neither: it is
+ *  passed per run, it names one directory, and `skipMcpDiscovery` keeps that
+ *  directory from declaring MCP servers of its own.
+ *
+ *  `skills: 'all'` reads as "all of what this agent was granted", because the
+ *  directory holds exactly that. The SDK's own filter is documented as "a
+ *  context filter, not a sandbox", so it is not what separates two agents —
+ *  the directory is. */
+function skillsFor(spec) {
+  if (!spec.skills_dir) return {};
+  return {
+    plugins: [{ type: "local", path: spec.skills_dir, skipMcpDiscovery: true }],
+    skills: "all",
+  };
+}
+
 async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
@@ -466,7 +569,18 @@ async function handleRun({ id, spec }) {
 
     const request_id = randomUUID();
     const decision = new Promise((resolve) => approvals.set(request_id, resolve));
-    send({ type: "approval_request", request_id, run_id: id, tool: toolName, input });
+    // The sheet shows the declaration, not the intention: "install the MCP
+    // server figma on Designer — grants get_file, export_frame", never "the
+    // Director wants to install something". The Rust side falls back to a
+    // generic key-value rendering when this is absent.
+    send({
+      type: "approval_request",
+      request_id,
+      run_id: id,
+      tool: toolName,
+      input,
+      summary: summarizeUse(toolName, input),
+    });
     let allow;
     try {
       allow = await Promise.race([
@@ -490,14 +604,14 @@ async function handleRun({ id, spec }) {
     // instead of in one lump when the turn ends.
     includePartialMessages: true,
     // Harness runs are isolated: no filesystem settings, and only the MCP
-    // servers we pass (none). Without this the operator's account connectors
-    // load and the model starts talking about authorising Linear or Notion.
+    // servers we pass. Without this the operator's account connectors load and
+    // the model starts talking about authorising Linear or Notion.
+    //
+    // This stays exactly as it was when skills and MCP became grantable. The
+    // isolation is not loosened; an explicit list is added on top of it, per
+    // agent, and nothing is inherited. See `crates/app/src/grants.rs`.
     settingSources: [],
-    mcpServers: spec.harness_tools
-      ? { harness: harnessTools(id) }
-      : spec.report_work
-        ? { harness: reportWorkTool(id, callFor(id)) }
-        : {},
+    mcpServers: mcpServersFor(id, spec),
     strictMcpConfig: true,
     canUseTool,
     hooks: {
@@ -514,6 +628,8 @@ async function handleRun({ id, spec }) {
       ],
     },
   };
+
+  Object.assign(options, skillsFor(spec));
 
   if (spec.permission_mode) options.permissionMode = spec.permission_mode;
   if (Array.isArray(spec.allowed_tools) && spec.allowed_tools.length > 0) {

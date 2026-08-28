@@ -124,6 +124,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
             ws,
             conversation.project_id.clone(),
             true,
+            profile.id.clone(),
         )),
         thinking_tokens: Some(2000),
         subagents: false,
