@@ -1345,7 +1345,7 @@ pena reler — e **parar aí**. Não fecha cartões, não move nada, não reescr
 documentos. É a mesma postura da caixa de entrada (#79) e a mesma razão: uma
 lista de ficheiros não é fundamento para decidir por quem é dono do trabalho.
 
-### 87. O estado da shell sai de trás dos mutexes e passa a ter dono
+### 87. Metade do estado da shell sai de trás dos mutexes; a outra metade fica, com razão escrita
 A arquitectura tem uma premissa, e é uma só: **um loop possui o estado, ninguém
 partilha, não há locks.** É o que torna as transições de cartão livres de
 corridas — o engine possui o `Board` assim, e é por isso que ninguém precisa de
@@ -1426,7 +1426,9 @@ de mutexes; forçá-los custaria mais do que devolve.
 razão do `settings`: o `daily_look_due()` é lido do guardo síncrono do fecho da
 janela.
 
-`workspace.rs`: 1300 → 1204 linhas; os campos do `Workspace` atrás de um lock
+`workspace.rs`: 1300 → 1204 linhas **no momento desta decisão** — o ficheiro
+cresce a seguir com trabalho que nada tem a ver com esta passagem (as concessões
+do #93–#97), portanto não se leia o número como uma promessa a manter; os campos do `Workspace` atrás de um lock
 passam de oito (`settings`, `agents`, `projects`, `runtimes`, `conversations`,
 `chat_turns`, `inbox`, `outside_work`) para quatro (`settings`, `runtimes`,
 `inbox`, `outside_work`). `grep -c "Mutex"` desce de 18 para 11 — onze e não dez
