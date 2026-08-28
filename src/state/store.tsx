@@ -45,9 +45,9 @@ export interface LogLine {
    *  kind of line this is. */
   label: string;
   text: string;
-  /** CSS colour variable for this line. */
+  /** As classes de cor desta linha, já com o par `dark:`. */
   color: string;
-  /** CSS colour variable for the gutter word. */
+  /** As classes de cor da palavra da goteira. */
   labelColor: string;
   /** Tool-call linkage: this call's id and its parent's, so results nest
    *  under the call that produced them and subagent calls indent further. */
@@ -179,22 +179,22 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
     case "thinking":
       return null;
     case "text":
-      return u.text?.trim() ? line("text", u.text, "var(--text4)", "var(--text2)") : null;
+      return u.text?.trim() ? line("text", u.text, "text-text4 dark:text-text4-d", "text-text2 dark:text-text2-d") : null;
     case "user_message":
-      return u.text?.trim() ? line("you", u.text, "var(--text4)", "var(--text2)") : null;
+      return u.text?.trim() ? line("you", u.text, "text-text4 dark:text-text4-d", "text-text2 dark:text-text2-d") : null;
     case "tool_use": {
       // The tool's own name is the gutter word: Read, Edit, Bash. Its colour
       // says what kind of call it was without a legend.
       const tool = (u.tool ?? "tool").replace(/^(harness|mcp__harness__)/, "").replace(/^__/, "");
       const colours: Record<string, string> = {
-        Read: "var(--ok)",
-        Glob: "var(--ok)",
-        Grep: "var(--ok)",
-        Edit: "var(--accent)",
-        Write: "var(--accent)",
-        Bash: "var(--info)",
+        Read: "text-ok dark:text-ok-d",
+        Glob: "text-ok dark:text-ok-d",
+        Grep: "text-ok dark:text-ok-d",
+        Edit: "text-accent dark:text-accent-d",
+        Write: "text-accent dark:text-accent-d",
+        Bash: "text-info dark:text-info-d",
       };
-      const l = line(tool, u.summary ?? "", colours[tool] ?? "var(--text3)", "var(--text2)");
+      const l = line(tool, u.summary ?? "", colours[tool] ?? "text-text3 dark:text-text3-d", "text-text2 dark:text-text2-d");
       return {
         ...l,
         toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
@@ -209,8 +209,8 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
         ...line(
           ok ? "↳ ok" : "↳ failed",
           (u as RunUpdate & { summary?: string }).summary ?? "",
-          ok ? "var(--ok)" : "var(--bad)",
-          ok ? "var(--text2)" : "var(--bad2)",
+          ok ? "text-ok dark:text-ok-d" : "text-bad dark:text-bad-d",
+          ok ? "text-text2 dark:text-text2-d" : "text-bad2 dark:text-bad2-d",
           !ok,
         ),
         toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
@@ -222,38 +222,38 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
       return line(
         "started",
         u.session_id ? `resumed ${u.session_id.slice(0, 12)}` : "new session",
-        "var(--text4)",
-        "var(--text3)",
+        "text-text4 dark:text-text4-d",
+        "text-text3 dark:text-text3-d",
       );
     case "done": {
       // One line that tells the truth: a done with an error is a failure
       // that happens to know its own cost — never two contradicting lines.
       const err = (u as RunUpdate & { error?: string | null }).error;
       if (err) {
-        return line("failed", err, "var(--bad)", "var(--bad2)");
+        return line("failed", err, "text-bad dark:text-bad-d", "text-bad2 dark:text-bad2-d");
       }
       const cost = u.cost_usd != null ? `$${u.cost_usd.toFixed(4)}` : "no cost recorded";
       const turns = u.turns != null ? `${u.turns} turns · ` : "";
-      return line("done", `${turns}${cost}`, "var(--text4)", "var(--ok)");
+      return line("done", `${turns}${cost}`, "text-text4 dark:text-text4-d", "text-ok dark:text-ok-d");
     }
     case "failed":
-      return line("failed", u.message ?? "unknown", "var(--bad)", "var(--bad2)");
+      return line("failed", u.message ?? "unknown", "text-bad dark:text-bad-d", "text-bad2 dark:text-bad2-d");
     case "approval_requested":
       return line(
         "approval",
         `${u.tool ?? "tool"} — ${u.summary ?? ""}`.trim(),
-        "var(--warn)",
-        "var(--warn)",
+        "text-warn dark:text-warn-d",
+        "text-warn dark:text-warn-d",
       );
     case "approval_answered":
       return line(
         "approval",
         u.allow ? "you allowed it" : "you denied it",
-        "var(--warn)",
-        u.allow ? "var(--ok)" : "var(--bad2)",
+        "text-warn dark:text-warn-d",
+        u.allow ? "text-ok dark:text-ok-d" : "text-bad2 dark:text-bad2-d",
       );
     case "notice":
-      return line("notice", u.text ?? "", "var(--warn)", "var(--warn)");
+      return line("notice", u.text ?? "", "text-warn dark:text-warn-d", "text-warn dark:text-warn-d");
     default:
       return null;
   }
@@ -531,7 +531,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (boot.revoked_allowances.length > 0) {
           // Said once, because it changes what the app will do without asking.
           toast(
-            "var(--warn)",
+            "warn",
             "Standing permissions were narrowed",
             `${boot.revoked_allowances.join(", ")} allowed every command, so it no longer allows any. Approve once more to record a scoped rule.`,
           );
@@ -1200,13 +1200,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // Nothing safe to remember: a chained shell command cannot be scoped,
           // so it is allowed once and asked about again.
           toast(
-            "var(--warn)",
+            "warn",
             "Allowed once",
             "That command could not be narrowed into a rule, so you will be asked again.",
           );
         } else {
           toast(
-            allow ? "var(--ok)" : "var(--bad)",
+            allow ? "ok" : "bad",
             allow ? "Allowed" : "Denied",
             recorded
               ? `Not asking again about ${recorded}`
@@ -1227,7 +1227,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const accepted = await api.inboxAccept(proposalId);
         toast(
-          "var(--ok)",
+          "ok",
           "Card created",
           `${accepted.title} — born in the harness's own project as ${accepted.card_id}`,
         );
