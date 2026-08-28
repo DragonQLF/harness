@@ -121,6 +121,7 @@ pub async fn send(
     // global.md: small, always in the prompt on a fresh session.
     let global_memory =
         harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
+    let outside_work = ws.outside_work();
     let prompt = director::chat_prompt(
         &ChatContext {
             speaker: Speaker {
@@ -139,6 +140,9 @@ pub async fn send(
             resumed: resume_session.is_some(),
             crew: &crew,
             global_memory: &global_memory,
+            // Only what the last look found; the look itself runs at startup
+            // and at the close, never on a turn the operator is waiting for.
+            outside_work: outside_work.as_deref(),
         },
         &message,
     );

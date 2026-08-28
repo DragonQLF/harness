@@ -111,6 +111,11 @@ pub struct ChatContext<'a> {
     pub crew: &'a [(String, String)],
     /// The operator's standing notes (global.md), always worth repeating.
     pub global_memory: &'a str,
+    /// Commits that reached Relay's own repository without a card behind them,
+    /// already counted and worded by `mirror::describe`. A fact, like the
+    /// boards — not a rule. Absent on every project but the mirror, and absent
+    /// whenever nothing came in outside the board, which is the normal case.
+    pub outside_work: Option<&'a str>,
 }
 
 fn status_word(status: Status) -> &'static str {
@@ -410,6 +415,15 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         );
     }
 
+    // What changed in Relay's own code without passing through the board. A
+    // fact he is handed, because the alternative is meeting behaviour that
+    // contradicts what he believes and having no way to find out why.
+    if let Some(said) = ctx.outside_work.map(str::trim).filter(|s| !s.is_empty()) {
+        prompt.push_str("Since Relay last looked at its own repository: ");
+        prompt.push_str(said);
+        prompt.push_str("\n\n");
+    }
+
     prompt.push_str(&how_harness_works(ctx));
 
     // Standing notes travel with every fresh session: they are the operator's
@@ -528,18 +542,26 @@ pub fn analyst_prompt(tables: &str) -> String {
 /// The end-of-day look: a short, self-directed turn run once a day when the
 /// operator closes Relay. It is not a conversation — nobody is talking to
 /// him. He looks, and either files proposals or says the day was clean.
-pub fn daily_look_prompt() -> String {
-    "This is your end-of-day look. Nobody is talking to you; you are looking at what happened \
-     to you and to the agents this week.\n\n\
-     Call self_report for the last 7 days. Read what it shows — it is counts, already \
-     computed; do not try to recount anything. If a pattern there has an obvious correction, \
-     check read_docs (doc \"debt\") first so you do not propose what DEBT.md already tracks; \
-     then file one proposal with propose_improvement per distinct problem: title, the counts \
-     that show the pattern, and the correction. Propose only when something actually repeats \
-     or plainly hurts — one rough day is weather, not a pattern. If nothing warrants a \
-     proposal, say so in a sentence and stop. Do not create cards, do not move anything on \
-     any board."
-        .to_string()
+pub fn daily_look_prompt(outside_work: Option<&str>) -> String {
+    let mut out = String::from(
+        "This is your end-of-day look. Nobody is talking to you; you are looking at what happened \
+         to you and to the agents this week.\n\n\
+         Call self_report for the last 7 days. Read what it shows — it is counts, already \
+         computed; do not try to recount anything. If a pattern there has an obvious correction, \
+         check read_docs (doc \"debt\") first so you do not propose what DEBT.md already tracks; \
+         then file one proposal with propose_improvement per distinct problem: title, the counts \
+         that show the pattern, and the correction. Propose only when something actually repeats \
+         or plainly hurts — one rough day is weather, not a pattern. If nothing warrants a \
+         proposal, say so in a sentence and stop. Do not create cards, do not move anything on \
+         any board.",
+    );
+    // Code that changed without passing through a card. Handed to him as a
+    // fact rather than left for him to discover as contradiction later.
+    if let Some(said) = outside_work.map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str("\n\nAlso, since you last looked: ");
+        out.push_str(said);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -578,6 +600,7 @@ mod tests {
             resumed: false,
             crew: &[],
             global_memory: "",
+            outside_work: None,
         }
     }
 
@@ -891,13 +914,44 @@ mod tests {
 
     #[test]
     fn the_daily_look_is_looking_not_talking() {
-        let prompt = daily_look_prompt();
+        let prompt = daily_look_prompt(None);
         assert!(prompt.contains("end-of-day look"));
         assert!(prompt.contains("self_report for the last 7 days"));
         assert!(prompt.contains("read_docs (doc \"debt\")"), "check DEBT before proposing");
         assert!(prompt.contains("propose_improvement"));
         assert!(prompt.contains("Do not create cards"));
         assert!(prompt.contains("one rough day is weather, not a pattern"));
+    }
+
+    /// Code that changed without a card is handed to him, in both places the
+    /// look runs — and he is told to flag it, never to act on it.
+    #[test]
+    fn work_that_bypassed_the_board_reaches_him_as_a_fact() {
+        let said = crate::mirror::describe(
+            &crate::mirror::outside_work(&[(
+                1_800_000_000_000 - 86_400_000,
+                vec!["src/App.tsx".into()],
+            )])
+            .unwrap(),
+            1_800_000_000_000,
+        );
+
+        let mut c = ctx(&[]);
+        c.outside_work = Some(&said);
+        let chat = chat_prompt(&c, "what should I look at?");
+        assert!(chat.contains("Since Relay last looked at its own repository"), "{chat}");
+        assert!(chat.contains("src/App.tsx"));
+        assert!(chat.contains("do not close a card"), "flag, never act");
+
+        let look = daily_look_prompt(Some(&said));
+        assert!(look.contains("Also, since you last looked"), "{look}");
+        assert!(look.contains("src/App.tsx"));
+
+        // The normal case is silence: nothing came in outside the board, so
+        // nothing is said about it.
+        assert!(!chat_prompt(&ctx(&[]), "hi").contains("its own repository:"));
+        assert!(!daily_look_prompt(None).contains("Also, since you last looked"));
+        assert!(!daily_look_prompt(Some("   ")).contains("Also, since you last looked"));
     }
 
     #[test]

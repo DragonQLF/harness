@@ -61,6 +61,15 @@ pub fn run() {
             // projects without visiting each board first.
             let warming = workspace.clone();
             tauri::async_runtime::block_on(async move { warming.warm_all() });
+            // Did Relay's own source move while nobody on the board was
+            // looking? Spawned, never awaited: a git call must not stand
+            // between the operator and their window.
+            let watching = workspace.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(said) = watching.look_for_outside_work().await {
+                    eprintln!("outside the board: {said}");
+                }
+            });
             app.manage(workspace);
             // Setup made it to the end: this launch is healthy. The marker —
             // if this very boot was an update — can go.

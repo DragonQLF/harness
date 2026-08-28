@@ -59,6 +59,13 @@ impl AppPaths {
         self.root.join("inbox.json")
     }
 
+    /// The last commit of the mirror repository Relay knows about, so it can
+    /// tell when its own source moved without a card behind it. App data, not
+    /// the operator's repository: Relay's files never live inside one.
+    pub fn mirror_watch_file(&self) -> PathBuf {
+        self.root.join("mirror-watch.json")
+    }
+
     /// Approvals that expired unanswered, one JSON line each. Written by the
     /// router's expiry sink so a timeout survives a restart as its own fact,
     /// distinct from a deliberate no.

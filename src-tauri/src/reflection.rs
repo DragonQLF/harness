@@ -90,7 +90,11 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     // the operator's words first. Without it the row is empty until the model
     // speaks — and a turn that never speaks leaves a conversation that opens
     // onto nothing, with no trace of what was asked or why it exists.
-    let asked = harness_app::director::daily_look_prompt();
+    // Relay's own repository may have moved without a card behind it. Asked
+    // for here, on a deadline of its own, so a slow git cannot hold the close:
+    // `look_for_outside_work` gives up in silence rather than waiting.
+    let outside = ws.look_for_outside_work().await;
+    let asked = harness_app::director::daily_look_prompt(outside.as_deref());
     ws.append_chat_line(
         &conversation.id,
         RunLogLine {

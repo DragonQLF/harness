@@ -93,10 +93,209 @@ pub fn locate(
     Source::Clone(appdata.join(CLONE_DIR))
 }
 
+/// The last commit of the mirror repository Relay saw. Written to app data so
+/// the comparison survives a restart; a file that is missing means "first
+/// look", which reports nothing.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Watch {
+    #[serde(default)]
+    pub sha: String,
+    #[serde(default)]
+    pub checked_ms: u64,
+}
+
+/// The commit to compare against, or `None` when there is nothing to compare.
+///
+/// Two cases answer `None`, and they must both stay silent. The first look —
+/// no sha recorded — records where the repository stands and says nothing:
+/// dumping a whole history the first time Relay opens its eyes is noise, not a
+/// signal. And an unmoved head is simply calm.
+pub fn base_to_compare(known: &Watch, head: &str) -> Option<String> {
+    let known = known.sha.trim();
+    if known.is_empty() || known == head.trim() {
+        return None;
+    }
+    Some(known.to_string())
+}
+
+/// What happened to Relay's own source while nobody on the board was looking.
+///
+/// The board only knows what came through it. When someone works on the Relay
+/// repository without Relay — the operator in an editor, an infrastructure
+/// agent, a migration — cards describing work that is already done sit in
+/// Ready, DEBT.md stops matching the code, and the Director meets behaviour
+/// that contradicts what he believes with no way to find out why.
+///
+/// Detection is deliberately shallow: how many, which files, since when. What
+/// the commits *mean* is the operator's to judge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutsideWork {
+    pub commits: usize,
+    /// Distinct paths touched, sorted, capped by [`FILES_NAMED`].
+    pub files: Vec<String>,
+    /// How many distinct paths there were before the cap.
+    pub files_total: usize,
+    /// The oldest of them, in milliseconds. Zero when git said nothing.
+    pub since_ms: u64,
+}
+
+/// A warning is a pointer, not a changelog. Past this many paths the list stops
+/// helping and starts being the diff.
+pub const FILES_NAMED: usize = 12;
+
+/// Fold the commits git found into the one fact worth reporting. `None` when
+/// nothing came in outside the board — which is the normal case, and must not
+/// produce an empty warning.
+pub fn outside_work(commits: &[(u64, Vec<String>)]) -> Option<OutsideWork> {
+    if commits.is_empty() {
+        return None;
+    }
+    let mut files: Vec<String> = commits
+        .iter()
+        .flat_map(|(_, f)| f.iter().cloned())
+        .collect();
+    files.sort();
+    files.dedup();
+    let files_total = files.len();
+    files.truncate(FILES_NAMED);
+    let since_ms = commits
+        .iter()
+        .map(|(ts, _)| *ts)
+        .filter(|ts| *ts > 0)
+        .min()
+        .unwrap_or(0);
+    Some(OutsideWork {
+        commits: commits.len(),
+        files,
+        files_total,
+        since_ms,
+    })
+}
+
+/// The warning, in words: how many commits, which files, since when.
+///
+/// Written for the Director to receive and for the operator to read, and it
+/// says what he may do about it — which is to flag, never to act. Closing a
+/// card or rewriting a document on this evidence would be deciding on the
+/// operator's behalf from a file list (#79: the inbox proposes, never creates).
+pub fn describe(work: &OutsideWork, now_ms: u64) -> String {
+    let mut out = format!(
+        "{} commit{} reached Relay's own repository without a card behind it",
+        work.commits,
+        if work.commits == 1 { "" } else { "s" }
+    );
+    match age(work.since_ms, now_ms) {
+        Some(when) => out.push_str(&format!(", the oldest {when}")),
+        None => out.push_str(" (git did not say when)"),
+    }
+    out.push_str(". Files touched: ");
+    if work.files.is_empty() {
+        out.push_str("none that git named");
+    } else {
+        out.push_str(&work.files.join(", "));
+        if work.files_total > work.files.len() {
+            out.push_str(&format!(
+                " (and {} more)",
+                work.files_total - work.files.len()
+            ));
+        }
+    }
+    out.push_str(
+        ". That is work the board never saw, so cards may describe things already done and \
+         DEBT.md may no longer match the code. Say which open cards and which documents are \
+         worth re-reading because of it, and stop there: do not close a card, do not move \
+         anything, do not rewrite a document. The operator decides.",
+    );
+    out
+}
+
+/// "2 days ago", "3 hours ago". `None` when there is no usable timestamp.
+fn age(then_ms: u64, now_ms: u64) -> Option<String> {
+    if then_ms == 0 || now_ms < then_ms {
+        return None;
+    }
+    let secs = (now_ms - then_ms) / 1000;
+    Some(match secs {
+        0..=90 => "just now".to_string(),
+        91..=5399 => format!("{} minutes ago", secs / 60),
+        5400..=172_799 => format!("{} hours ago", secs / 3600),
+        _ => format!("{} days ago", secs / 86_400),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::Path;
+
+    const NOW: u64 = 1_800_000_000_000;
+
+    #[test]
+    fn nothing_outside_the_board_is_not_a_warning() {
+        assert_eq!(outside_work(&[]), None, "silence must not become a warning");
+    }
+
+    /// The first look records where the repository stands and reports nothing.
+    /// Otherwise every fresh install would open with a history dump.
+    #[test]
+    fn the_first_look_records_and_says_nothing() {
+        assert_eq!(base_to_compare(&Watch::default(), "abc123"), None);
+        let known = Watch { sha: "abc123".into(), checked_ms: NOW };
+        assert_eq!(base_to_compare(&known, "abc123"), None, "nothing moved");
+        assert_eq!(
+            base_to_compare(&known, "def456"),
+            Some("abc123".to_string()),
+            "it moved: compare from where we left off"
+        );
+    }
+
+    /// The warning has to carry all three: how many, which files, since when.
+    #[test]
+    fn the_warning_says_how_many_which_files_and_since_when() {
+        let two_days = NOW - 2 * 86_400_000;
+        let work = outside_work(&[
+            (NOW - 3_600_000, vec!["src/App.tsx".into(), "tailwind.config.js".into()]),
+            (two_days, vec!["src/App.tsx".into(), "docs/DEBT.md".into()]),
+        ])
+        .expect("two commits outside the board");
+        assert_eq!(work.commits, 2);
+        assert_eq!(work.since_ms, two_days, "the oldest of them");
+        assert_eq!(
+            work.files,
+            vec![
+                "docs/DEBT.md".to_string(),
+                "src/App.tsx".to_string(),
+                "tailwind.config.js".to_string()
+            ],
+            "distinct paths, sorted"
+        );
+
+        let said = describe(&work, NOW);
+        assert!(said.contains("2 commits"), "{said}");
+        assert!(said.contains("2 days ago"), "{said}");
+        assert!(said.contains("docs/DEBT.md"), "{said}");
+        // And what he may do with it: flag, never act.
+        assert!(said.contains("do not close a card"), "{said}");
+        assert!(said.contains("The operator decides"), "{said}");
+    }
+
+    #[test]
+    fn a_long_file_list_is_capped_but_the_count_is_not() {
+        let files: Vec<String> = (0..30).map(|n| format!("src/f{n:02}.tsx")).collect();
+        let work = outside_work(&[(NOW - 60_000, files)]).unwrap();
+        assert_eq!(work.files.len(), FILES_NAMED);
+        assert_eq!(work.files_total, 30);
+        assert!(describe(&work, NOW).contains("and 18 more"));
+    }
+
+    #[test]
+    fn a_commit_with_no_usable_timestamp_still_reports_the_rest() {
+        let work = outside_work(&[(0, vec!["Cargo.toml".into()])]).unwrap();
+        assert_eq!(work.since_ms, 0);
+        let said = describe(&work, NOW);
+        assert!(said.contains("1 commit reached"), "{said}");
+        assert!(said.contains("git did not say when"), "{said}");
+    }
 
     #[test]
     fn the_same_repository_is_recognised_however_it_was_typed() {

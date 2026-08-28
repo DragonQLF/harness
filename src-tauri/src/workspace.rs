@@ -107,6 +107,10 @@ pub struct Workspace {
     /// Improvement proposals waiting on the operator, plus the mark of the
     /// last end-of-day look.
     inbox: Mutex<InboxState>,
+    /// What the last look at Relay's own repository found: commits that never
+    /// went through a card. Held here so the Director's next turn receives it
+    /// rather than having to know to ask.
+    outside_work: Mutex<Option<String>>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
     /// Set by whoever wins the race to close the window, so a second close
@@ -179,6 +183,7 @@ impl Workspace {
             chat_log,
             chat_turns: Mutex::new(HashMap::new()),
             inbox: Mutex::new(inbox),
+            outside_work: Mutex::new(None),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
@@ -1045,6 +1050,90 @@ impl Workspace {
         self.save_inbox(&self.inbox());
         self.publish_inbox();
         Ok(accepted)
+    }
+
+    /// The last thing the look at Relay's own repository found, if anything.
+    /// Read by the Director's prompt so he receives it instead of having to
+    /// know to ask.
+    pub fn outside_work(&self) -> Option<String> {
+        self.outside_work.lock().unwrap().clone()
+    }
+
+    /// Has Relay's own source moved without a card behind it?
+    ///
+    /// Every commit a card produces carries a `Harness-Card` trailer, so the
+    /// whole detection is "commits since last time, minus ours". What they
+    /// mean is nobody's to decide here: the finding is handed to the Director
+    /// to flag and to the operator to judge (#79 — propose, never create).
+    ///
+    /// Runs at startup and at the end-of-day close, and **never holds either
+    /// up**: git is asked on a blocking thread with a short deadline, and a
+    /// slow or broken repository is given up on in silence. A window that
+    /// takes longer to close because of a status check is a worse bug than a
+    /// missed warning.
+    ///
+    /// The first run reports nothing — it records where the repository stands
+    /// and stops. Dumping a whole history the first time Relay looks would be
+    /// noise, not a signal.
+    pub async fn look_for_outside_work(self: &Arc<Self>) -> Option<String> {
+        /// Long enough for `git log` on a real repository, short enough that
+        /// nobody notices it in a shutdown.
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+        let mirror = projects::mirror_project(&self.projects()).cloned()?;
+        let root = PathBuf::from(&mirror.path);
+        if !root.is_dir() {
+            return None;
+        }
+        let watch_file = self.paths.mirror_watch_file();
+        let known: harness_app::mirror::Watch = paths::read_json_or_default(&watch_file);
+        let worktrees = self.paths.project_worktrees(&mirror.id);
+
+        let looked = tokio::time::timeout(
+            DEADLINE,
+            tauri::async_runtime::spawn_blocking(move || {
+                let git = CliGit::new(&root, worktrees);
+                let head = git.head_sha()?;
+                // First look, or nothing moved: record and say nothing.
+                let Some(base) = harness_app::mirror::base_to_compare(&known, &head) else {
+                    return Some((head, Vec::new()));
+                };
+                // An unknown base (rebased away, garbage collected) is "I
+                // cannot tell", not "nothing happened" — re-anchor on the
+                // current head rather than reporting silence as calm.
+                let commits = git.commits_without_a_card(&base).ok()?;
+                Some((
+                    head,
+                    commits
+                        .into_iter()
+                        .map(|c| (c.ts_ms, c.files))
+                        .collect::<Vec<_>>(),
+                ))
+            }),
+        )
+        .await;
+
+        let Ok(Ok(Some((head, commits)))) = looked else {
+            // Timed out, panicked, or git had nothing to say. Silence is the
+            // whole point: the close does not wait on this.
+            return None;
+        };
+
+        if let Err(e) = paths::write_json(
+            &watch_file,
+            &harness_app::mirror::Watch {
+                sha: head,
+                checked_ms: SystemClock.now_millis(),
+            },
+        ) {
+            eprintln!("could not record where Relay's repository stands: {e}");
+        }
+
+        let work = harness_app::mirror::outside_work(&commits)?;
+        let said = harness_app::mirror::describe(&work, SystemClock.now_millis());
+        *self.outside_work.lock().unwrap() = Some(said.clone());
+        let _ = self.app.emit("mirror://outside-work", &said);
+        Some(said)
     }
 
     pub fn dismiss_proposal(&self, proposal_id: &str) -> Result<Proposal, String> {

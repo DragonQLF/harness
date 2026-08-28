@@ -148,6 +148,80 @@ impl CliGit {
         self.rev_parse_head(&self.repo_root).ok()
     }
 
+    /// Commits on the default branch after `since` that Relay did not make.
+    ///
+    /// Every commit a card produces carries a `Harness-Card` trailer, so a
+    /// commit without one is, by definition, work that never went through the
+    /// board — an operator in an editor, an infrastructure agent, a migration.
+    /// Nothing here reads what changed; detecting *that* it changed is the
+    /// whole job, and it costs three read-only git calls.
+    ///
+    /// `since` unknown to the repository (rebased away, garbage collected) is
+    /// an error, not an empty list: the caller must be able to tell "nothing
+    /// happened" from "I cannot tell", or it would report silence.
+    pub fn commits_without_a_card(&self, since: &str) -> Result<Vec<UncardedCommit>, GitError> {
+        let branch = self.default_branch();
+        let range = format!("{since}..{branch}");
+        // Metadata, one line per commit. No pretty-format extension beyond
+        // %H/%ct/%s, so an old git behaves the same as a new one.
+        let meta = self.git(
+            &self.repo_root,
+            &["log", "--format=%H\u{1f}%ct\u{1f}%s", &range],
+        )?;
+        // Ours, by the trailer we write. `--grep` reads the whole message,
+        // which is where a trailer lives.
+        let carded: Vec<String> = self
+            .git(
+                &self.repo_root,
+                &["log", "--format=%H", "--grep=Harness-Card:", &range],
+            )
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.trim().to_string())
+            .collect();
+        // Files per commit, in one pass. `%x01` opens each record so the file
+        // list that `--name-only` appends cannot be confused with the next
+        // commit's header.
+        let named = self
+            .git(
+                &self.repo_root,
+                &["log", "--name-only", "--format=\u{1}%H", &range],
+            )
+            .unwrap_or_default();
+        let mut files_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for record in named.split('\u{1}').skip(1) {
+            let mut lines = record.lines();
+            let Some(sha) = lines.next().map(str::trim) else { continue };
+            let files: Vec<String> = lines
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect();
+            files_of.insert(sha.to_string(), files);
+        }
+
+        let mut out = Vec::new();
+        for line in meta.lines() {
+            let mut parts = line.split('\u{1f}');
+            let (Some(sha), Some(ts), Some(subject)) =
+                (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let sha = sha.trim().to_string();
+            if carded.iter().any(|c| c == &sha) {
+                continue;
+            }
+            out.push(UncardedCommit {
+                sha: sha.clone(),
+                subject: subject.trim().to_string(),
+                ts_ms: ts.trim().parse::<u64>().unwrap_or(0).saturating_mul(1000),
+                files: files_of.remove(&sha).unwrap_or_default(),
+            });
+        }
+        Ok(out)
+    }
+
     pub fn commit_count(&self) -> u64 {
         self.git(&self.repo_root, &["rev-list", "--count", "HEAD"])
             .ok()
@@ -529,6 +603,20 @@ pub enum BranchState {
     Open,
 }
 
+/// One commit that reached the repository without a card behind it. Newest
+/// first, as `git log` gives them.
+///
+/// No `TS` derive on purpose: nothing here crosses to the frontend yet, and an
+/// exported type nobody imports is the kind that rots quietly.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UncardedCommit {
+    pub sha: String,
+    pub subject: String,
+    /// When it was committed, in milliseconds.
+    pub ts_ms: u64,
+    pub files: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct BranchRow {
     pub name: String,
@@ -721,6 +809,44 @@ mod tests {
         git.git(&repo, &["add", "-A"]).unwrap();
         git.git(&repo, &["commit", "-m", "init"]).unwrap();
         (dir, git)
+    }
+
+    /// The board only knows what came through it. A commit carrying the
+    /// `Harness-Card` trailer is ours; one without it is work that happened
+    /// outside Relay, and that is the whole detection.
+    #[test]
+    fn commits_without_a_card_are_the_ones_that_bypassed_the_board() {
+        let (_dir, git) = fresh_repo();
+        let root = git.repo_root().to_path_buf();
+        let base = git.head_sha().unwrap();
+
+        // Someone in an editor, straight onto main.
+        std::fs::write(root.join("tailwind.config.js"), "module.exports = {}\n").unwrap();
+        git.git(&root, &["add", "-A"]).unwrap();
+        git.git(&root, &["commit", "-m", "refactor: os tokens em tailwind"]).unwrap();
+
+        // And one of ours, with the trailer the engine writes.
+        std::fs::write(root.join("src.rs"), "fn main() {}\n").unwrap();
+        git.git(&root, &["add", "-A"]).unwrap();
+        git.git(
+            &root,
+            &["commit", "-m", "harness: a card did this\n\nHarness-Card: c_7b30"],
+        )
+        .unwrap();
+
+        let found = git.commits_without_a_card(&base).unwrap();
+        assert_eq!(found.len(), 1, "only the uncarded one: {found:?}");
+        assert_eq!(found[0].subject, "refactor: os tokens em tailwind");
+        assert_eq!(found[0].files, vec!["tailwind.config.js".to_string()]);
+        assert!(found[0].ts_ms > 0, "it says when");
+
+        // Nothing new since the last look is an empty list, not a warning.
+        let now = git.head_sha().unwrap();
+        assert!(git.commits_without_a_card(&now).unwrap().is_empty());
+
+        // A sha the repository never heard of is an error, so the caller can
+        // tell "nothing happened" from "I cannot tell".
+        assert!(git.commits_without_a_card("0".repeat(40).as_str()).is_err());
     }
 
     #[test]
