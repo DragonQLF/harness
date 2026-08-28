@@ -5,7 +5,10 @@ mod chat;
 mod closing;
 mod commands;
 mod director_tools;
+mod menu;
 mod reflection;
+#[cfg(unix)]
+mod shellpath;
 mod sidecar;
 mod update;
 mod workspace;
@@ -18,7 +21,22 @@ use workspace::Workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // Before anything goes looking for node, npm or claude: a window opened
+    // from Finder starts with launchd's PATH, which has none of them on it.
+    #[cfg(unix)]
+    shellpath::adopt();
+
+    let builder = tauri::Builder::default();
+
+    // Only macOS gets a menu bar of its own: it has a place to put one that is
+    // not the window. Elsewhere the window still draws its own, and adding a
+    // second copy here would say everything twice.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(|app| menu::build(app))
+        .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()));
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -174,6 +192,8 @@ pub fn run() {
             commands::system::inbox_list,
             commands::system::inbox_accept,
             commands::system::inbox_dismiss,
+            // menu
+            menu::sync_menu,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
