@@ -203,6 +203,9 @@ pub async fn send(
         // nothing to report — its work is the conversation itself.
         subagents: false,
         report_work: false,
+        // O porto desta conversa já foi construído por perfil, com as
+        // concessões dentro; vazio aqui quer dizer "usa as dele".
+        grants: harness_ports::Grants::default(),
     };
 
     // What this profile was granted, resolved now rather than held anywhere:

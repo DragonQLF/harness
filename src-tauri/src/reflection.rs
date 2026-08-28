@@ -129,6 +129,9 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         thinking_tokens: Some(2000),
         subagents: false,
         report_work: false,
+        // O porto desta conversa já foi construído por perfil, com as
+        // concessões dentro; vazio aqui quer dizer "usa as dele".
+        grants: harness_ports::Grants::default(),
     };
 
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);

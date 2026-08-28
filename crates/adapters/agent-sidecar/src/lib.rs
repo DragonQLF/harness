@@ -482,7 +482,15 @@ impl harness_ports::AgentPort for SidecarAgent {
     ) -> Pin<Box<dyn std::future::Future<Output = Result<RunOutcome, String>> + Send>> {
         let program = self.program.clone();
         let script = self.script.clone();
-        let grants = self.grants.clone();
+        // O run manda sobre o porto. Uma conversa constrói o seu porto por
+        // perfil e não traz nada no spec; um run de cartão partilha o porto de
+        // todos, portanto é o spec que diz de quem ele é. Vazio quer dizer
+        // "usa as do porto", que é o que mantém as conversas como estavam.
+        let grants = if spec.grants.is_empty() {
+            self.grants.clone()
+        } else {
+            spec.grants.clone()
+        };
         let provider = spec.provider.clone();
         Box::pin(async move {
             let mut cmd = Command::new(&program);

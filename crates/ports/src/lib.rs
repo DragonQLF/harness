@@ -345,6 +345,11 @@ pub struct RunProfile {
     /// How many cards this agent may work on at once. The engine refuses a
     /// start that would exceed it.
     pub max_concurrent: u32,
+    /// The skills and MCP servers this agent was granted. They travel with the
+    /// profile because a run is the only place that knows which agent it is:
+    /// the engine holds one shared port for every run, so a port that carried
+    /// them would hand the same ones to everybody.
+    pub grants: Grants,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -391,6 +396,10 @@ pub struct RunSpec {
     /// owns the commit. Absent, nothing breaks: the generic body is used and
     /// a Notice says the agent did not report.
     pub report_work: bool,
+    /// What this particular run was granted. Empty is the ordinary case and
+    /// means "whatever the port was built with" — which is how a conversation
+    /// still works, since it builds a port per profile.
+    pub grants: Grants,
 }
 
 impl RunSpec {
@@ -409,6 +418,7 @@ impl RunSpec {
             thinking_tokens: None,
             subagents: false,
             report_work: false,
+            grants: Grants::default(),
         }
     }
 }

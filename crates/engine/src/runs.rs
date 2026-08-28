@@ -395,6 +395,10 @@ impl Engine {
             // A worker may fan out one level; its children never may.
             subagents: true,
             report_work: true,
+            // O que este agente pode usar viaja com o perfil: o motor tem um
+            // porto só para todos os runs, portanto é aqui que um run deixa de
+            // levar o mesmo que os outros.
+            grants: profile.grants.clone(),
         };
         if let Some(allowed) = spec.allowed_tools.as_mut() {
             allowed.push("mcp__harness__report_work".to_string());

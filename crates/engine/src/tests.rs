@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use harness_domain::{Actor, Board, CardId, Command, Event, RunOutcome as DomainOutcome, Status};
 use harness_ports::{
-    AgentPort, ApprovalRequest, ClockPort, GitError, GitPort, Reviewer, RunEvent, RunLogLine,
+    AgentPort, ApprovalRequest, ClockPort, GitError, GitPort, Grants, Reviewer, RunEvent, RunLogLine,
     RunLogPort, RunOutcome, RunProfile, RunSpec, StoreError, StorePort, StoredEvent, Trailers,
     WorktreeMode, WorktreePath,
 };
@@ -491,6 +491,33 @@ fn profile() -> RunProfile {
         worktree: WorktreeMode::PerCard,
         reviewer: Reviewer::Director,
         max_concurrent: 1,
+        grants: Grants::default(),
+    }
+}
+
+/// Um agente que regista as concessões com que cada run o chamou, para um
+/// teste poder provar que chegaram — e que chegaram as certas.
+#[derive(Default)]
+struct GrantSpy {
+    seen: Arc<Mutex<Vec<Grants>>>,
+}
+
+impl AgentPort for GrantSpy {
+    fn run(
+        &self,
+        spec: RunSpec,
+        tx: mpsc::Sender<RunEvent>,
+        _cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        self.seen.lock().unwrap().push(spec.grants.clone());
+        Box::pin(async move {
+            drop(tx);
+            Ok(RunOutcome::Completed {
+                session_id: None,
+                cost_usd: Some(0.0),
+                turns: Some(1),
+            })
+        })
     }
 }
 
@@ -1057,6 +1084,98 @@ async fn a_card_goes_from_ready_to_done_and_leaves_its_work_behind() {
         logged.iter().any(|l| matches!(l.event, RunEvent::Text { .. })),
         "the run log kept nothing of what the agent said"
     );
+}
+
+/// As concessões chegam aos runs de cartão, e chegam separadas.
+///
+/// O motor tem um porto só para todos os runs, portanto pendurar as concessões
+/// no porto daria a toda a gente as mesmas. É por isso que elas viajam no
+/// `RunSpec`: dois cartões entregues a perfis diferentes têm de ver cada um o
+/// seu, e nenhum o do outro. Um teste que só verificasse que *alguma coisa*
+/// chegou passaria com os dois a receberem tudo, que é exactamente o defeito.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_cards_with_different_profiles_each_get_only_their_own_grants() {
+    let seen: Arc<Mutex<Vec<Grants>>> = Arc::default();
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::new());
+    let (handle, _events, _runs) = Engine::spawn(
+        EngineDeps {
+            store,
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(GrantSpy { seen: seen.clone() }),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git,
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let designer = RunProfile {
+        agent_id: "designer".into(),
+        grants: Grants {
+            skills_dir: Some(std::path::PathBuf::from("/relay/skills/designer")),
+            mcp_servers: Vec::new(),
+        },
+        max_concurrent: 4,
+        ..profile()
+    };
+    let builder = RunProfile {
+        agent_id: "builder".into(),
+        grants: Grants {
+            skills_dir: Some(std::path::PathBuf::from("/relay/skills/builder")),
+            mcp_servers: Vec::new(),
+        },
+        max_concurrent: 4,
+        ..profile()
+    };
+
+    let one = CardId::new("c_grant_a");
+    card_ready(&handle, &one).await;
+    handle
+        .start_run(one, "desenhar".into(), designer)
+        .await
+        .unwrap();
+
+    let two = CardId::new("c_grant_b");
+    card_ready(&handle, &two).await;
+    handle
+        .start_run(two, "construir".into(), builder)
+        .await
+        .unwrap();
+
+    wait_for("os dois runs foram chamados", async || {
+        seen.lock().unwrap().len() == 2
+    })
+    .await;
+
+    let calls = seen.lock().unwrap().clone();
+    let dirs: Vec<String> = calls
+        .iter()
+        .map(|g| {
+            g.skills_dir
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "(nenhuma)".into())
+        })
+        .collect();
+
+    assert!(
+        dirs.contains(&"/relay/skills/designer".to_string()),
+        "o designer não recebeu as suas: {dirs:?}"
+    );
+    assert!(
+        dirs.contains(&"/relay/skills/builder".to_string()),
+        "o builder não recebeu as suas: {dirs:?}"
+    );
+    // O que prova a separação: cada chamada leva uma só, não as duas.
+    assert_eq!(dirs.len(), 2, "esperavam-se dois runs: {dirs:?}");
+    assert_ne!(dirs[0], dirs[1], "os dois runs levaram a mesma concessão");
 }
 
 #[tokio::test(flavor = "multi_thread")]

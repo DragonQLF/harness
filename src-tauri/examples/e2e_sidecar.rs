@@ -122,6 +122,7 @@ async fn main() {
              E2E_OK. Change nothing else. Do not commit yourself; Harness commits."
                 .into(),
             harness_ports::RunProfile {
+            grants: harness_ports::Grants::default(),
                 provider: None,
                 agent_id: "builder".into(),
                 model: Some("haiku".into()),

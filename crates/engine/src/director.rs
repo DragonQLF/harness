@@ -87,6 +87,11 @@ impl Engine {
                 // commit it reviews was already written by the worker's run.
                 subagents: false,
                 report_work: false,
+                // A revisão corre no porto do Director, que já foi construído
+                // com as concessões dele. Vazio aqui quer dizer "usa as do
+                // porto" — pôr as do worker daria ao revisor as ferramentas de
+                // quem ele está a rever.
+                grants: harness_ports::Grants::default(),
             };
 
             let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);

@@ -282,7 +282,7 @@ pub(crate) async fn start_run_inner(
 
     runtime
         .engine
-        .start_run(card_id, prompt, profile.run_profile(&settings))
+        .start_run(card_id, prompt, profile.run_profile(&settings, ws.paths.root()))
         .await
         .map(|run_id| run_id.0)
 }

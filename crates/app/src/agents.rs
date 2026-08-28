@@ -147,9 +147,14 @@ impl AgentProfile {
         tools
     }
 
-    pub fn run_profile(&self, settings: &Settings) -> RunProfile {
+    /// A raiz da aplicação entra aqui porque é onde vivem as pastas de
+    /// concessões. Pedi-la torna impossível resolver um perfil e esquecer o
+    /// que o agente pode usar: um run sem concessões seria um agente calado
+    /// sobre as suas próprias ferramentas, sem nada a dizê-lo.
+    pub fn run_profile(&self, settings: &Settings, root: &std::path::Path) -> RunProfile {
         RunProfile {
             agent_id: self.id.clone(),
+            grants: crate::grants::for_profile(root, self),
             provider: crate::providers::find(&settings.providers, &self.provider)
                 .and_then(|p| p.resolve()),
             model: self.model.clone(),
@@ -658,17 +663,17 @@ mod tests {
             ..Default::default()
         };
         let mut settings = Settings::default();
-        assert_eq!(agent.run_profile(&settings).reviewer, Reviewer::Director);
+        assert_eq!(agent.run_profile(&settings, std::path::Path::new("/tmp/relay-test")).reviewer, Reviewer::Director);
 
         settings.director_reviews_first = false;
-        assert_eq!(agent.run_profile(&settings).reviewer, Reviewer::Human);
+        assert_eq!(agent.run_profile(&settings, std::path::Path::new("/tmp/relay-test")).reviewer, Reviewer::Human);
 
         // An agent nobody reviews stays that way.
         let loose = AgentProfile {
             reviewer: Reviewer::Nobody,
             ..Default::default()
         };
-        assert_eq!(loose.run_profile(&settings).reviewer, Reviewer::Nobody);
+        assert_eq!(loose.run_profile(&settings, std::path::Path::new("/tmp/relay-test")).reviewer, Reviewer::Nobody);
     }
 
     #[test]
