@@ -2,7 +2,7 @@
  *  that order. It is the same information the screens hold, ranked by whether
  *  it needs the operator. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { api } from "../lib/ipc";
 import { cx } from "../lib/cx";
@@ -55,14 +55,6 @@ function Section({
  *  back. */
 export function RightNowStrip({ open }: { open: () => void }) {
   const { approvals, snapshot, agents, proposals } = useStore();
-  // Elapsed timers must breathe: a frozen number reads as "frozen app".
-  const anyLive = (snapshot?.cards ?? []).some((c) => c.status === "running");
-  const [, tick] = useState(0);
-  useEffect(() => {
-    if (!anyLive) return;
-    const t = window.setInterval(() => tick((x) => x + 1), 1000);
-    return () => window.clearInterval(t);
-  }, [anyLive]);
   const cards = snapshot?.cards ?? [];
   const openProposals = proposals.filter((p) => p.status === "open");
   const waiting =
@@ -142,15 +134,34 @@ export function RightNow({
   const openProposals = proposals.filter((p) => p.status === "open");
   const [trees, setTrees] = useState<WorktreeRow[]>([]);
 
+  // Elapsed timers must breathe: a frozen number reads as "frozen app". The
+  // tick lives here because the elapsed number does — it used to sit in the
+  // collapsed strip, which shows no time at all, so the one duration on screen
+  // only moved when a token happened to arrive and stood still through every
+  // long tool call.
+  const anyLive = runningCards.length > 0;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [anyLive]);
+
   // The numbers beside a review row are the real ones, read from the worktree.
+  // Keyed by the card's run count, not by its id: a card sent back and run
+  // again returns to Review with a different patch, and the cached answer from
+  // the run before is the wrong diff shown with confidence.
+  const readDiffs = useRef<Record<string, number>>({});
   useEffect(() => {
     reviewing.forEach((c) => {
-      if (!diffs[c.id]) loadCardDiff(c.id);
+      if (readDiffs.current[c.id] === c.runs) return;
+      readDiffs.current[c.id] = c.runs;
+      loadCardDiff(c.id);
     });
-    // Card list identity is what matters here, not the diff cache: re-reading on
-    // every cached answer would loop.
+    // The key below is the whole dependency: `diffs` is deliberately out, since
+    // re-running on every cached answer would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewing.map((c) => c.id).join(","), loadCardDiff]);
+  }, [reviewing.map((c) => `${c.id}:${c.runs}`).join(","), loadCardDiff]);
 
   useEffect(() => {
     if (!projectId) return;
