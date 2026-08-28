@@ -16,6 +16,7 @@ import {
   tone,
   type AgentProfile,
   type CatalogModel,
+  type McpTransport,
   type Reviewer,
   type WorktreeMode,
   type Provider,
@@ -33,6 +34,162 @@ const ROW = "transition-colors duration-150 hover:bg-hovered dark:hover:bg-hover
 /** Um campo de texto assente na superfície. */
 const FIELD =
   "w-full rounded-sm border border-line2 bg-surface text-text outline-none focus-visible:border-accentLine dark:border-line2-d dark:bg-surface-d dark:text-text-d dark:focus-visible:border-accentLine-d";
+
+/** Where a granted MCP server is reached, in one line. */
+function reachOf(t: McpTransport): string {
+  return t.kind === "stdio" ? [t.command, ...t.args].join(" ").trim() : t.url;
+}
+
+/** What has been installed on this agent: skills it reads before every run,
+ *  and MCP servers it may call.
+ *
+ *  Both are shown as what the operator approved, not as a count: the source of
+ *  a skill and the tools a server was declared to grant are the whole of the
+ *  decision they made, and a screen that hides them makes the approval sheet
+ *  the only place they ever existed. Nothing here is inherited from the
+ *  machine — an agent holds exactly this list and no more. */
+function Granted({
+  agent,
+  patch,
+}: {
+  agent: AgentProfile;
+  patch: (next: Partial<AgentProfile>) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (agent.granted_skills.length === 0 && agent.mcp_servers.length === 0) {
+    return (
+      <div>
+        <Eyebrow className="block pb-2">INSTALLED</Eyebrow>
+        <div className="text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+          Nothing installed. Ask the Director for a skill or an MCP server and it will put the
+          declaration in front of you before anything is written.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Eyebrow className="block pb-2">INSTALLED</Eyebrow>
+      <div className="flex flex-col gap-1.5">
+        {agent.granted_skills.map((s) => (
+          <div
+            key={`skill-${s.name}`}
+            className="rounded-md border border-line2 bg-surface dark:border-line2-d dark:bg-surface-d"
+          >
+            <div className="flex items-center gap-2 px-3 py-2">
+              <span className={cx(mono, "text-sm text-text dark:text-text-d")}>{s.name}</span>
+              <span className="text-xs text-text4 dark:text-text4-d">skill</span>
+              <span className="flex-1 truncate text-xs text-text3 dark:text-text3-d">
+                {s.description}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(open === `skill-${s.name}` ? null : `skill-${s.name}`)}
+                className="cursor-pointer text-xs text-text3 underline-offset-2 hover:underline dark:text-text3-d"
+              >
+                {open === `skill-${s.name}` ? "hide" : "what it says"}
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove the ${s.name} skill`}
+                onClick={() =>
+                  patch({ granted_skills: agent.granted_skills.filter((x) => x.name !== s.name) })
+                }
+                className="cursor-pointer text-xs text-bad hover:underline dark:text-bad-d"
+              >
+                remove
+              </button>
+            </div>
+            {open === `skill-${s.name}` && (
+              <div className="border-t border-line2 px-3 py-2 dark:border-line2-d">
+                <div className="pb-1.5 text-xs text-text4 dark:text-text4-d">
+                  from {s.source || "an unnamed source"}
+                </div>
+                <pre
+                  className={cx(
+                    mono,
+                    "max-h-64 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-text2 dark:text-text2-d",
+                  )}
+                >
+                  {s.body}
+                </pre>
+              </div>
+            )}
+          </div>
+        ))}
+        {agent.mcp_servers.map((m) => (
+          <div
+            key={`mcp-${m.name}`}
+            className="rounded-md border border-line2 bg-surface dark:border-line2-d dark:bg-surface-d"
+          >
+            <div className="flex items-center gap-2 px-3 py-2">
+              <span className={cx(mono, "text-sm text-text dark:text-text-d")}>{m.name}</span>
+              <span className="text-xs text-text4 dark:text-text4-d">{m.transport.kind}</span>
+              <span className="flex-1 truncate text-xs text-text3 dark:text-text3-d">
+                {m.tools.length ? m.tools.join(", ") : "no tools declared"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(open === `mcp-${m.name}` ? null : `mcp-${m.name}`)}
+                className="cursor-pointer text-xs text-text3 underline-offset-2 hover:underline dark:text-text3-d"
+              >
+                {open === `mcp-${m.name}` ? "hide" : "how it is reached"}
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove the ${m.name} server`}
+                onClick={() =>
+                  patch({ mcp_servers: agent.mcp_servers.filter((x) => x.name !== m.name) })
+                }
+                className="cursor-pointer text-xs text-bad hover:underline dark:text-bad-d"
+              >
+                remove
+              </button>
+            </div>
+            {open === `mcp-${m.name}` && (
+              <div className="flex flex-col gap-1.5 border-t border-line2 px-3 py-2 dark:border-line2-d">
+                <div className={cx(mono, "text-xs text-text2 dark:text-text2-d")}>
+                  {reachOf(m.transport)}
+                </div>
+                <div className="text-xs text-text4 dark:text-text4-d">
+                  declared from {m.source || "an unnamed source"}
+                </div>
+                {Object.keys(m.env ?? {}).map((key) => (
+                  <label key={key} className="flex items-center gap-2">
+                    <span className={cx(mono, "w-48 shrink-0 text-xs text-text3 dark:text-text3-d")}>
+                      {key}
+                    </span>
+                    <input
+                      type="password"
+                      value={m.env?.[key] ?? ""}
+                      placeholder="not set — the server will not connect"
+                      aria-label={`Value for ${key}`}
+                      onChange={(e) =>
+                        patch({
+                          mcp_servers: agent.mcp_servers.map((x) =>
+                            x.name === m.name
+                              ? { ...x, env: { ...x.env, [key]: e.target.value } }
+                              : x,
+                          ),
+                        })
+                      }
+                      className={cx(FIELD, "px-2 py-1 text-xs")}
+                    />
+                  </label>
+                ))}
+                <div className="text-xs text-text4 dark:text-text4-d">
+                  Its tools arrive as <span className={mono}>mcp__{m.name}__&lt;tool&gt;</span> and
+                  every call still asks you. The list above is what was declared when you approved
+                  it, not what the server reports.
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function stateOf(agent: AgentProfile, running: number) {
   if (agent.paused) return { label: "paused", fg: "text-text4 dark:text-text4-d" };
@@ -84,6 +241,10 @@ function Templates() {
         tasks_enabled: true,
         max_concurrent: 1,
         skills: [],
+        // A new profile is granted nothing. Installing is an approval, not a
+        // default, and this is the one place a profile is born in the UI.
+        granted_skills: [],
+        mcp_servers: [],
         reports_to: null,
         can_delegate: false,
         expected_output: "",
@@ -783,6 +944,20 @@ export function Agents({
                     aria-label="Add a skill"
                     className="w-24 rounded-full border border-dashed border-line3 bg-transparent px-2.5 py-1 text-sm font-normal text-text2 outline-none dark:border-line3-d dark:text-text2-d"
                   />
+                </div>
+                <div className="pt-2 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                  Words for the brief, not packages: these go into the prompt as what it is relied
+                  on for. Installed skills are below.
+                </div>
+              </div>
+              <Granted agent={agent} patch={patch} />
+              <div>
+                <Eyebrow className="block pb-2">MCP AND SKILLS ARE PER AGENT</Eyebrow>
+                <div className="text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                  Nothing is inherited from this machine. A run loads this agent's own folder and
+                  the servers listed here — never your <span className={mono}>~/.claude</span>, and
+                  never a <span className={mono}>.claude</span> or{" "}
+                  <span className={mono}>.mcp.json</span> inside the repository being worked on.
                 </div>
               </div>
               <div>

@@ -53,6 +53,9 @@ import {
   WORKTREE_MODES,
   type Choice,
 } from "./generated/vocabulary";
+import type { McpGrant } from "./generated/McpGrant";
+import type { McpTransport } from "./generated/McpTransport";
+import type { SkillGrant } from "./generated/SkillGrant";
 import type { WorktreeMode } from "./generated/WorktreeMode";
 import type { WorktreeRow } from "./generated/WorktreeRow";
 
@@ -73,6 +76,8 @@ export type {
   Conversation,
   FolderInfo,
   LanguageRow,
+  McpGrant,
+  McpTransport,
   MirrorWarning,
   OutsideWork,
   PendingApproval,
@@ -86,6 +91,7 @@ export type {
   RunOutcome,
   SessionView,
   Settings,
+  SkillGrant,
   Snapshot,
   Status,
   WorktreeMode,
