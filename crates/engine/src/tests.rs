@@ -339,19 +339,32 @@ impl GitPort for FakeGit {
 /// hosted runner feels like giving them — which turns a real failure signal
 /// into a coin flip.
 /// O prazo é de relógio de parede, portanto mede a máquina e não o trabalho —
-/// e já custou quatro falhas, sempre neste ficheiro.
+/// e já custou várias falhas, sempre neste ficheiro.
 ///
-/// Não é o prazo que está errado. Baixando as worker threads deste ficheiro a
-/// duas, o `a_failed_run_leaves_work_and_the_next_run_finds_it` deixa de ser
-/// intermitente e falha **sempre**; com três, passa em 0,03s. O limiar é
-/// exacto, e o que ele diz é que há duas workers ocupadas por trabalho
-/// bloqueante enquanto o teste corre. Com o runtime a ter uma worker por
-/// núcleo, sobram threads e ninguém dá por isso; quando o workspace inteiro
-/// compila e corre ao mesmo tempo, deixam de sobrar e o teste pendura.
+/// **O reprodutor.** Acrescentar `worker_threads = 2` aos atributos
+/// `#[tokio::test(flavor = "multi_thread")]` deste ficheiro fazia o
+/// `a_failed_run_leaves_work_and_the_next_run_finds_it` falhar aos 30s. Fica
+/// documentado, não ligado: um `worker_threads = 2` comitado põe o CI a falhar
+/// em todos os releases.
 ///
-/// Ou seja: a intermitência é o sintoma, o bloqueio é a doença, e subir o
-/// prazo só faria a falha demorar mais a aparecer. O reprodutor determinista
-/// é `worker_threads = 2`.
+/// **A leitura antiga estava errada.** Dizia-se aqui que havia duas worker
+/// threads presas em trabalho bloqueante e que faltava uma terceira para haver
+/// progresso. Não havia. A prova é o próprio `wait_for`: ele só entra em
+/// `panic` depois de `check().await` **voltar** — se o actor estivesse preso, a
+/// sondagem nunca voltava e o teste pendurava para sempre em vez de estourar
+/// aos 30,0s. Instrumentado, o actor respondeu a 93 sondagens em 2s enquanto
+/// "não progredia".
+///
+/// **O que era.** O teste esperava por `active_runs()` não vazio — um estado
+/// **transitório**. O `WritesThenFailsAgent` morre no primeiro turno, portanto
+/// com poucas workers o segundo run nascia e acabava antes da primeira
+/// sondagem; a partir daí a lista nunca mais enchia e o prazo era gasto à
+/// espera de algo que já tinha acontecido. Mais threads não curavam nada:
+/// só faziam a sondagem chegar a tempo de apanhar a janela.
+///
+/// A regra que fica: **sondar factos que só acumulam** (um evento no log, um
+/// estado terminal), nunca uma janela que fecha sozinha. Subir o prazo continua
+/// a ser a correcção errada — só faria a falha demorar mais a aparecer.
 const WAIT_BUDGET: Duration = Duration::from_secs(30);
 const WAIT_POLL: Duration = Duration::from_millis(20);
 
@@ -2144,9 +2157,21 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
     );
 
     human.max_budget_usd = Some(1.0); // clears what run 1 spent
-    handle.start_run(id.clone(), "two".into(), human).await.unwrap();
-    wait_for("second run registers", async || {
-        !handle.active_runs().await.unwrap().is_empty()
+    let second = handle.start_run(id.clone(), "two".into(), human).await.unwrap();
+
+    // Esperar por `active_runs()` era esperar por um estado **transitório**: o
+    // `WritesThenFailsAgent` morre no primeiro turno, portanto o segundo run
+    // podia nascer e acabar antes da primeira sondagem, e a partir daí a lista
+    // de activos nunca mais voltava a encher. O `wait_for` gastava então os 30s
+    // inteiros à espera de algo que já tinha acontecido.
+    //
+    // O que este teste quer saber é que o segundo run **ficou registado**, e
+    // isso é durável: o `RunStarted` dele fica no log para sempre. Espera-se
+    // por um facto que só pode acumular, nunca por uma janela que fecha.
+    wait_for("o segundo run fica registado", async || {
+        store.events().iter().any(
+            |e| matches!(e, Event::RunStarted { run_id, .. } if run_id == &second),
+        )
     })
     .await;
 
