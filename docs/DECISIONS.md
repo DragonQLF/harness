@@ -1529,3 +1529,164 @@ veredicto é que a derivação está certa — pela razão mais aborrecida poss�
 Nada mais foi tocado. Um relatório que diz "auditei, está bem, e eis porquê"
 vale mais do que uma alteração inventada — e as duas que se fizeram descrevem-se
 sem recorrer a "por segurança".
+
+### 90. O aviso leva os factos ao lado da frase
+O #88 deixou-o dito com todas as letras: o evento `mirror://outside-work`
+levava **uma string** — o parágrafo do `mirror::describe()` — e o `OutsideWork`
+de onde ela nasceu nunca atravessava. O ecrã ficava com prosa onde queria
+dados, e com um problema por cima: metade daquele parágrafo fala ao Director na
+segunda pessoa ("say which open cards…, do not close a card"), e pôr isso à
+frente do operador lê-se como uma ordem dada a ele. O #86 diz o contrário — o
+Director sinaliza, o operador decide.
+
+A defesa era cortar a frase numa marca literal (`outsideWorkParts`). Funcionava
+e degradava com segurança — se a redacção mudasse via-se o aviso inteiro, nunca
+menos —, mas não era dados, e o preço estava à vista: sem número de commits,
+sem lista de ficheiros e sem `since_ms`, não havia chips, só um parágrafo.
+
+**O corte muda-se para onde a redacção vive.** `mirror::FOR_DIRECTOR` passa a
+ser a constante com a metade que fala ao Director, e o `describe()` passa a ser
+"factos + `FOR_DIRECTOR`" — a mesma frase, no mesmo sítio, para o mesmo leitor.
+O evento passa a levar um `MirrorWarning { work, for_director }`, com `work` a
+ser o `OutsideWork` derivado em `TS` (`pnpm codegen`, nunca
+`cargo test -p <crate> --test export_types`, que o `DEBT.md` regista como
+corrompendo os tipos com `bigint`).
+
+Três decisões dentro disto:
+
+1. **O `said` não atravessa.** O parágrafo inteiro continua a existir e a ir
+   para o prompt do Director (`chat.rs`), mas não vai para a janela: o ecrã
+   nunca o mostrou inteiro e não passa a mostrar. Mandá-lo seria mandar duas
+   vezes o mesmo — `said` é `factos + FOR_DIRECTOR` — e um campo que ninguém
+   desenha é um convite a desenhá-lo. O `Workspace` guarda os dois juntos num
+   `Finding`, porque os dois leitores querem metades do mesmo achado e nenhum
+   deve reconstruir a do outro.
+2. **A frase não se recalcula.** O `describe()` corre uma vez, no momento do
+   olhar, e a idade que cita ("the oldest 3 hours ago") é relativa a esse
+   instante. Voltar a escrevê-la ao montar o prompt daria uma frase diferente
+   para o mesmo achado — mais correcta quanto à idade, e diferente da que o
+   Director já tinha recebido. Fica como estava.
+3. **O ecrã mostra o mesmo, como dados.** Chips (`3 commits · 12 files ·
+   oldest 4h ago`), a lista de ficheiros já cortada pelo backend
+   (`FILES_NAMED`) e o `and N more` contado do `files_total`. A idade sai do
+   `since_ms` — que é um facto do repositório, não da janela — e quando o git
+   não datou nada diz-se, tal como a frase dizia. Nada de novo: nem mais um
+   conselho, nem menos um facto. O *"what the Director was told"* continua a
+   ser exactamente a metade que ele leva, agora porque vem separada e não
+   porque se acertou no corte.
+
+Um teste garante o que a etiqueta promete: `describe()` **acaba** em
+`FOR_DIRECTOR`, e os factos não repetem a instrução. Era isto que o corte de
+prosa não podia garantir.
+
+### 91. O aviso do arranque deixa de depender de quem estava a ouvir
+O emit do arranque nasce dentro do `setup()` do `lib.rs`, **antes de a webview
+existir**, e o `look_for_outside_work` só demora o que o git demorar. Git
+rápido e janela lenta: o aviso é emitido para ninguém. Recarregar a janela
+perde-o da mesma maneira. O backend guardava-o (`ws.outside_work()`) e o
+`chat.rs` lia-o para o prompt do Director — o operador é que não tinha por onde
+o pedir. O *"nothing is silently lost"* do `PRODUCT.md` a falhar não por o
+aviso não existir, mas por não haver quem o vá buscar.
+
+**Um campo `outside_work` no `Bootstrap`**, que é a chamada única que a UI faz
+ao abrir e existe precisamente para não haver cascata no primeiro pintar. O
+mesmo `MirrorWarning` que o evento leva, lido do mesmo sítio
+(`outside_work_warning()`). Fecha os dois casos com um caminho só, e não
+inventa um comando novo para uma coisa que já tem uma chamada.
+
+O `look_for_outside_work` passa a **guardar antes de anunciar**. Uma janela que
+ouve o evento e pergunta no mesmo fôlego não pode ser informada de que não há
+nada a relatar.
+
+**A chave de identidade são os factos, não a frase.** O mesmo achado chega
+agora por dois caminhos e o operador não pode ver o aviso duas vezes. A chave é
+`commits · since_ms · files_total · files` — o que o backend descobriu **sobre
+o repositório**, igual venha por onde vier. A frase não serve: a idade que ela
+cita é relativa ao instante em que foi escrita, e a mesma descoberta descrita
+duas vezes daria duas frases diferentes. Hoje isso não acontece — o `describe()`
+corre uma vez e é essa string que os dois caminhos carregam —, mas uma chave que
+só funciona enquanto ninguém voltar a escrever a frase é a mesma fragilidade que
+o #90 acabou de tirar do ecrã.
+
+Duas consequências que se assumem:
+
+- **O livro dos avisos já vistos é um `ref`, não a lista.** A decisão tem de
+  ser tomada na chamada: um `setState` corre no render seguinte, tarde demais
+  para dizer se o toast é devido. E *Dismiss* tira a entrada do rail sem
+  esquecer a chave, portanto a cópia que chega pelo outro caminho não a põe de
+  volta.
+- **Um toast por aviso e por janela**, venha do evento ou do bootstrap. É a
+  mesma afirmação que o rail faz com o *"seen HH:MM"*: **esta** janela acabou de
+  saber disto. Recarregar volta a tocar uma vez por um aviso que ainda está
+  aberto — que é um lembrete do que está no rail, não uma notícia nova.
+
+### 92. Auditoria: o frontend continua sem verdade — com uma excepção, e fechou-se
+O `PRODUCT.md` diz, nas restrições técnicas: *"The frontend holds no truth: it
+sends intents and renders backend snapshots rather than replaying domain rules
+in TypeScript."* Depois de um dia em que o `src/` levou a migração para
+Tailwind (#80), a divisão do `store.tsx` em `store`/`events`/`chat` (#87) e a
+superfície nova do #88, a regra foi auditada de ponta a ponta.
+
+**O veredicto é que se aguenta, e a razão é estrutural**: os dois mecanismos que
+a fazem cumprir-se existem e são usados. O `vocabulary.ts` é escrito pelo
+`vocabulary.rs` a partir de **serializar os próprios enums**, portanto um id no
+frontend é por construção um id que o backend parseia (`STATUS_ORDER`,
+`STATUS_NAME`, `REVIEWERS`, `WORKTREE_MODES`, `MODELS`, `ALL_PERMISSIONS`); e o
+resto dos tipos vem do ts-rs (#51). Nenhum comando IPC mudou de forma. O
+`RightNow` não tem um único `useMemo` (#89) e o valor do contexto é um objecto
+novo a cada render, portanto não há derivação a segurar valores velhos.
+
+**Uma violação real, e é a única desta classe: a tabela de transições.** O
+`Board.tsx` tinha `LEGAL: Record<Status, Status[]>` escrita à mão — cópia exacta
+do `Status::LEGAL_MOVES` do `crates/domain`, que **não era exportado**. E não
+era decoração: o `drop()` recusava a jogada e **retornava em silêncio**, sem o
+backend chegar a ouvir falar dela, e o `canDrop` decidia que colunas se acendem.
+Duas cópias de uma máquina de estados não falham como uma gralha — falham como
+uma coluna que recusa um cartão que o motor aceitaria, ou que oferece um que ele
+vai rejeitar, sem erro em lado nenhum.
+
+Corrigido a favor do backend pelo mecanismo que já existia: o `vocabulary.rs`
+passa a escrever `LEGAL_MOVES`, derivado de `Status::can_move_to` e não de uma
+lista transcrita, e o `Board.tsx` lê-o. Comportamento idêntico — a tabela era a
+mesma —, com um dono só. Um teste fecha os dois lados: tudo o que se oferece é
+uma jogada legal, e o número de jogadas oferecidas é o número de jogadas que
+existem.
+
+**O que se encontrou e se anota em vez de corrigir**, porque corrigir no
+frontend seria acrescentar a réplica em vez de a tirar:
+
+- **Começar um cartão.** O `App.tsx` oferece *"Start:"* a qualquer cartão em
+  `ready`; o motor exige mais três coisas (`crates/domain`: `!budget_paused`,
+  e todas as `depends_on` em `Done`). O `Card` já traz os dois campos e o
+  frontend não os lê. Escrever a regra em TypeScript seria replicá-la; o que
+  fecha isto é o backend dizer se um cartão arranca, e porquê.
+- **"Done today" tem duas definições.** O número no cabeçalho é o
+  `stats.done_today` do `insights.rs`; a lista por baixo é
+  `activity.filter(a => a.kind === "review" && a.label.startsWith("Approved"))`
+  com a meia-noite do relógio do browser. Ou seja: um facto de domínio
+  reconhecido **pela prosa inglesa de uma etiqueta** — a mesma classe do #90 —
+  e uma segunda noção de "hoje" ao lado da que o backend usa
+  (`day_index(ts_ms, tz_offset_minutes)`). O #89 verificou que hoje batem
+  certo, e batem; o que não se pode garantir é que continuem a bater. Fecha-se
+  com um discriminador na `ActivityRow`, e isso mexe no vocabulário dos filtros
+  da Activity.
+- **`ruleIsRevoked` no `types.ts`** repete a lista de shells do
+  `allow.rs::is_inert` (`bash`, `shell`, `sh`, `powershell`). É uma regra de
+  segurança em duplicado. O `bootstrap` já traz `revoked_allowances` calculado
+  pelo backend — falta o ecrã das definições poder perguntar o mesmo por regra.
+- **`NavRail` compara o gasto contra `settings?.daily_budget_usd ?? 10`.** O
+  `10` é um tecto inventado no frontend. Hoje é **inalcançável** — o `App.tsx`
+  só desenha o rail depois de `ready`, e `ready` só sobe depois de o bootstrap
+  ter posto o `settings` —, portanto não é divergência a correr: é uma defesa
+  morta à espera do dia em que passe a ser alcançável. Anotado por isso, e não
+  corrigido, que seria mexer sem nada mudar.
+- **O `RunUpdate` escrito à mão no `types.ts` está atrás do `RunEvent` do
+  Rust**: `error`, `ok`, `detail`, `tool_use_id` e `parent_tool_use_id` existem
+  no backend e chegam ao `events.ts` por *cast*. Não é regra de domínio
+  replicada — é o espelho manual a ficar para trás, que o próprio ficheiro
+  assume manter "loose on purpose".
+
+Nada disto é derivação a divergir do snapshot: os contadores que o rail e o
+quadro fazem com `filter(...).length` recalculam-se do `snapshot` a cada render
+e não podem ficar velhos. São, quando muito, aritmética que o backend também
+sabe — e essa é uma escolha de latência, não de verdade.
