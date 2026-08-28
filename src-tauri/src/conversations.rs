@@ -82,6 +82,11 @@ enum Msg {
         message: String,
         reply: oneshot::Sender<Result<Conversation, String>>,
     },
+    RecordVersion {
+        id: String,
+        version: String,
+        reply: oneshot::Sender<()>,
+    },
     RecordSession {
         id: String,
         session_id: String,
@@ -216,6 +221,11 @@ impl Conversations {
                 } => {
                     let answer = self.index.record_message(&id, &message, now).and_then(|c| self.save().map(|()| c));
                     let _ = reply.send(answer);
+                }
+                Msg::RecordVersion { id, version, reply } => {
+                    self.index.record_version(&id, &version);
+                    self.save_quietly();
+                    let _ = reply.send(());
                 }
                 Msg::RecordSession {
                     id,
@@ -401,6 +411,18 @@ impl ConversationsHandle {
             reply,
         })
         .await?
+    }
+
+    /// Fica registado que esta conversa já foi informada desta versão, para o
+    /// aviso ser dito uma vez e não a cada turno.
+    pub async fn record_version(&self, id: &str, version: &str) {
+        let _ = self
+            .ask(|reply| Msg::RecordVersion {
+                id: id.to_string(),
+                version: version.to_string(),
+                reply,
+            })
+            .await;
     }
 
     pub async fn record_session(&self, id: &str, session_id: &str) {

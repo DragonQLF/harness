@@ -23,6 +23,17 @@ profile_id: string,
  */
 project_id: string | null, title: string, created_ms: number, updated_ms: number, archived: boolean, 
 /**
+ * A versão do Relay que esta conversa viu da última vez.
+ *
+ * Existe para uma coisa só: uma sessão retomada não sabe que o binário
+ * mudou por baixo dela. O Director percebeu uma actualização porque lhe
+ * apareceram ferramentas novas na lista — deduziu-a pelo efeito, que é a
+ * pior maneira de saber uma coisa que alguém lhe podia ter dito. Guardar
+ * a última vista é o que permite dizê-lo **uma vez**, em vez de repetir a
+ * versão a cada turno num ramo que existe para não repetir nada.
+ */
+seen_version: string | null, 
+/**
  * How many turns the operator has sent. Only for the list.
  */
 messages: number, cost_usd: number, 

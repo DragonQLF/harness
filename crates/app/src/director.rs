@@ -116,6 +116,9 @@ pub struct ChatContext<'a> {
     /// boards — not a rule. Absent on every project but the mirror, and absent
     /// whenever nothing came in outside the board, which is the normal case.
     pub outside_work: Option<&'a str>,
+    /// A versão que está a correr, **apenas quando mudou** desde o último turno
+    /// desta conversa. Um facto, como os boards — e não uma regra.
+    pub new_version: Option<&'a str>,
 }
 
 fn status_word(status: Status) -> &'static str {
@@ -250,6 +253,15 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
             prompt.push_str("(Current state of the boards, which may have changed since we last spoke:\n\n");
             prompt.push_str(&boards(ctx.projects));
             prompt.push_str(")\n\n");
+        }
+        // Antes da mensagem, porque é contexto e não conversa: o binário por
+        // baixo desta sessão mudou, e nada mais lho diria.
+        if let Some(version) = ctx.new_version {
+            prompt.push_str(&format!(
+                "(Relay updated itself to {version} since your last turn. Your tools may have \
+                 changed. The code you can read is the repository's, which is not necessarily \
+                 this build — check before you claim either way.)\n\n"
+            ));
         }
         prompt.push_str(ctx.user_name.trim());
         prompt.push_str(": ");
@@ -593,6 +605,7 @@ mod tests {
 
     fn ctx<'a>(projects: &'a [ProjectBrief]) -> ChatContext<'a> {
         ChatContext {
+            new_version: None,
             speaker: director(),
             user_name: "Fernando",
             projects,
@@ -602,6 +615,37 @@ mod tests {
             global_memory: "",
             outside_work: None,
         }
+    }
+
+    /// Uma sessão retomada não sabe que o binário mudou por baixo dela.
+    ///
+    /// O Director percebeu uma actualização real porque lhe apareceram
+    /// ferramentas novas na lista — deduziu-a pelo efeito. E o ramo retomado
+    /// do prompt **retorna** antes de tudo o que é identidade, portanto um
+    /// aviso posto no sítio errado nunca lhe chegaria enquanto a conversa
+    /// estivesse viva. Este teste prende as duas metades: que é dito, e que é
+    /// dito no ramo que corre a cada turno.
+    #[test]
+    fn a_resumed_session_is_told_when_the_build_changed_under_it() {
+        let mut c = ctx(&[]);
+        c.resumed = true;
+        c.new_version = Some("0.3.4");
+        let prompt = chat_prompt(&c, "hey");
+        assert!(prompt.contains("0.3.4"), "prompt foi: {prompt}");
+        assert!(
+            prompt.contains("updated itself"),
+            "o aviso não sobreviveu ao ramo retomado: {prompt}"
+        );
+    }
+
+    /// E cala-se quando nada mudou: o ramo retomado existe para não repetir o
+    /// que a sessão já sabe, e uma versão dita a cada turno é ruído.
+    #[test]
+    fn an_unchanged_build_is_not_worth_a_line() {
+        let mut c = ctx(&[]);
+        c.resumed = true;
+        let prompt = chat_prompt(&c, "hey");
+        assert!(!prompt.contains("updated itself"), "prompt foi: {prompt}");
     }
 
     #[test]

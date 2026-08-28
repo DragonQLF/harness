@@ -125,6 +125,14 @@ pub async fn send(
     let global_memory =
         harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
     let outside_work = ws.outside_work().await;
+    // A versão só se diz quando mudou. Numa sessão retomada nada mais lho
+    // contaria: as ferramentas aparecem-lhe na lista sem explicação, e deduzir
+    // uma actualização pelo efeito é a pior maneira de a saber.
+    let running = env!("CARGO_PKG_VERSION");
+    let new_version = (conversation.seen_version.as_deref() != Some(running)).then_some(running);
+    if new_version.is_some() {
+        ws.record_chat_version(&conversation.id, running).await;
+    }
     let prompt = director::chat_prompt(
         &ChatContext {
             speaker: Speaker {
@@ -146,6 +154,7 @@ pub async fn send(
             // Only what the last look found; the look itself runs at startup
             // and at the close, never on a turn the operator is waiting for.
             outside_work: outside_work.as_deref(),
+            new_version,
         },
         &message,
     );

@@ -31,6 +31,16 @@ pub struct Conversation {
     pub created_ms: u64,
     pub updated_ms: u64,
     pub archived: bool,
+    /// A versão do Relay que esta conversa viu da última vez.
+    ///
+    /// Existe para uma coisa só: uma sessão retomada não sabe que o binário
+    /// mudou por baixo dela. O Director percebeu uma actualização porque lhe
+    /// apareceram ferramentas novas na lista — deduziu-a pelo efeito, que é a
+    /// pior maneira de saber uma coisa que alguém lhe podia ter dito. Guardar
+    /// a última vista é o que permite dizê-lo **uma vez**, em vez de repetir a
+    /// versão a cada turno num ramo que existe para não repetir nada.
+    #[serde(default)]
+    pub seen_version: Option<String>,
     /// How many turns the operator has sent. Only for the list.
     pub messages: u32,
     pub cost_usd: f64,
@@ -51,6 +61,7 @@ impl Default for Conversation {
             created_ms: 0,
             updated_ms: 0,
             archived: false,
+            seen_version: None,
             messages: 0,
             cost_usd: 0.0,
             resume_failed: false,
@@ -262,6 +273,13 @@ impl ConversationIndex {
 
     /// The native session could not be resumed. Drop it rather than retrying
     /// forever, and remember that we did so the UI can say it plainly.
+    /// Regista que esta conversa já foi informada desta versão.
+    pub fn record_version(&mut self, id: &str, version: &str) {
+        if let Some(entry) = self.get_mut(id) {
+            entry.seen_version = Some(version.to_string());
+        }
+    }
+
     pub fn record_resume_failure(&mut self, id: &str, now_ms: u64) -> Option<Conversation> {
         let entry = self.get_mut(id)?;
         entry.session_id = None;
