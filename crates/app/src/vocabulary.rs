@@ -59,6 +59,39 @@ pub fn statuses() -> Vec<Choice> {
     ]
 }
 
+/// Every column, in the order the board draws them.
+const COLUMNS: [Status; 5] = [
+    Status::Backlog,
+    Status::Ready,
+    Status::Running,
+    Status::Review,
+    Status::Done,
+];
+
+/// Which column a card may move to, from where.
+///
+/// This is `Status::LEGAL_MOVES` — the state machine itself — and it is here
+/// for the same reason the ids are: the board decides which drop targets to
+/// offer and which drags to refuse, and it was deciding that from a table
+/// typed out again in `Board.tsx`. Two copies of a transition table do not
+/// fail like a typo. They fail as a column that refuses a card the engine
+/// would have accepted, or offers one it will reject — with no error anywhere,
+/// because the frontend swallows the move it thinks is illegal before the
+/// backend ever hears about it.
+pub fn legal_moves() -> Vec<(String, Vec<String>)> {
+    COLUMNS
+        .iter()
+        .map(|from| {
+            let to = COLUMNS
+                .iter()
+                .filter(|dest| from.can_move_to(**dest))
+                .map(id_of)
+                .collect();
+            (id_of(from), to)
+        })
+        .collect()
+}
+
 pub fn worktree_modes() -> Vec<Choice> {
     vec![
         choice(&WorktreeMode::PerCard, "Per card", "A fresh branch and checkout for every card"),
@@ -131,6 +164,20 @@ pub fn typescript() -> String {
     out.push_str(&render("REVIEWERS", "Who reads the diff when a run finishes.", &reviewers()));
     out.push_str(&render("MODELS", "What the Claude login offers.", &models()));
 
+    let moves: Vec<String> = legal_moves()
+        .into_iter()
+        .map(|(from, to)| {
+            let dests: Vec<String> = to.iter().map(|d| json(d)).collect();
+            format!("  {}: [{}],", json(&from), dests.join(", "))
+        })
+        .collect();
+    out.push_str(&format!(
+        "/** Which column a card may move to, from where — `Status::LEGAL_MOVES`\n \
+         *  itself, not a copy of it. A move outside this table is an override,\n \
+         *  and an override needs a reason. */\nexport const LEGAL_MOVES: Record<string, string[]> = {{\n{}\n}};\n\n",
+        moves.join("\n")
+    ));
+
     let permissions: Vec<String> = ALL_PERMISSIONS.iter().map(|p| json(p)).collect();
     out.push_str(&format!(
         "/** Every reach an agent can hold. `allowed_tools` in the backend is what\n \
@@ -155,6 +202,28 @@ mod tests {
 
         let ids: Vec<String> = statuses().into_iter().map(|c| c.id).collect();
         assert_eq!(ids, ["backlog", "ready", "running", "review", "done"], "left to right");
+    }
+
+    /// A tabela que o quadro desenha é a máquina de estados, não uma cópia
+    /// dela: acrescentar uma transição no domínio tem de chegar ao ecrã sem
+    /// ninguém ir lá escrevê-la outra vez.
+    #[test]
+    fn the_moves_offered_are_the_moves_the_engine_accepts() {
+        for (from, to) in legal_moves() {
+            for dest in &to {
+                assert!(
+                    Status::LEGAL_MOVES.iter().any(|(f, d)| id_of(f) == from && id_of(d) == *dest),
+                    "{from} -> {dest} is not a legal move"
+                );
+            }
+        }
+        let offered: usize = legal_moves().iter().map(|(_, to)| to.len()).sum();
+        assert_eq!(offered, Status::LEGAL_MOVES.len(), "every legal move is offered, and no other");
+        assert_eq!(
+            legal_moves().into_iter().find(|(from, _)| from == "done").map(|(_, to)| to),
+            Some(vec![]),
+            "nothing leaves Done"
+        );
     }
 
     #[test]

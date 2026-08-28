@@ -40,6 +40,17 @@ export const MODELS: Choice[] = [
   { id: "haiku", name: "Haiku", hint: "Fast and cheap, for lookups" },
 ];
 
+/** Which column a card may move to, from where — `Status::LEGAL_MOVES`
+ *  itself, not a copy of it. A move outside this table is an override,
+ *  and an override needs a reason. */
+export const LEGAL_MOVES: Record<string, string[]> = {
+  "backlog": ["ready"],
+  "ready": ["backlog", "running"],
+  "running": ["ready", "review"],
+  "review": ["ready", "done"],
+  "done": [],
+};
+
 /** Every reach an agent can hold. `allowed_tools` in the backend is what
  *  each one means to a run. */
 export const ALL_PERMISSIONS: string[] = ["Read", "Search", "Edit", "Write", "Git", "Web", "Shell"];

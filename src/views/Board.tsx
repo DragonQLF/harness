@@ -4,6 +4,7 @@ import { money, plural } from "../lib/format";
 import { cx } from "../lib/cx";
 import { arrive, colIn, paneIn, rowIn, sheetIn } from "../lib/motion";
 import {
+  LEGAL_MOVES,
   STATUS_NAME,
   STATUS_ORDER,
   tone,
@@ -11,15 +12,6 @@ import {
 } from "../lib/types";
 import { useStore } from "../state/store";
 import { Glyph, Loading, mono, truncate } from "../components/ui";
-
-/** Moves the board offers by hand; anything else needs an override. */
-const LEGAL: Record<Status, Status[]> = {
-  backlog: ["ready"],
-  ready: ["backlog", "running"],
-  running: ["ready", "review"],
-  review: ["ready", "done"],
-  done: [],
-};
 
 /** What an empty column actually means. "Empty" five times over is the same
  *  word standing in for five different states of the work. */
@@ -188,7 +180,7 @@ export function Board({
     setOver(null);
     const card = dragged;
     setDrag(null);
-    if (!card || card.status === to || !LEGAL[card.status].includes(to)) return;
+    if (!card || card.status === to || !LEGAL_MOVES[card.status].includes(to)) return;
     if (to === "running") startRun(card.id);
     else if (to === "done") openReview(card.id);
     else moveCard(card.id, to);
@@ -235,7 +227,7 @@ export function Board({
         {STATUS_ORDER.map((status, ci) => {
           const list = cards.filter((c) => c.status === status);
           const color = COLUMN_COLOR[status];
-          const canDrop = dragged ? LEGAL[dragged.status].includes(status) : false;
+          const canDrop = dragged ? LEGAL_MOVES[dragged.status].includes(status) : false;
           const hot = over === status && canDrop;
           const took = list.some(
             (c) => arrived.get(c.id) === "forward" || arrived.get(c.id) === "back",

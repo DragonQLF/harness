@@ -46,6 +46,7 @@ import type { CatalogModel } from "./generated/CatalogModel";
 import type { Status } from "./generated/Status";
 import {
   ALL_PERMISSIONS,
+  LEGAL_MOVES as GENERATED_LEGAL_MOVES,
   MODELS,
   REVIEWERS,
   STATUSES,
@@ -295,6 +296,12 @@ export interface ClosingPhase {
 // STATUS_ORDER and STATUS_NAME are the backend's vocabulary now: see
 // generated/vocabulary.ts, written by crates/app/src/vocabulary.rs.
 export const STATUS_ORDER: Status[] = STATUSES.map((s) => s.id as Status);
+
+/** Which column a card may move to, from where. The backend's own
+ *  `Status::LEGAL_MOVES`, generated rather than typed out here: the board
+ *  offers exactly the moves the engine accepts, and stops holding a second
+ *  copy of the state machine that can quietly drift from it. */
+export const LEGAL_MOVES = GENERATED_LEGAL_MOVES as Record<Status, Status[]>;
 
 export const STATUS_NAME: Record<Status, string> = Object.fromEntries(
   STATUSES.map((s) => [s.id, s.name]),
