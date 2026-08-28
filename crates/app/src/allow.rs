@@ -112,7 +112,21 @@ pub fn command_of(input: &serde_json::Value) -> Option<String> {
 /// a silent one, and the whole point of the gate is that the operator sees each
 /// one. Approving a grant is a decision about a specific agent and a specific
 /// reach; there is no version of it that is safe to answer in advance.
-pub const NEVER_STANDING: &[&str] = &["grant_agent_tools", "mcp__harness__grant_agent_tools"];
+///
+/// All three grants sit here for the same reason, and the reason is sharper
+/// for two of them than for tools: a skill is markdown the model went and
+/// found, and an MCP server is code the model went and found. Standing
+/// approval for either means the next page that says "also install this" is
+/// installed without anyone reading it — which is exactly the injection the
+/// declaration was designed to make visible.
+pub const NEVER_STANDING: &[&str] = &[
+    "grant_agent_tools",
+    "mcp__harness__grant_agent_tools",
+    "install_skill",
+    "mcp__harness__install_skill",
+    "add_mcp_server",
+    "mcp__harness__add_mcp_server",
+];
 
 /// Is this a call no standing rule may ever cover?
 pub fn never_standing(tool: &str) -> bool {
@@ -164,6 +178,13 @@ impl AllowRule {
     pub fn derive(tool: &str, input: &serde_json::Value) -> Option<Self> {
         let tool = tool.trim();
         if tool.is_empty() {
+            return None;
+        }
+        // A grant cannot become standing, so no rule is written for one. It was
+        // already refused at `covers`, which meant the operator could tick
+        // "stop asking me about this", watch the rule appear in Settings, and
+        // still be asked every time — a promise on screen that nothing kept.
+        if never_standing(tool) {
             return None;
         }
         match command_of(input) {
@@ -289,6 +310,22 @@ mod tests {
             "one careless 'always allow' would make every future grant silent"
         );
         assert!(never_standing("mcp__harness__grant_agent_tools"));
+        // The two grants that arrive from something the model read on the web
+        // are held to the same line, and for a sharper reason: a standing yes
+        // would install the next one without anyone reading it.
+        for grant in [
+            "install_skill",
+            "mcp__harness__install_skill",
+            "add_mcp_server",
+            "mcp__harness__add_mcp_server",
+        ] {
+            assert!(never_standing(grant), "{grant} must be asked every time");
+            let named = AllowRule { tool: grant.to_string(), command: None };
+            assert!(!named.covers(grant, &serde_json::json!({}), ""));
+            // And no rule is even written: a rule that appears in Settings and
+            // authorises nothing is a promise the screen does not keep.
+            assert!(AllowRule::derive(grant, &serde_json::json!({})).is_none());
+        }
         assert!(!never_standing("create_card"), "ordinary calls still allow standing rules");
     }
 
