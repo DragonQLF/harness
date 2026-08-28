@@ -163,6 +163,9 @@ fn default_agent() -> String {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
     CardCreated { card_id: CardId, title: String },
+    /// The card's text was corrected before anything ran on it. Only ever
+    /// emitted while `runs == 0`, so the log never contradicts the card.
+    CardEdited { card_id: CardId, title: String },
     CardAssigned { card_id: CardId, agent_id: String },
     CardMoved { card_id: CardId, from: Status, to: Status },
     CardOverridden { card_id: CardId, from: Status, to: Status, reason: String },
@@ -247,6 +250,7 @@ impl Event {
     pub fn card_id(&self) -> Option<&CardId> {
         match self {
             Event::CardCreated { card_id, .. }
+            | Event::CardEdited { card_id, .. }
             | Event::CardAssigned { card_id, .. }
             | Event::CardMoved { card_id, .. }
             | Event::CardOverridden { card_id, .. }
@@ -269,6 +273,15 @@ impl Event {
 #[derive(Debug, Clone)]
 pub enum Command {
     CreateCard { card_id: CardId, title: String },
+    /// Correct a card's text. The title is the prompt the agent receives and
+    /// the subject of the commit it leaves behind, so a badly written one has
+    /// to be fixable without discarding the card — discarding loses the id,
+    /// the history, the session and every dependency pointing at it.
+    ///
+    /// Allowed only while `runs == 0`. After the first run the log, the
+    /// transcript and the commit already say what the old title asked for;
+    /// rewriting it then makes the record stop matching the card.
+    EditCard { card_id: CardId, title: String },
     AssignAgent { card_id: CardId, agent_id: String },
     MoveCard { card_id: CardId, to: Status },
     OverrideCard { card_id: CardId, to: Status, reason: String },
@@ -326,6 +339,11 @@ pub enum DecisionError {
     EmptyReport,
     /// The card is paused by its own budget ceiling; raise it to continue.
     BudgetPaused(CardId),
+    /// The card has already run, so its text is no longer only a request: it
+    /// is what the transcript and the commit answered.
+    AlreadyRan { card_id: CardId, runs: u32 },
+    /// The edit asked for the title the card already has.
+    SameTitle,
 }
 
 impl fmt::Display for DecisionError {
@@ -374,6 +392,13 @@ impl fmt::Display for DecisionError {
                     "{id} is paused by its budget ceiling — raise the agent's budget, then press Start to continue from the saved session"
                 )
             }
+            DecisionError::AlreadyRan { card_id, runs } => write!(
+                f,
+                "{card_id} has already run {runs} time(s): its title is what the transcript and \
+                 the commit answered, so changing it now would make the record stop matching the \
+                 card. Say what should be different instead, or take a new card for the rest"
+            ),
+            DecisionError::SameTitle => write!(f, "that is the title the card already has"),
         }
     }
 }
@@ -422,6 +447,11 @@ impl Board {
                         budget_paused: false,
                     },
                 );
+            }
+            Event::CardEdited { card_id, title } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    card.title = title.clone();
+                }
             }
             Event::CardAssigned { card_id, agent_id } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
@@ -537,6 +567,33 @@ impl Board {
                     return Err(DecisionError::DuplicateCard(card_id.clone()));
                 }
                 Ok(vec![Event::CardCreated {
+                    card_id: card_id.clone(),
+                    title: trimmed.to_string(),
+                }])
+            }
+            Command::EditCard { card_id, title } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                let trimmed = title.trim();
+                if trimmed.is_empty() {
+                    return Err(DecisionError::EmptyTitle);
+                }
+                // The line that makes this safe: a card that has run has a
+                // transcript and a commit whose subject is the old title. The
+                // count covers Running too — `runs` goes up when a run starts,
+                // not when it ends.
+                if card.runs > 0 {
+                    return Err(DecisionError::AlreadyRan {
+                        card_id: card_id.clone(),
+                        runs: card.runs,
+                    });
+                }
+                if trimmed == card.title {
+                    return Err(DecisionError::SameTitle);
+                }
+                Ok(vec![Event::CardEdited {
                     card_id: card_id.clone(),
                     title: trimmed.to_string(),
                 }])
@@ -1412,6 +1469,96 @@ mod tests {
             }),
             Err(DecisionError::RunMismatch)
         ));
+    }
+
+    /// The title is the prompt. A card that has not run yet is still only a
+    /// request, so correcting it keeps the id, the history and every
+    /// dependency pointing at it — which discarding and recreating would lose.
+    #[test]
+    fn a_cards_title_can_be_corrected_before_it_has_run() {
+        let mut board = Board::default();
+        let id = CardId::new("e1");
+        card_in(&mut board, &id, Backlog);
+        drive(
+            &mut board,
+            &Command::EditCard {
+                card_id: id.clone(),
+                title: "  say what the agent should actually do  ".into(),
+            },
+        );
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.title, "say what the agent should actually do");
+        assert_eq!(card.id, id, "the id survives the correction");
+        assert_eq!(card.status, Backlog);
+
+        // Ready is still before the first run: the prompt has not been read.
+        drive(&mut board, &Command::MoveCard { card_id: id.clone(), to: Ready });
+        drive(
+            &mut board,
+            &Command::EditCard { card_id: id.clone(), title: "once more".into() },
+        );
+        assert_eq!(board.get(&id).unwrap().title, "once more");
+
+        assert!(matches!(
+            board.decide(&Command::EditCard { card_id: id.clone(), title: "   ".into() }),
+            Err(DecisionError::EmptyTitle)
+        ));
+        assert!(matches!(
+            board.decide(&Command::EditCard { card_id: id.clone(), title: "once more".into() }),
+            Err(DecisionError::SameTitle)
+        ));
+        assert!(matches!(
+            board.decide(&Command::EditCard {
+                card_id: CardId::new("nobody"),
+                title: "x".into(),
+            }),
+            Err(DecisionError::CardNotFound(_))
+        ));
+    }
+
+    /// And the other side: once a run has read the title, the transcript and
+    /// the commit answer *that* title. Editing it would make the log stop
+    /// matching the card.
+    #[test]
+    fn a_cards_title_is_frozen_once_it_has_run() {
+        use super::{RunId, RunOutcome};
+        let mut board = Board::default();
+        let id = CardId::new("e2");
+        card_in(&mut board, &id, Ready);
+        drive(
+            &mut board,
+            &Command::StartRun {
+                card_id: id.clone(),
+                run_id: RunId("run-a".into()),
+                worktree: None,
+                branch: None,
+            },
+        );
+        // Running counts: `runs` goes up when a run starts, not when it ends.
+        assert!(matches!(
+            board.decide(&Command::EditCard { card_id: id.clone(), title: "too late".into() }),
+            Err(DecisionError::AlreadyRan { runs: 1, .. })
+        ));
+
+        drive(
+            &mut board,
+            &Command::FinishRun {
+                card_id: id.clone(),
+                run_id: RunId("run-a".into()),
+                outcome: RunOutcome::Completed,
+                cost_usd: None,
+                turns: None,
+            },
+        );
+        let refused = board
+            .decide(&Command::EditCard { card_id: id.clone(), title: "still too late".into() })
+            .unwrap_err();
+        assert!(matches!(refused, DecisionError::AlreadyRan { runs: 1, .. }));
+        assert!(
+            refused.to_string().contains("already run"),
+            "the refusal says why: {refused}"
+        );
+        assert_eq!(board.get(&id).unwrap().title, "t", "the title did not move");
     }
 
     #[test]

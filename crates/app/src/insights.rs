@@ -58,6 +58,9 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
             let title = titles.get(card_id.as_str()).copied().unwrap_or("");
             let (kind, label, detail) = match &stored.event {
                 Event::CardCreated { title, .. } => ("card", "Card created", title.clone()),
+                // The title is the prompt: a correction to it is a change to
+                // the work, and belongs on the feed like any other.
+                Event::CardEdited { title, .. } => ("card", "Card reworded", title.clone()),
                 Event::CardAssigned { agent_id, .. } => {
                     ("card", "Agent assigned", agent_id.clone())
                 }

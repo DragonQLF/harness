@@ -443,6 +443,29 @@ pub async fn run(
             }
         }
 
+        // Correcting a badly written card, rather than discarding it and
+        // losing the id, the history, the session and the dependencies that
+        // point at it. The domain refuses it once the card has run.
+        "edit_card" => {
+            let Some(card_id) = text(&call.input, "card_id") else {
+                return ToolReply::refused("edit_card needs a card_id");
+            };
+            let Some(title) = text(&call.input, "title") else {
+                return ToolReply::refused("edit_card needs the title it should have instead");
+            };
+            match runtime
+                .engine
+                .execute(Command::EditCard {
+                    card_id: CardId::new(card_id.clone()),
+                    title: title.clone(),
+                })
+                .await
+            {
+                Ok(_) => ToolReply::ok(format!("{card_id} now reads \"{title}\"{where_}")),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "move_card" => {
             let Some(card_id) = text(&call.input, "card_id") else {
                 return ToolReply::refused("move_card needs a card_id");
@@ -941,6 +964,7 @@ mod tests {
         }
         for guarded in [
             "create_card",
+            "edit_card",
             "move_card",
             "approve_card",
             "reject_card",

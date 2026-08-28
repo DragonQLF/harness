@@ -89,6 +89,23 @@ function harnessTools(runId) {
         call("create_card"),
       ),
       tool(
+        "edit_card",
+        "Correct what a card says, before anything has run on it. The title is the prompt the " +
+          "agent receives, so a badly worded card is a badly worded instruction — fix it here " +
+          "rather than deleting and recreating, which loses the card's id, its history and any " +
+          "cards depending on it. Refused once the card has run: from then on the title is what " +
+          "the transcript and the commit answered.",
+        {
+          card_id: z.string().describe("The card id, for example c_7b30"),
+          title: z.string().describe("What the card should say instead, in one line"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("edit_card"),
+      ),
+      tool(
         "add_endpoint",
         "Add a model endpoint the operator can then run agents on: ollama (local), ollama-cloud, openrouter, or any other host speaking the Anthropic Messages protocol. It is added without a key — never ask the operator to send you a key, this conversation is written to disk. Send them to the settings screen to paste it.",
         {
