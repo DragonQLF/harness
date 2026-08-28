@@ -79,8 +79,8 @@ pub struct Bootstrap {
 pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
     Ok(Bootstrap {
         settings: ws.settings(),
-        agents: ws.agents(),
-        projects: ws.projects(),
+        agents: ws.agents().await,
+        projects: ws.projects().await,
         status: system_status(&ws),
         approvals: ws.router.pending_list(),
         data_dir: ws.paths.root().to_string_lossy().to_string(),
@@ -113,7 +113,7 @@ pub async fn settings_update(settings: Settings, ws: Shared<'_>) -> Result<Setti
 
 #[tauri::command]
 pub async fn agents_get(ws: Shared<'_>) -> Result<Vec<AgentProfile>, String> {
-    Ok(ws.agents())
+    Ok(ws.agents().await)
 }
 
 #[tauri::command]
@@ -121,7 +121,7 @@ pub async fn agents_save(
     agents: Vec<AgentProfile>,
     ws: Shared<'_>,
 ) -> Result<Vec<AgentProfile>, String> {
-    ws.set_agents(agents)
+    ws.set_agents(agents).await
 }
 
 /// Per-agent numbers, summed across every project so an agent page reads the
@@ -134,11 +134,11 @@ pub async fn agents_stats(
     let tz = tz_offset_minutes.unwrap_or(0);
     let mut merged: std::collections::BTreeMap<String, AgentStats> = Default::default();
 
-    for project in ws.projects() {
+    for project in ws.projects().await {
         if !Path::new(&project.path).is_dir() {
             continue;
         }
-        let Ok(runtime) = ws.runtime(&project.id) else {
+        let Ok(runtime) = ws.runtime(&project.id).await else {
             continue;
         };
         let cards = runtime.engine.snapshot().await?.cards;
@@ -315,10 +315,12 @@ pub async fn open_claude_terminal(
     project_id: Option<String>,
     ws: Shared<'_>,
 ) -> Result<(), String> {
-    let dir = project_id
-        .and_then(|id| ws.project(&id))
-        .map(|p| PathBuf::from(p.path))
-        .unwrap_or_else(|| ws.paths.root().to_path_buf());
+    let dir = match project_id {
+        Some(id) => ws.project(&id).await,
+        None => None,
+    }
+    .map(|p| PathBuf::from(p.path))
+    .unwrap_or_else(|| ws.paths.root().to_path_buf());
     open_terminal_in(&dir, &["cmd", "/K", "claude"])
 }
 
@@ -329,7 +331,7 @@ pub async fn open_agent_terminal(
     card_id: String,
     ws: Shared<'_>,
 ) -> Result<(), String> {
-    let runtime = ws.runtime(&project_id)?;
+    let runtime = ws.runtime(&project_id).await?;
     let snap = runtime.engine.snapshot().await?;
     let session = snap.sessions.iter().find(|s| s.card_id.as_str() == card_id);
     let card = snap.cards.iter().find(|c| c.id.as_str() == card_id);
@@ -535,7 +537,7 @@ pub async fn curator_run(
     project_id: String,
     ws: Shared<'_>,
 ) -> Result<String, String> {
-    let runtime = ws.runtime(&project_id)?;
+    let runtime = ws.runtime(&project_id).await?;
     let dir = ws.paths.project_dir(&project_id).join("memory");
     std::fs::create_dir_all(dir.join("areas")).map_err(|e| e.to_string())?;
 

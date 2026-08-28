@@ -33,7 +33,7 @@ pub async fn projects_list(
     ws: Shared<'_>,
 ) -> Result<Vec<ProjectView>, String> {
     let mut out = Vec::new();
-    for project in ws.projects() {
+    for project in ws.projects().await {
         let exists = Path::new(&project.path).is_dir();
         let stats = if exists {
             match crate::commands::board::project_stats(
@@ -75,7 +75,7 @@ pub async fn project_pick_folder(app: tauri::AppHandle) -> Result<Option<String>
 /// can initialise, or files we would need explicit permission to touch.
 #[tauri::command]
 pub async fn project_inspect(path: String, ws: Shared<'_>) -> Result<FolderInfo, String> {
-    Ok(ws.inspect_folder(&path))
+    Ok(ws.inspect_folder(&path).await)
 }
 
 #[tauri::command]
@@ -85,9 +85,9 @@ pub async fn project_add(
     init: Option<bool>,
     ws: Shared<'_>,
 ) -> Result<Project, String> {
-    let project = ws.add_project(&path, name, init.unwrap_or(false))?;
+    let project = ws.add_project(&path, name, init.unwrap_or(false)).await?;
     // Bring the engine up now so the board is ready when the UI switches.
-    ws.runtime(&project.id)?;
+    ws.runtime(&project.id).await?;
     Ok(project)
 }
 
@@ -98,8 +98,8 @@ pub async fn project_create(
     name: String,
     ws: Shared<'_>,
 ) -> Result<Project, String> {
-    let project = ws.create_project(&parent, &name)?;
-    ws.runtime(&project.id)?;
+    let project = ws.create_project(&parent, &name).await?;
+    ws.runtime(&project.id).await?;
     Ok(project)
 }
 
@@ -118,18 +118,19 @@ pub async fn project_create(
 #[tauri::command]
 pub async fn mirror_setup(ws: Shared<'_>) -> Result<Project, String> {
     let ws = Arc::clone(&ws);
-    ensure_mirror(&ws)
+    ensure_mirror(&ws).await
 }
 
 /// The same work, callable from anywhere the operator can ask for it: the
 /// Projects screen, the chat's project picker, or the Director when told to
 /// start working on the app. Registering a project should not be a thing the
 /// operator has to know to do first.
-pub fn ensure_mirror(ws: &Workspace) -> Result<Project, String> {
+pub async fn ensure_mirror(ws: &Workspace) -> Result<Project, String> {
     use harness_app::mirror::{self, Source};
 
     let remotes: Vec<(String, Option<String>)> = ws
         .projects()
+        .await
         .into_iter()
         .map(|p| {
             let remote = harness_git_cli::CliGit::new(
@@ -144,13 +145,18 @@ pub fn ensure_mirror(ws: &Workspace) -> Result<Project, String> {
     let project = match mirror::locate(&remotes, ws.paths.root()) {
         Source::Registered(id) => ws
             .project(&id)
+            .await
             .ok_or_else(|| format!("project {id} went away while we looked at it"))?,
-        Source::OnDisk(path) => ws.add_project(&path.to_string_lossy(), Some("Relay".into()), false)?,
+        Source::OnDisk(path) => {
+            ws.add_project(&path.to_string_lossy(), Some("Relay".into()), false)
+                .await?
+        }
         Source::Clone(into) => {
             if into.exists() {
                 // A previous attempt that got as far as the disk. Adopt it
                 // rather than refusing, or the operator can never retry.
-                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)?
+                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)
+                    .await?
             } else {
                 let out = std::process::Command::new("git")
                     .args(["clone", mirror::REPO_URL])
@@ -164,18 +170,19 @@ pub fn ensure_mirror(ws: &Workspace) -> Result<Project, String> {
                     let _ = std::fs::remove_dir_all(&into);
                     return Err(format!("could not clone Relay's source: {why}"));
                 }
-                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)?
+                ws.add_project(&into.to_string_lossy(), Some("Relay".into()), false)
+                    .await?
             }
         }
     };
 
     let mirrored = Project { mirror: true, ..project };
-    ws.update_project(mirrored)
+    ws.update_project(mirrored).await
 }
 
 #[tauri::command]
 pub async fn project_update(project: Project, ws: Shared<'_>) -> Result<Project, String> {
-    ws.update_project(project)
+    ws.update_project(project).await
 }
 
 #[tauri::command]
@@ -184,7 +191,7 @@ pub async fn project_remove(
     delete_data: bool,
     ws: Shared<'_>,
 ) -> Result<(), String> {
-    ws.remove_project(&project_id, delete_data)
+    ws.remove_project(&project_id, delete_data).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -216,7 +223,7 @@ pub async fn project_detail(
     commit_limit: Option<usize>,
     ws: Shared<'_>,
 ) -> Result<ProjectDetail, String> {
-    let runtime = ws.runtime(&project_id)?;
+    let runtime = ws.runtime(&project_id).await?;
     let git = Arc::clone(&runtime.git);
     let project = runtime.project.clone();
     let checks_file = ws.paths.checks_file(&project_id);
@@ -246,7 +253,7 @@ pub async fn project_detail(
 
 #[tauri::command]
 pub async fn worktrees(project_id: String, ws: Shared<'_>) -> Result<Vec<WorktreeRow>, String> {
-    let git = Arc::clone(&ws.runtime(&project_id)?.git);
+    let git = Arc::clone(&ws.runtime(&project_id).await?.git);
     tauri::async_runtime::spawn_blocking(move || git.worktree_list())
         .await
         .map_err(|e| e.to_string())
@@ -259,7 +266,7 @@ pub async fn remove_worktree(
     path: String,
     ws: Shared<'_>,
 ) -> Result<(), String> {
-    let runtime = ws.runtime(&project_id)?;
+    let runtime = ws.runtime(&project_id).await?;
     let expected = ws.paths.project_worktrees(&project_id);
     let target = PathBuf::from(&path);
     // `starts_with` matches component by component, so `<expected>/../../x`
@@ -320,6 +327,7 @@ pub async fn reveal_path(path: String) -> Result<(), String> {
 pub async fn project_checks(project_id: String, ws: Shared<'_>) -> Result<Vec<CheckRow>, String> {
     let project = ws
         .project(&project_id)
+        .await
         .ok_or_else(|| format!("unknown project {project_id}"))?;
     Ok(read_checks(
         &ws.paths.checks_file(&project_id),
@@ -345,6 +353,7 @@ pub async fn project_run_checks(
 ) -> Result<Vec<CheckRow>, String> {
     let project = ws
         .project(&project_id)
+        .await
         .ok_or_else(|| format!("unknown project {project_id}"))?;
     let file = ws.paths.checks_file(&project_id);
     let root = PathBuf::from(&project.path);

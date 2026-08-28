@@ -80,10 +80,11 @@ pub async fn send(
         Some(id) => ws
             .conversation(&id)
             .ok_or_else(|| format!("no conversation {id}"))?,
-        None => ws.open_conversation(None, None)?,
+        None => ws.open_conversation(None, None).await?,
     };
     let profile = ws
         .agent_exact(&conversation.profile_id)
+        .await
         .ok_or_else(|| format!("no agent profile called {}", conversation.profile_id))?;
     if !profile.can_chat() {
         return Err(if profile.paused {
@@ -100,11 +101,11 @@ pub async fn send(
 
     // Reading code only makes sense inside a project, and only the one this
     // conversation is pinned to.
-    let repo = conversation
-        .project_id
-        .as_deref()
-        .and_then(|id| ws.project(id))
-        .filter(|p| PathBuf::from(&p.path).is_dir());
+    let repo = match conversation.project_id.as_deref() {
+        Some(id) => ws.project(id).await,
+        None => None,
+    }
+    .filter(|p| PathBuf::from(&p.path).is_dir());
     let cwd = repo
         .as_ref()
         .map(|p| PathBuf::from(&p.path))
@@ -112,6 +113,7 @@ pub async fn send(
 
     let crew: Vec<(String, String)> = ws
         .agents()
+        .await
         .into_iter()
         .filter(|a| a.id != profile.id && a.can_take_work())
         .map(|a| (a.id, a.title))

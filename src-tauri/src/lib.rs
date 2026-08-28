@@ -7,6 +7,7 @@ mod commands;
 mod director_tools;
 mod menu;
 mod reflection;
+mod registry;
 #[cfg(unix)]
 mod shellpath;
 mod sidecar;
@@ -55,12 +56,15 @@ pub fn run() {
             if let Some(reason) = &rollback {
                 eprintln!("{reason}");
             }
-            let workspace = Workspace::load(app.handle().clone(), paths);
-            // Engines spawn tokio tasks, so bring them up inside the runtime.
-            // Starting them all now lets the overview count work across
-            // projects without visiting each board first.
-            let warming = workspace.clone();
-            tauri::async_runtime::block_on(async move { warming.warm_all() });
+            // O registo é um actor: levantá-lo e falar com ele acontece dentro
+            // do runtime. Os engines também lá nascem, e levantá-los todos
+            // agora deixa a Overview contar trabalho sem visitar cada quadro.
+            let handle = app.handle().clone();
+            let workspace = tauri::async_runtime::block_on(async move {
+                let workspace = Workspace::load(handle, paths).await;
+                workspace.warm_all().await;
+                workspace
+            });
             // Did Relay's own source move while nobody on the board was
             // looking? Spawned, never awaited: a git call must not stand
             // between the operator and their window.

@@ -27,6 +27,7 @@ use harness_app::director::{CardLine, DiffFacts, ProjectBrief};
 use harness_app::projects::{self, FolderInfo, Project};
 use harness_app::settings::Settings;
 
+use crate::registry::RegistryHandle;
 use crate::sidecar;
 
 /// Bridges approval traffic to the window.
@@ -91,8 +92,9 @@ pub struct Workspace {
     pub settings: Arc<Mutex<Settings>>,
     pub router: Arc<ApprovalRouter>,
     sidecar_dir: PathBuf,
-    agents: Mutex<Vec<AgentProfile>>,
-    projects: Mutex<Vec<Project>>,
+    /// Quem são os agentes e quais são os projectos. Não está aqui: está dentro
+    /// de um actor, e isto é só o telefone (`registry.rs`).
+    registry: RegistryHandle,
     runtimes: Mutex<HashMap<String, Arc<ProjectRuntime>>>,
     /// Which chats exist and which Claude session each continues. The words
     /// themselves live in `chat_log`, never here.
@@ -121,7 +123,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn load(app: AppHandle, paths: AppPaths) -> Arc<Self> {
+    pub async fn load(app: AppHandle, paths: AppPaths) -> Arc<Self> {
         let mut settings: Settings = paths::read_json_or_default(&paths.settings_file());
         settings.forget_unchosen_accent();
         let settings = Arc::new(Mutex::new(settings));
@@ -131,6 +133,7 @@ impl Workspace {
         let stored_agents: Vec<AgentProfile> = paths::read_json_or_default(&paths.agents_file());
         let agents = agents::normalise(stored_agents);
         let projects: Vec<Project> = paths::read_json_or_default(&paths.projects_file());
+        let registry = RegistryHandle::spawn(paths.clone(), agents, projects);
         let conversations: ConversationIndex =
             paths::read_json_or_default(&paths.conversations_file());
         let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
@@ -176,8 +179,7 @@ impl Workspace {
             settings,
             router,
             sidecar_dir,
-            agents: Mutex::new(agents),
-            projects: Mutex::new(projects),
+            registry,
             runtimes: Mutex::new(HashMap::new()),
             conversations: Mutex::new(conversations),
             chat_log,
@@ -190,17 +192,17 @@ impl Workspace {
         });
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
-        let _ = workspace.save_agents_file();
+        let _ = workspace.registry.save_agents().await;
         let _ = paths::write_json(&workspace.paths.settings_file(), &workspace.settings());
-        workspace.adopt_legacy_workspace();
+        workspace.adopt_legacy_workspace().await;
         workspace
     }
 
     /// Earlier builds kept a single synthetic repository at `<data>/workspace`
     /// with its log at `<data>/events.jsonl`. Adopt it as a normal project so
     /// no history is stranded.
-    fn adopt_legacy_workspace(self: &Arc<Self>) {
-        if !self.projects().is_empty() {
+    async fn adopt_legacy_workspace(self: &Arc<Self>) {
+        if !self.projects().await.is_empty() {
             return;
         }
         let legacy_repo = self.paths.root().join("workspace");
@@ -208,7 +210,9 @@ impl Workspace {
         if !legacy_repo.is_dir() {
             return;
         }
-        let adopted = self.add_project(&legacy_repo.to_string_lossy(), Some("Workspace".into()), true);
+        let adopted = self
+            .add_project(&legacy_repo.to_string_lossy(), Some("Workspace".into()), true)
+            .await;
         let Ok(project) = adopted else { return };
         let target = self.paths.events_file(&project.id);
         if legacy_log.is_file() && !target.exists() {
@@ -267,73 +271,43 @@ impl Workspace {
 
     // ---- agents ----
 
-    pub fn agents(&self) -> Vec<AgentProfile> {
-        self.agents.lock().unwrap().clone()
+    pub async fn agents(&self) -> Vec<AgentProfile> {
+        self.registry.agents().await
     }
 
     /// The profile for an id, falling back to a worker when it is unknown.
     /// Right for assigning work; wrong for a conversation, which must speak as
     /// the profile it says it does — see `agent_exact`.
-    pub fn agent(&self, id: &str) -> Option<AgentProfile> {
-        let agents = self.agents.lock().unwrap();
-        agents::find(&agents, id).cloned()
+    pub async fn agent(&self, id: &str) -> Option<AgentProfile> {
+        self.registry.agent(id).await
     }
 
     /// The profile for an id, or nothing.
-    pub fn agent_exact(&self, id: &str) -> Option<AgentProfile> {
-        self.agents.lock().unwrap().iter().find(|a| a.id == id).cloned()
+    pub async fn agent_exact(&self, id: &str) -> Option<AgentProfile> {
+        self.registry.agent_exact(id).await
     }
 
-    pub fn set_agents(&self, next: Vec<AgentProfile>) -> Result<Vec<AgentProfile>, String> {
-        {
-            let mut guard = self.agents.lock().unwrap();
-            *guard = agents::normalise(next);
-        }
-        self.save_agents_file()?;
-        Ok(self.agents())
+    pub async fn set_agents(&self, next: Vec<AgentProfile>) -> Result<Vec<AgentProfile>, String> {
+        self.registry.set_agents(next).await
     }
 
     /// Add a profile from a template. Templates are a menu: nothing is
     /// installed until this is called.
-    pub fn add_agent_from_template(&self, template_id: &str) -> Result<AgentProfile, String> {
-        let taken: Vec<String> = self.agents().into_iter().map(|a| a.id).collect();
-        let created = agents::from_template(template_id, &taken)
-            .ok_or_else(|| format!("there is no template called {template_id}"))?;
-        self.agents.lock().unwrap().push(created.clone());
-        self.save_agents_file()?;
-        Ok(created)
+    pub async fn add_agent_from_template(
+        &self,
+        template_id: &str,
+    ) -> Result<AgentProfile, String> {
+        self.registry.add_agent_from_template(template_id).await
     }
 
-    pub fn duplicate_agent(&self, agent_id: &str) -> Result<AgentProfile, String> {
-        let original = self
-            .agent_exact(agent_id)
-            .ok_or_else(|| format!("no agent profile called {agent_id}"))?;
-        let taken: Vec<String> = self.agents().into_iter().map(|a| a.id).collect();
-        let copy = agents::duplicate(&original, &taken);
-        self.agents.lock().unwrap().push(copy.clone());
-        self.save_agents_file()?;
-        Ok(copy)
+    pub async fn duplicate_agent(&self, agent_id: &str) -> Result<AgentProfile, String> {
+        self.registry.duplicate_agent(agent_id).await
     }
 
     /// Remove a profile. Every profile is optional except the Director, which
     /// the review loop needs.
-    pub fn remove_agent(&self, agent_id: &str) -> Result<Vec<AgentProfile>, String> {
-        if agent_id == agents::DIRECTOR_ID {
-            return Err("the Director cannot be removed: the review loop needs it".to_string());
-        }
-        if self.agent_exact(agent_id).is_none() {
-            return Err(format!("no agent profile called {agent_id}"));
-        }
-        {
-            let mut guard = self.agents.lock().unwrap();
-            guard.retain(|a| a.id != agent_id);
-        }
-        self.save_agents_file()?;
-        Ok(self.agents())
-    }
-
-    fn save_agents_file(&self) -> Result<(), String> {
-        paths::write_json(&self.paths.agents_file(), &self.agents())
+    pub async fn remove_agent(&self, agent_id: &str) -> Result<Vec<AgentProfile>, String> {
+        self.registry.remove_agent(agent_id).await
     }
 
 
@@ -363,7 +337,7 @@ impl Workspace {
 
     /// Start a conversation. A fresh row means a fresh native session: there is
     /// nothing to resume, which is what makes New Chat actually new.
-    pub fn new_conversation(
+    pub async fn new_conversation(
         &self,
         profile_id: Option<String>,
         project_id: Option<String>,
@@ -371,12 +345,16 @@ impl Workspace {
         let profile_id = profile_id.unwrap_or_else(|| agents::DIRECTOR_ID.to_string());
         let profile = self
             .agent_exact(&profile_id)
+            .await
             .ok_or_else(|| format!("no agent profile called {profile_id}"))?;
         if !profile.chat_enabled {
             return Err(format!("{} is not set up for conversations", profile.name));
         }
         // A pin to a project that is gone would only mislead.
-        let project_id = project_id.filter(|id| self.project(id).is_some());
+        let project_id = match project_id {
+            Some(id) if self.project(&id).await.is_some() => Some(id),
+            _ => None,
+        };
         let id = format!("chat_{}", uuid::Uuid::new_v4().simple());
         let created = self.conversations.lock().unwrap().insert(Conversation::new(
             id,
@@ -390,7 +368,7 @@ impl Workspace {
 
     /// The conversation to talk in right now: the one asked for, the last one
     /// used, or a new one.
-    pub fn open_conversation(
+    pub async fn open_conversation(
         &self,
         profile_id: Option<String>,
         project_id: Option<String>,
@@ -410,7 +388,7 @@ impl Workspace {
                 self.select_conversation(&found.id)?;
                 Ok(found)
             }
-            None => self.new_conversation(profile_id, project_id),
+            None => self.new_conversation(profile_id, project_id).await,
         }
     }
 
@@ -461,12 +439,15 @@ impl Workspace {
 
     /// Pin a conversation to a project, or unpin it. This is what decides which
     /// code it can read.
-    pub fn pin_conversation(
+    pub async fn pin_conversation(
         &self,
         id: &str,
         project_id: Option<String>,
     ) -> Result<Conversation, String> {
-        let project_id = project_id.filter(|p| self.project(p).is_some());
+        let project_id = match project_id {
+            Some(p) if self.project(&p).await.is_some() => Some(p),
+            _ => None,
+        };
         {
             let mut index = self.conversations.lock().unwrap();
             let entry = index
@@ -543,11 +524,11 @@ impl Workspace {
         active: Option<&str>,
     ) -> Result<Vec<ProjectBrief>, String> {
         let mut briefs = Vec::new();
-        for project in self.projects() {
+        for project in self.projects().await {
             if !Path::new(&project.path).is_dir() {
                 continue;
             }
-            let Ok(runtime) = self.runtime(&project.id) else {
+            let Ok(runtime) = self.runtime(&project.id).await else {
                 continue;
             };
             let snap = runtime.engine.snapshot().await?;
@@ -610,8 +591,8 @@ impl Workspace {
 
     // ---- projects ----
 
-    pub fn projects(&self) -> Vec<Project> {
-        self.projects.lock().unwrap().clone()
+    pub async fn projects(&self) -> Vec<Project> {
+        self.registry.projects().await
     }
 
     /// Every live runtime, for sweeps that must visit each project once.
@@ -619,16 +600,12 @@ impl Workspace {
         self.runtimes.lock().unwrap().values().cloned().collect()
     }
 
-    pub fn project(&self, id: &str) -> Option<Project> {
-        self.projects.lock().unwrap().iter().find(|p| p.id == id).cloned()
-    }
-
-    fn save_projects_file(&self) -> Result<(), String> {
-        paths::write_json(&self.paths.projects_file(), &self.projects())
+    pub async fn project(&self, id: &str) -> Option<Project> {
+        self.registry.project(id).await
     }
 
     /// What a folder looks like, so the UI can offer the right next step.
-    pub fn inspect_folder(&self, path: &str) -> FolderInfo {
+    pub async fn inspect_folder(&self, path: &str) -> FolderInfo {
         let root = PathBuf::from(path.trim());
         let exists = root.is_dir();
         let is_repo = exists && CliGit::is_repo(&root);
@@ -639,6 +616,7 @@ impl Workspace {
         let canonical = Self::canonical(&root);
         let already = self
             .projects()
+            .await
             .into_iter()
             .any(|p| p.path.eq_ignore_ascii_case(&canonical));
         FolderInfo::describe(&canonical, exists, is_repo, empty, already)
@@ -657,7 +635,7 @@ impl Workspace {
 
     /// Create a repository from scratch: `<parent>/<name>`, initialised with a
     /// first commit, then registered.
-    pub fn create_project(&self, parent: &str, name: &str) -> Result<Project, String> {
+    pub async fn create_project(&self, parent: &str, name: &str) -> Result<Project, String> {
         let clean = name.trim();
         if clean.is_empty() {
             return Err("give the project a name".to_string());
@@ -678,13 +656,14 @@ impl Workspace {
         }
         ensure_workspace(&root).map_err(|e| e.to_string())?;
         self.add_project(&root.to_string_lossy(), Some(clean.to_string()), false)
+            .await
     }
 
     /// Register a git repository. `init` is the operator explicitly agreeing to
     /// run `git init` in a folder that is not a repository yet; without it a
     /// non-empty folder is refused, because turning someone's folder into a
     /// repo is not ours to decide.
-    pub fn add_project(
+    pub async fn add_project(
         &self,
         path: &str,
         name: Option<String>,
@@ -699,6 +678,7 @@ impl Workspace {
 
         if let Some(existing) = self
             .projects()
+            .await
             .into_iter()
             .find(|p| p.path.eq_ignore_ascii_case(&canonical))
         {
@@ -727,7 +707,7 @@ impl Workspace {
             })
             .unwrap_or_else(|| "Project".to_string());
 
-        let taken: Vec<String> = self.projects().into_iter().map(|p| p.id).collect();
+        let taken: Vec<String> = self.projects().await.into_iter().map(|p| p.id).collect();
         let id = projects::unique_id(&display, &taken);
         let git = CliGit::new(&root, self.paths.project_worktrees(&id));
 
@@ -752,8 +732,7 @@ impl Workspace {
             mirror: false,
         };
 
-        self.projects.lock().unwrap().push(project.clone());
-        self.save_projects_file()?;
+        let project = self.registry.add_project(project).await?;
 
         // A charter is written at creation, never invented later: an empty
         // template tells the operator the file exists and who reads it. Only
@@ -800,29 +779,15 @@ impl Workspace {
             .remove(conversation_id)
     }
 
-    pub fn update_project(&self, project: Project) -> Result<Project, String> {        {
-            let mut guard = self.projects.lock().unwrap();
-            let slot = guard
-                .iter_mut()
-                .find(|p| p.id == project.id)
-                .ok_or_else(|| format!("unknown project {}", project.id))?;
-            *slot = project.clone();
-            // Mirror mode is one home, not a flag per project (#65): whoever
-            // claims it takes it from whoever held it.
-            if project.mirror {
-                harness_app::projects::only_mirror(&mut guard, &project.id);
-            }
-        }
-        self.save_projects_file()?;
-        Ok(project)
+    pub async fn update_project(&self, project: Project) -> Result<Project, String> {
+        self.registry.update_project(project).await
     }
 
     /// Forget a project. Its event log and worktrees are only deleted when the
     /// operator explicitly asks; the repository itself is never touched.
-    pub fn remove_project(&self, id: &str, delete_data: bool) -> Result<(), String> {
-        self.projects.lock().unwrap().retain(|p| p.id != id);
+    pub async fn remove_project(&self, id: &str, delete_data: bool) -> Result<(), String> {
         self.runtimes.lock().unwrap().remove(id);
-        self.save_projects_file()?;
+        self.registry.remove_project(id).await?;
         // A conversation pinned to a project that is gone would point nowhere.
         {
             let mut index = self.conversations.lock().unwrap();
@@ -838,32 +803,34 @@ impl Workspace {
 
     // ---- engines ----
 
-    pub fn runtime(&self, project_id: &str) -> Result<Arc<ProjectRuntime>, String> {
+    pub async fn runtime(&self, project_id: &str) -> Result<Arc<ProjectRuntime>, String> {
         if let Some(existing) = self.runtimes.lock().unwrap().get(project_id) {
             return Ok(Arc::clone(existing));
         }
         let project = self
             .project(project_id)
+            .await
             .ok_or_else(|| format!("unknown project {project_id}"))?;
-        let runtime = Arc::new(self.spawn_runtime(project)?);
-        self.runtimes
-            .lock()
-            .unwrap()
-            .insert(project_id.to_string(), Arc::clone(&runtime));
-        Ok(runtime)
+        let runtime = Arc::new(self.spawn_runtime(project).await?);
+        // Quem chegar primeiro fica. Duas chamadas ao mesmo projecto frio
+        // podem levantar dois engines; devolver sempre o que está no mapa
+        // garante que só um deles é usado, e o outro morre com o handle.
+        let mut live = self.runtimes.lock().unwrap();
+        let slot = live.entry(project_id.to_string()).or_insert(runtime);
+        Ok(Arc::clone(slot))
     }
 
     /// Bring up every registered project so the overview can count work
     /// without the operator visiting each one first.
-    pub fn warm_all(&self) {
-        for project in self.projects() {
-            if let Err(e) = self.runtime(&project.id) {
+    pub async fn warm_all(&self) {
+        for project in self.projects().await {
+            if let Err(e) = self.runtime(&project.id).await {
                 eprintln!("could not start project {}: {e}", project.id);
             }
         }
     }
 
-    fn spawn_runtime(&self, project: Project) -> Result<ProjectRuntime, String> {
+    async fn spawn_runtime(&self, project: Project) -> Result<ProjectRuntime, String> {
         let root = PathBuf::from(&project.path);
         if !root.is_dir() {
             return Err(format!(
@@ -895,14 +862,17 @@ impl Workspace {
         });
 
         let settings = self.settings();
+        // Uma leitura só do perfil do Director: três idas ao registo dariam
+        // três respostas que podiam já não concordar entre si.
+        let director_profile = self.agent(agents::DIRECTOR_ID).await;
         let mut config = EngineConfig::new(&project.id, root);
         config.base_branch = project.base_branch.clone();
         config.permission_mode = settings.permission_mode.clone();
-        config.director_model = self
-            .agent(agents::DIRECTOR_ID)
+        config.director_model = director_profile
+            .as_ref()
             .and_then(|d| d.model.clone());
-        config.director_provider = self
-            .agent(agents::DIRECTOR_ID)
+        config.director_provider = director_profile
+            .as_ref()
             .and_then(|d| {
                 harness_app::providers::find(&settings.providers, &d.provider).cloned()
             })
@@ -918,7 +888,7 @@ impl Workspace {
                 artifact: "target/release/relay.exe".into(),
             });
         }
-        if let Some(director_profile) = self.agent(agents::DIRECTOR_ID) {
+        if let Some(director_profile) = director_profile.as_ref() {
             let tools = director_profile.allowed_tools();
             if !tools.is_empty() {
                 config.director_allowed_tools = tools;
@@ -1017,7 +987,8 @@ impl Workspace {
         let Some(proposal) = open else {
             return Err(format!("no open proposal {proposal_id}"));
         };
-        let Some(mirror) = projects::mirror_project(&self.projects()).cloned() else {
+        let known = self.projects().await;
+        let Some(mirror) = projects::mirror_project(&known).cloned() else {
             return Err(
                 "the harness repository is not registered as a project (mirror mode), so there \
                  is nowhere to put this card — add it as a project first"
@@ -1080,7 +1051,8 @@ impl Workspace {
         /// nobody notices it in a shutdown.
         const DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
-        let mirror = projects::mirror_project(&self.projects()).cloned()?;
+        let known = self.projects().await;
+        let mirror = projects::mirror_project(&known).cloned()?;
         let root = PathBuf::from(&mirror.path);
         if !root.is_dir() {
             return None;
@@ -1149,8 +1121,9 @@ impl Workspace {
     }
 
     /// The docs of the harness's own repository, when it is registered here.
-    pub fn harness_docs_dir(&self) -> Option<PathBuf> {
-        projects::mirror_project(&self.projects())
+    pub async fn harness_docs_dir(&self) -> Option<PathBuf> {
+        let known = self.projects().await;
+        projects::mirror_project(&known)
             .map(|p| PathBuf::from(&p.path).join("docs"))
             .filter(|dir| dir.is_dir())
     }

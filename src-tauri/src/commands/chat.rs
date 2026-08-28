@@ -30,7 +30,7 @@ pub async fn conversation_new(
     project_id: Option<String>,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.new_conversation(profile_id, project_id)
+    ws.new_conversation(profile_id, project_id).await
 }
 
 /// The conversation to talk in: the last one for this profile, or a new one.
@@ -40,7 +40,7 @@ pub async fn conversation_open(
     project_id: Option<String>,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.open_conversation(profile_id, project_id)
+    ws.open_conversation(profile_id, project_id).await
 }
 
 #[tauri::command]
@@ -83,7 +83,7 @@ pub async fn conversation_pin(
     project_id: Option<String>,
     ws: Shared<'_>,
 ) -> Result<Conversation, String> {
-    ws.pin_conversation(&conversation_id, project_id)
+    ws.pin_conversation(&conversation_id, project_id).await
 }
 
 /// The stored transcript, so reopening a conversation shows what was said —
@@ -142,32 +142,32 @@ pub async fn agent_create_from_template(
     template_id: String,
     ws: Shared<'_>,
 ) -> Result<AgentProfile, String> {
-    ws.add_agent_from_template(&template_id)
+    ws.add_agent_from_template(&template_id).await
 }
 
 /// Copy an existing profile.
 #[tauri::command]
 pub async fn agent_duplicate(agent_id: String, ws: Shared<'_>) -> Result<AgentProfile, String> {
-    ws.duplicate_agent(&agent_id)
+    ws.duplicate_agent(&agent_id).await
 }
 
 /// Remove a profile. The Director cannot be removed: the review loop needs it.
 #[tauri::command]
 pub async fn agent_remove(agent_id: String, ws: Shared<'_>) -> Result<Vec<AgentProfile>, String> {
-    ws.remove_agent(&agent_id)
+    ws.remove_agent(&agent_id).await
 }
 
 /// The tables the Analyst reads: per project, the stats and recent activity
 /// Relay already derived. JSON because it is exact, and the model reads it.
 async fn analyst_tables(ws: &Arc<Workspace>, only: Option<&str>) -> Result<String, String> {
     let mut out = String::new();
-    for project in ws.projects() {
+    for project in ws.projects().await {
         if let Some(wanted) = only {
             if &wanted != &project.id {
                 continue;
             }
         }
-        let Ok(runtime) = ws.runtime(&project.id) else {
+        let Ok(runtime) = ws.runtime(&project.id).await else {
             continue;
         };
         let cards = runtime.engine.snapshot().await?.cards;
@@ -203,10 +203,9 @@ pub async fn analyst_ask(
     if tables.trim().is_empty() {
         return Err("no projects to analyse yet".to_string());
     }
-    let conversation = ws.open_conversation(
-        Some(harness_app::agents::DIRECTOR_ID.to_string()),
-        project_id,
-    )?;
+    let conversation = ws
+        .open_conversation(Some(harness_app::agents::DIRECTOR_ID.to_string()), project_id)
+        .await?;
     crate::chat::send(
         &ws,
         Some(conversation.id.clone()),

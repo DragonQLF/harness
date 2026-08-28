@@ -212,7 +212,7 @@ pub async fn run(
     }
 
     if call.name == "list_projects" {
-        let projects = ws.projects();
+        let projects = ws.projects().await;
         if projects.is_empty() {
             return ToolReply::ok(
                 "There are no projects yet. create_project makes one (a git repository with a \
@@ -251,7 +251,7 @@ pub async fn run(
     // repository's docs/ folder. Reading is capped and searchable; the whole
     // decision log does not fit in a reply and should not try.
     if call.name == "read_docs" {
-        let Some(docs) = ws.harness_docs_dir() else {
+        let Some(docs) = ws.harness_docs_dir().await else {
             return ToolReply::refused(
                 "the harness repository is not registered as a project here, so DEBT.md and \
                  DECISIONS.md are out of reach — ask the operator to add it",
@@ -302,7 +302,7 @@ pub async fn run(
                  the operator where it should live rather than guessing.",
             );
         };
-        return match ws.create_project(&parent, &name) {
+        return match ws.create_project(&parent, &name).await {
             Ok(project) => ToolReply::ok(format!(
                 "created {} (id {}) at {} — a git repository with an empty board",
                 project.name, project.id, project.path
@@ -326,7 +326,7 @@ pub async fn run(
             )
         }
     };
-    if ws.project(&project_id).is_none() {
+    if ws.project(&project_id).await.is_none() {
         return ToolReply::refused(format!(
             "there is no project called {project_id}. Call list_projects to see the real ids."
         ));
@@ -381,7 +381,7 @@ pub async fn run(
             n += 1;
         }
     }
-    let runtime = match ws.runtime(&project_id) {
+    let runtime = match ws.runtime(&project_id).await {
         Ok(r) => r,
         Err(e) => return ToolReply::refused(format!("that project is not available: {e}")),
     };
@@ -394,7 +394,7 @@ pub async fn run(
             };
             let agent = text(&call.input, "agent_id")
                 .unwrap_or_else(|| harness_app::agents::DEFAULT_WORKER.to_string());
-            let Some(profile) = ws.agent_exact(&agent) else {
+            let Some(profile) = ws.agent_exact(&agent).await else {
                 return ToolReply::refused(format!(
                     "there is no agent called {agent}. The crew is configured on the Agents screen."
                 ));
@@ -566,7 +566,7 @@ pub async fn run(
         // screen would have done, and the operator sees the same permission
         // sheet either way.
         "work_on_relay" => {
-            match crate::commands::project::ensure_mirror(ws) {
+            match crate::commands::project::ensure_mirror(ws).await {
                 Ok(project) => ToolReply::ok(format!(
                     "{} is now Relay's own source, at {}. Cards for the app go there,                      accepted proposals are born there, and read_docs reads its docs/.",
                     project.name, project.path
@@ -641,8 +641,8 @@ pub async fn run(
             let Some(name) = text(&call.input, "name") else {
                 return ToolReply::refused("create_agent needs a name");
             };
-            let taken: Vec<String> = ws.agents().into_iter().map(|a| a.id).collect();
-            if ws.agents().iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
+            let taken: Vec<String> = ws.agents().await.into_iter().map(|a| a.id).collect();
+            if ws.agents().await.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
                 return ToolReply::refused(format!(
                     "there is already an agent called {name}; use set_agent_model to change                      the one that exists, or pick another name"
                 ));
@@ -675,9 +675,9 @@ pub async fn run(
                 made.id,
                 describe_model(&made, &providers)
             );
-            let mut crew = ws.agents();
+            let mut crew = ws.agents().await;
             crew.push(made);
-            match ws.set_agents(crew) {
+            match ws.set_agents(crew).await {
                 Ok(_) => ToolReply::ok(format!(
                     "{summary}{warning}. It can read and search; anything more is yours to                      grant on the Agents screen."
                 )),
@@ -689,7 +689,7 @@ pub async fn run(
             let Some(agent_id) = text(&call.input, "agent_id") else {
                 return ToolReply::refused("edit_agent needs an agent_id");
             };
-            let mut crew = ws.agents();
+            let mut crew = ws.agents().await;
             let known: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
             let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
                 return ToolReply::refused(format!(
@@ -744,7 +744,7 @@ pub async fn run(
                 );
             }
             let summary = format!("{}: changed {}", slot.name, changed.join(", "));
-            match ws.set_agents(crew) {
+            match ws.set_agents(crew).await {
                 Ok(_) => ToolReply::ok(summary),
                 Err(e) => ToolReply::refused(e),
             }
@@ -783,7 +783,7 @@ pub async fn run(
                 }
             }
 
-            let mut crew = ws.agents();
+            let mut crew = ws.agents().await;
             let known_ids: Vec<String> = crew.iter().map(|a| a.id.clone()).collect();
             let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
                 return ToolReply::refused(format!(
@@ -813,7 +813,7 @@ pub async fn run(
             slot.permissions = wanted;
             let name = slot.name.clone();
             let now = slot.permissions.join(", ");
-            match ws.set_agents(crew) {
+            match ws.set_agents(crew).await {
                 Ok(_) => ToolReply::ok(format!(
                     "{name} now holds {now}{}{}",
                     if added.is_empty() {
@@ -836,11 +836,11 @@ pub async fn run(
                 return ToolReply::refused("set_agent_model needs an agent_id");
             };
             let settings = ws.settings();
-            let mut crew = ws.agents();
+            let mut crew = ws.agents().await;
             let Some(slot) = crew.iter_mut().find(|a| a.id == agent_id) else {
                 return ToolReply::refused(format!(
                     "there is no agent called {agent_id}. The crew is: {}",
-                    ws.agents()
+                    ws.agents().await
                         .iter()
                         .map(|a| a.id.clone())
                         .collect::<Vec<_>>()
@@ -869,7 +869,7 @@ pub async fn run(
                     .map(key_warning)
                     .unwrap_or_default()
             );
-            match ws.set_agents(crew) {
+            match ws.set_agents(crew).await {
                 Ok(_) => ToolReply::ok(summary),
                 Err(e) => ToolReply::refused(e),
             }

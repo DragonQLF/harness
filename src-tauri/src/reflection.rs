@@ -56,7 +56,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     if !ws.daily_look_due() {
         return None;
     }
-    let Some(profile) = ws.agent_exact(agents::DIRECTOR_ID) else {
+    let Some(profile) = ws.agent_exact(agents::DIRECTOR_ID).await else {
         return None;
     };
     if !profile.can_chat() {
@@ -76,7 +76,10 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         .find(|c| c.title == LOOK_TITLE && c.messages == 0);
     let conversation = match unanswered {
         Some(c) => c,
-        None => match ws.new_conversation(Some(agents::DIRECTOR_ID.to_string()), None) {
+        None => match ws
+            .new_conversation(Some(agents::DIRECTOR_ID.to_string()), None)
+            .await
+        {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("could not open the end-of-day review conversation: {e}");
