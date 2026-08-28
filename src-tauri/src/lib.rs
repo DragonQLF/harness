@@ -30,6 +30,23 @@ pub fn run() {
 
     let builder = tauri::Builder::default();
 
+    // One Relay at a time. Two of them share `com.harness.app`, which means the
+    // same settings, the same event log and the same worktrees — two writers on
+    // files whose whole design assumes a single one. A second launch hands its
+    // arguments to the window that is already open and raises it, which is what
+    // the operator meant by opening the app anyway.
+    //
+    // This has to be the first plugin registered: it is what decides whether
+    // this process is going to live at all.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+
     // Only macOS gets a menu bar of its own: it has a place to put one that is
     // not the window. Elsewhere the window still draws its own, and adding a
     // second copy here would say everything twice.

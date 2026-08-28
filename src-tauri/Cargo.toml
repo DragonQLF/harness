@@ -43,3 +43,9 @@ tauri-plugin-process = "2.3.1"
 # keeps the window off the network does not exempt a fetch we happen to want.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
+# No fim, e não a meio de [dependencies]: um cabeçalho de secção rouba tudo o
+# que vier depois dele. Só desktop — não há segundo arranque a dobrar no
+# primeiro num telemóvel. O `desktop` do Tauri é um alias de Rust, não um alvo
+# que o cargo conheça, portanto aqui tem de se dizer por extenso.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
