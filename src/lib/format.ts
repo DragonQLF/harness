@@ -46,6 +46,29 @@ export function shortAgo(ms: number): string {
   return days === 1 ? "yest" : `${days}d`;
 }
 
+/** Onde o aviso de trabalho fora do quadro deixa de contar factos e passa a
+ *  instruir o Director. */
+const OUTSIDE_WORK_GUIDANCE = ". That is work the board never saw";
+
+/** Parte o aviso de `mirror://outside-work` nas suas duas metades.
+ *
+ *  O backend emite-o como **um parágrafo só** (`mirror::describe`), e esse
+ *  parágrafo diz duas coisas a dois leitores: os factos — quantos commits, que
+ *  ficheiros, desde quando — e, a seguir, o que o Director deve fazer com
+ *  eles, na segunda pessoa ("say which open cards…, do not close a card"). Pôr
+ *  a segunda metade à frente do operador lê-se como uma ordem dada a ele, e
+ *  não é: o #86 é explícito em que o Director sinaliza e o operador decide.
+ *
+ *  Cortar prosa é frágil, e é frágil de propósito assumido: se a redacção do
+ *  backend mudar, o corte não acontece e o operador vê o aviso inteiro — nunca
+ *  menos do que hoje. O que fecha isto a sério é o evento trazer o
+ *  `OutsideWork` em vez do parágrafo, e isso é do backend (`DEBT.md`). */
+export function outsideWorkParts(said: string): { facts: string; forDirector: string } {
+  const at = said.indexOf(OUTSIDE_WORK_GUIDANCE);
+  if (at < 0) return { facts: said.trim(), forDirector: "" };
+  return { facts: said.slice(0, at + 1).trim(), forDirector: said.slice(at + 1).trim() };
+}
+
 export function initials(name: string): string {
   return (
     name

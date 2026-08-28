@@ -210,6 +210,19 @@ export const events = {
   /** A proposal was filed, accepted or dismissed on the backend. */
   onInbox: (fn: (list: Proposal[]) => void) =>
     listen<Proposal[]>("inbox://proposals", (evt) => fn(evt.payload)),
+  /** Relay's own repository moved without a card behind it (#86).
+   *
+   *  The payload is **one string**, not a structure: `workspace.rs` emits the
+   *  prose that `harness_app::mirror::describe` writes, and the `OutsideWork`
+   *  it was folded from — the count, the paths, the oldest timestamp — never
+   *  crosses. So the counts on screen are the ones inside that sentence, and
+   *  nothing here recomputes them.
+   *
+   *  It arrives at most twice a session (startup and the end-of-day close) and
+   *  is never repeated: the backend re-anchors the sha it compares against on
+   *  every look, so the same commits are reported once and then are past. */
+  onOutsideWork: (fn: (said: string) => void) =>
+    listen<string>("mirror://outside-work", (evt) => fn(evt.payload)),
   /** An item was picked in the macOS menu bar; the payload is its id. */
   onMenuPick: (fn: (id: string) => void) =>
     listen<string>("menu://picked", (evt) => fn(evt.payload)),

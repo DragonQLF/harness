@@ -50,6 +50,21 @@ export interface Toast {
   body?: string;
 }
 
+/** Um aviso de trabalho fora do quadro (#86), tal como chegou.
+ *
+ *  Não é um espelho de nada do backend: o backend guarda só o **último**
+ *  achado, numa string, e não o expõe por comando nenhum — nem no `bootstrap`.
+ *  Isto é o registo do que esta janela recebeu, como os `Toast` ou as linhas
+ *  do run feed, e por isso o id e a hora são desta janela e dizem-se assim
+ *  ("seen", não "detected"). */
+export interface OutsideWork {
+  id: number;
+  /** O texto tal e qual o backend o escreveu. Nada aqui o recalcula. */
+  said: string;
+  /** Quando **este ecrã** o recebeu. */
+  seen_ms: number;
+}
+
 interface Store {
   ready: boolean;
   fatal: string | null;
@@ -70,6 +85,11 @@ interface Store {
   approvals: PendingApproval[];
   /** The Director's improvement proposals waiting on you, newest first. */
   proposals: Proposal[];
+  /** Warnings that Relay's own source moved without a card behind it, newest
+   *  first. They never expire on their own and nothing here clears them: only
+   *  `dismissOutsideWork` takes one off the rail. */
+  outsideWork: OutsideWork[];
+  dismissOutsideWork: (id: number) => void;
   /** What each card changed, once something has asked for it. */
   diffs: Record<string, CardDiff>;
   /** Read a card's diff from its worktree. Cheap to call again: the answer
@@ -206,6 +226,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const feed = useRunFeed();
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [outsideWork, setOutsideWork] = useState<OutsideWork[]>([]);
   const [diffs, setDiffs] = useState<Record<string, CardDiff>>({});
   const [navigation, setNavigation] = useState<(Navigation & { at: number }) | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -213,6 +234,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const projectRef = useRef<string | null>(null);
   projectRef.current = projectId;
   const toastSeq = useRef(0);
+  const outsideSeq = useRef(0);
 
   const toast = useCallback((tone: string, title: string, body?: string) => {
     const id = ++toastSeq.current;
@@ -390,6 +412,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     keep(events.onApprovalQueue((list) => !closed && setApprovals(list)));
     keep(events.onConversations((list) => !closed && chat.setConversations(list)));
     keep(events.onInbox((list) => !closed && setProposals(list)));
+    keep(
+      events.onOutsideWork((said) => {
+        if (closed) return;
+        const text = said.trim();
+        if (!text) return;
+        setOutsideWork((prev) => {
+          // The look runs twice a session and re-anchors its sha each time, so
+          // the same sentence twice means the same commits twice: keep the
+          // first, which carries the hour it actually arrived.
+          if (prev.some((w) => w.said === text)) return prev;
+          return [{ id: ++outsideSeq.current, said: text, seen_ms: Date.now() }, ...prev];
+        });
+        // The toast is the only signal on the two screens the rail is hidden
+        // from. It is the *extra*, never the surface: the rail entry above is
+        // what stays until the operator says otherwise.
+        toast(
+          "warn",
+          "Work that skipped the board",
+          "Relay's own repository moved without a card behind it — see Right now.",
+        );
+      }),
+    );
     keep(
       events.onNavigate((n) => {
         if (closed) return;
@@ -693,6 +737,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [fail],
   );
 
+  /** Take a warning off the rail. Nothing is told to the backend, because the
+   *  backend has nowhere to be told: the look already re-anchored its sha, so
+   *  these commits are past whether the operator dismisses them or not. */
+  const dismissOutsideWork = useCallback((id: number) => {
+    setOutsideWork((prev) => prev.filter((w) => w.id !== id));
+  }, []);
+
   const saveSettings = useCallback(
     async (patch: Partial<Settings>) => {
       if (!settings) return;
@@ -894,6 +945,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     proposals,
     acceptProposal,
     dismissProposal,
+    outsideWork,
+    dismissOutsideWork,
     saveSettings,
     saveAgents,
     addProject,

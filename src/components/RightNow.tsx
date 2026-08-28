@@ -7,7 +7,7 @@ import { motion } from "motion/react";
 import { api } from "../lib/ipc";
 import { cx } from "../lib/cx";
 import { railIn, rowIn } from "../lib/motion";
-import { clock, duration, money, plural } from "../lib/format";
+import { clock, duration, money, outsideWorkParts, plural } from "../lib/format";
 import { tone, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
 import { Glyph, Icon, mono, truncate } from "./ui";
@@ -54,11 +54,17 @@ function Section({
 /** The 44px strip the rail collapses to: the count, who is working, and a way
  *  back. */
 export function RightNowStrip({ open }: { open: () => void }) {
-  const { approvals, snapshot, agents, proposals } = useStore();
+  const { approvals, snapshot, agents, proposals, outsideWork } = useStore();
   const cards = snapshot?.cards ?? [];
   const openProposals = proposals.filter((p) => p.status === "open");
+  // The same arithmetic as the open rail's "Waiting on you", and it has to
+  // stay the same: this badge is the only thing a collapsed rail says, so a
+  // warning the rail counts and the strip does not is a warning nobody sees.
   const waiting =
-    approvals.length + openProposals.length + cards.filter((c) => c.status === "review").length;
+    approvals.length +
+    openProposals.length +
+    outsideWork.length +
+    cards.filter((c) => c.status === "review").length;
   const workers = [...new Set(cards.filter((c) => c.status === "running").map((c) => c.agent_id))];
 
   return (
@@ -126,6 +132,8 @@ export function RightNow({
     proposals,
     acceptProposal,
     dismissProposal,
+    outsideWork,
+    dismissOutsideWork,
   } = useStore();
 
   const cards = snapshot?.cards ?? [];
@@ -133,6 +141,7 @@ export function RightNow({
   const runningCards = cards.filter((c) => c.status === "running");
   const openProposals = proposals.filter((p) => p.status === "open");
   const [trees, setTrees] = useState<WorktreeRow[]>([]);
+  const [shownWarning, setShownWarning] = useState<number | null>(null);
 
   // Elapsed timers must breathe: a frozen number reads as "frozen app". The
   // tick lives here because the elapsed number does — it used to sit in the
@@ -182,13 +191,15 @@ export function RightNow({
   );
 
   const liveSpend = runningCards.reduce((sum, c) => sum + c.cost_usd, 0);
-  const waiting = approvals.length + openProposals.length + reviewing.length;
+  const waiting =
+    approvals.length + openProposals.length + outsideWork.length + reviewing.length;
   // Four sections each announcing their own emptiness is the same news told
   // four times, and it makes a calm machine look like a broken one. When
   // nothing at all is happening, say that once and let the rail go quiet.
   const allQuiet =
     waiting === 0 &&
     openProposals.length === 0 &&
+    outsideWork.length === 0 &&
     runningCards.length === 0 &&
     doneToday.length === 0;
 
@@ -359,7 +370,95 @@ export function RightNow({
           })}
         </motion.div>
 
+        {/* Trabalho que não passou pelo quadro (#86). Fica onde estão as
+            propostas e comporta-se como elas: o backend descobriu, disse, e a
+            decisão é do operador. Não desaparece com o tempo nem com um
+            evento — só o botão o tira daqui. */}
         <motion.div custom={1} variants={rowIn}>
+          <Section
+            title="Outside the board"
+            count={String(outsideWork.length)}
+            top={14}
+            right={
+              outsideWork.length > 0 ? (
+                <span
+                  title="Commits reached Relay's own repository without a Harness-Card trailer"
+                  className={cx(mono, "text-xs text-text4 dark:text-text4-d")}
+                >
+                  his flag, your call
+                </span>
+              ) : undefined
+            }
+          />
+          {outsideWork.length === 0 && !allQuiet && (
+            <div className="px-1 pb-1 text-sm font-normal leading-relaxed text-text4 dark:text-text4-d">
+              No warning since this window opened. The look runs at startup and
+              at the day's close, over the mirror project only.
+            </div>
+          )}
+          {outsideWork.map((warning) => {
+            // Both halves come from the backend's own sentence; nothing here
+            // counts commits or names files of its own.
+            const { facts, forDirector } = outsideWorkParts(warning.said);
+            const shown = shownWarning === warning.id;
+            return (
+              <div
+                key={warning.id}
+                className={cx(RAIL_CARD, "flex flex-col gap-1.5 bg-surface dark:bg-surface-d")}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="flex text-warn dark:text-warn-d">
+                    <Icon.alert />
+                  </span>
+                  <span
+                    className={cx(
+                      truncate,
+                      "flex-1 text-sm font-semibold text-text dark:text-text-d",
+                    )}
+                  >
+                    Commits without a card
+                  </span>
+                </span>
+                <span className="text-sm font-normal leading-[1.55] text-text2 dark:text-text2-d">
+                  {facts}
+                </span>
+                {forDirector && (
+                  <>
+                    <button
+                      type="button"
+                      aria-expanded={shown}
+                      onClick={() => setShownWarning(shown ? null : warning.id)}
+                      className={cx(QUIET_LINK, "self-start text-left")}
+                    >
+                      {shown ? "hide what the Director was told" : "what the Director was told"}
+                    </button>
+                    {shown && (
+                      <span className="text-sm font-normal leading-[1.55] text-text3 dark:text-text3-d">
+                        {forDirector}
+                      </span>
+                    )}
+                  </>
+                )}
+                <span className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => dismissOutsideWork(warning.id)}
+                    title="Takes it off the rail. The same commits are never reported twice: the look already moved the sha it compares against."
+                    className={QUIET_LINK}
+                  >
+                    Dismiss
+                  </button>
+                  <span className="flex-1" />
+                  <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
+                    seen {clock(warning.seen_ms)}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </motion.div>
+
+        <motion.div custom={2} variants={rowIn}>
           <Section
             title="Proposals"
             count={String(openProposals.length)}
@@ -421,7 +520,7 @@ export function RightNow({
           ))}
         </motion.div>
 
-        <motion.div custom={2} variants={rowIn}>
+        <motion.div custom={3} variants={rowIn}>
           <Section
             title="Running"
             count={String(runningCards.length)}
@@ -502,7 +601,7 @@ export function RightNow({
           })}
         </motion.div>
 
-        <motion.div custom={3} variants={rowIn}>
+        <motion.div custom={4} variants={rowIn}>
           <Section
             title="Done today"
             count={String(stats?.done_today ?? doneToday.length)}
@@ -551,7 +650,7 @@ export function RightNow({
           })}
         </motion.div>
 
-        <motion.div custom={4} variants={rowIn}>
+        <motion.div custom={5} variants={rowIn}>
           <Section
             title="Worktrees"
             count={String(trees.length)}

@@ -37,6 +37,7 @@ import {
   Search as LuSearch,
   Settings as LuSettings,
   Square as LuSquare,
+  TriangleAlert,
   UserRound,
   Users,
   Waypoints,
@@ -661,6 +662,7 @@ const hidden = { "aria-hidden": true } as const;
 export const Icon = {
   search: () => <LuSearch size={14} strokeWidth={2.4} {...hidden} />,
   bell: () => <Bell size={15} strokeWidth={2.25} {...hidden} />,
+  alert: () => <TriangleAlert size={13} strokeWidth={2.4} {...hidden} />,
   chevron: () => (
     <ChevronDown
       size={12}
