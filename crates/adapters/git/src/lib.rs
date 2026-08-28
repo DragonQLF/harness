@@ -148,6 +148,41 @@ impl CliGit {
         self.rev_parse_head(&self.repo_root).ok()
     }
 
+    /// Trazer o que o remoto tem, e avançar o checkout até lá quando é seguro.
+    ///
+    /// Sem isto, um clone que o Relay fez de si próprio fica no commit em que
+    /// nasceu: a vigia compara o repositório consigo mesmo, o Director lê o
+    /// código de uma versão que já não corre, e ambos parecem estar a
+    /// funcionar. O clone é do Relay e ninguém trabalha nele à mão — mas se
+    /// alguém o fez, ou se um cartão lá deixou trabalho, **não se toca**: o
+    /// avanço só acontece com a árvore limpa, e é `--ff-only`, portanto ou
+    /// desliza ou falha. Nada aqui reescreve história de ninguém.
+    ///
+    /// Devolve o sha do remoto, que é contra o que a vigia tem de comparar —
+    /// o HEAD local não se mexe com um `fetch`.
+    pub fn refresh_from_remote(&self) -> Option<String> {
+        let branch = self.default_branch();
+        self.git(&self.repo_root, &["fetch", "--quiet", "origin", &branch])
+            .ok()?;
+        let remote = format!("origin/{branch}");
+        let ahead = self
+            .git(&self.repo_root, &["rev-parse", &remote])
+            .ok()?
+            .trim()
+            .to_string();
+
+        // Uma árvore suja é trabalho de alguém. Fica onde está; a vigia usa na
+        // mesma o sha do remoto, porque o que ela quer saber é o que chegou.
+        let dirty = self
+            .git(&self.repo_root, &["status", "--porcelain"])
+            .map(|o| !o.trim().is_empty())
+            .unwrap_or(true);
+        if !dirty {
+            let _ = self.git(&self.repo_root, &["merge", "--ff-only", &remote]);
+        }
+        Some(ahead)
+    }
+
     /// Commits on the default branch after `since` that Relay did not make.
     ///
     /// Every commit a card produces carries a `Harness-Card` trailer, so a

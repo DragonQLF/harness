@@ -445,6 +445,10 @@ impl Workspace {
 
     /// Save the session the SDK handed back, and tell the window, so the list
     /// stops saying a conversation has never been answered.
+    pub async fn record_chat_version(&self, id: &str, version: &str) {
+        self.chats.record_version(id, version).await
+    }
+
     pub async fn record_chat_session(&self, id: &str, session_id: &str) {
         self.chats.record_session(id, session_id).await
     }
@@ -1014,7 +1018,11 @@ impl Workspace {
             DEADLINE,
             tauri::async_runtime::spawn_blocking(move || {
                 let git = CliGit::new(&root, worktrees);
-                let head = git.head_sha()?;
+                // O que interessa é o que chegou ao remoto, não onde este clone
+                // ficou. Sem o fetch, a vigia compara o repositório consigo
+                // mesmo e nunca vê nada — e o Director continua a ler o código
+                // da versão em que o clone nasceu.
+                let head = git.refresh_from_remote().or_else(|| git.head_sha())?;
                 // First look, or nothing moved: record and say nothing.
                 let Some(base) = harness_app::mirror::base_to_compare(&known, &head) else {
                     return Some((head, Vec::new()));
