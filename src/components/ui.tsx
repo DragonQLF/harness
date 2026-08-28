@@ -9,7 +9,7 @@
  *  um glifo, a altura de uma barra —, porque essas são valores e não classes:
  *  o Tailwind precisa do nome escrito em código para o gerar. */
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   Activity as LuActivity,
   Archive as LuArchive,
@@ -61,24 +61,6 @@ export const tabular = "tabular-nums";
 
 /** A voz de metadados em monoespaçada: ids, custos, ramos, horas. */
 export const mono = "font-mono tabular-nums";
-
-/** Andaimes da migração: as vistas que ainda não foram convertidas espalham
- *  estes objectos dentro de um `style`. Saem com o `theme.css`, no último
- *  commit, quando já não houver quem os espalhe.
- *  @deprecated usa as classes acima. */
-export const monoStyle: CSSProperties = {
-  fontFamily: '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontVariantNumeric: "tabular-nums",
-};
-/** @deprecated usa `truncate`. */
-export const truncateStyle: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  minWidth: 0,
-};
-/** @deprecated usa `tabular`. */
-export const tabularStyle: CSSProperties = { fontVariantNumeric: "tabular-nums" };
 
 // ---- painéis ---------------------------------------------------------------
 

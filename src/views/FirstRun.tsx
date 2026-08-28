@@ -3,8 +3,13 @@
 
 import { useState } from "react";
 import { greeting } from "../lib/format";
+import { cx } from "../lib/cx";
 import { useStore } from "../state/store";
-import { tabularStyle, truncateStyle } from "../components/ui";
+import { tabular, truncate } from "../components/ui";
+
+/** Um dos três painéis brancos deste ecrã. */
+const PANEL =
+  "rounded-xl border border-line bg-surface p-4.5 dark:border-line-d dark:bg-surface-d";
 
 function Step({
   n,
@@ -16,37 +21,18 @@ function Step({
   body: string;
 }) {
   return (
-    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+    <div className="flex items-start gap-3">
       <span
-        style={{
-          width: 22,
-          height: 22,
-          flex: "none",
-          borderRadius: "50%",
-          background: "var(--surface2)",
-          border: "1px solid var(--line)",
-          color: "var(--text3)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 11.5,
-          fontWeight: 800,
-          ...tabularStyle,
-        }}
+        className={cx(
+          tabular,
+          "flex h-5.5 w-5.5 flex-none items-center justify-center rounded-full border border-line bg-surface2 text-sm font-extrabold text-text3 dark:border-line-d dark:bg-surface2-d dark:text-text3-d",
+        )}
       >
         {n}
       </span>
-      <span style={{ minWidth: 0 }}>
-        <span style={{ display: "block", fontSize: 12.5, fontWeight: 700 }}>{title}</span>
-        <span
-          style={{
-            display: "block",
-            marginTop: 4,
-            fontSize: 11.5,
-            color: "var(--text3)",
-            lineHeight: 1.55,
-          }}
-        >
+      <span className="min-w-0">
+        <span className="block text-md font-bold">{title}</span>
+        <span className="mt-1 block text-sm leading-[1.55] text-text3 dark:text-text3-d">
           {body}
         </span>
       </span>
@@ -60,128 +46,58 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
   const firstName = (settings?.user_name ?? "Operator").split(/\s+/)[0];
 
   return (
-    <div style={{ padding: "22px 26px 28px", maxWidth: 1000 }}>
-      <div
-        style={{
-          position: "relative",
-          borderRadius: 20,
-          overflow: "hidden",
-          background: "var(--ink)",
-          boxShadow: "var(--lift)",
-          animation: "fadeUp .5s ease both",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            right: -60,
-            top: -80,
-            width: 240,
-            height: 240,
-            borderRadius: "50%",
-            background: "var(--bannerGlow)",
-            pointerEvents: "none",
-          }}
-        />
-        <div style={{ position: "relative", padding: "26px 26px 24px" }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: "var(--onBanner)", letterSpacing: "-.02em" }}>
+    <div className="max-w-[1000px] px-6.5 pb-7 pt-5.5">
+      {/* O banner é escuro nos dois temas, por isso o que assenta nele não
+          tem par claro: é o mesmo tinteiro em ambos. */}
+      <div className="relative animate-[fadeUp_.5s_ease_both] overflow-hidden rounded-xl bg-ink-light shadow-lift dark:bg-ink dark:shadow-lift-d">
+        <div className="pointer-events-none absolute -right-[60px] -top-[80px] h-[240px] w-[240px] rounded-full bg-bannerGlow" />
+        <div className="relative px-6.5 pb-6 pt-6.5">
+          <div className="text-2xl font-extrabold tracking-[-.02em] text-onBanner">
             {greeting()}, {firstName}. Nothing is set up yet.
           </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 12.5,
-              lineHeight: 1.55,
-              color: "rgba(255,255,255,.62)",
-              maxWidth: "62ch",
-            }}
-          >
+          <div className="mt-1.5 max-w-[62ch] text-md leading-[1.55] text-[rgba(255,255,255,.62)]">
             Relay works on git repositories — local ones. Point it at a repo you already have, or
             start a new one from scratch: no remote, no account, nothing leaves this machine unless
             an agent asks you to push.
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
+          <div className="mt-4.5 flex flex-wrap gap-2">
             <button
               type="button"
-              className="hv-rise"
               onClick={addProject}
-              style={{
-                padding: "10px 18px",
-                border: "none",
-                borderRadius: 999,
-                background: "#fff",
-                color: "#17171f",
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: "pointer",
-                transition: "transform .18s ease",
-              }}
+              className="min-h-6 cursor-pointer rounded-full border-none bg-white px-4.5 py-2.5 text-md font-bold text-[#17171f] transition-transform duration-150 ease-out hover:-translate-y-px"
             >
               Open a repository…
             </button>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 4px 4px 14px",
-                border: "1px solid rgba(255,255,255,.2)",
-                borderRadius: 999,
-                background: "rgba(255,255,255,.07)",
-              }}
-            >
+            <div className="flex items-center gap-1.5 rounded-full border border-[rgba(255,255,255,.2)] bg-[rgba(255,255,255,.07)] py-1 pl-3.5 pr-1 transition-colors duration-200 focus-within:border-[rgba(242,239,232,.42)] focus-within:bg-[rgba(242,239,232,.11)]">
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && name.trim()) createProject(name);
                 }}
+                aria-label="Name a new local repository"
                 placeholder="or name a new local repo…"
-                style={{
-                  width: 168,
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--onBanner)",
-                  fontSize: 12.5,
-                  outline: "none",
-                  padding: "6px 0",
-                }}
+                className="w-[168px] border-none bg-transparent py-1.5 text-md text-onBanner outline-none placeholder:text-onBanner-3"
               />
               <button
                 type="button"
-                className="hv-white"
                 onClick={() => createProject(name)}
                 disabled={!name.trim()}
-                style={{
-                  padding: "8px 14px",
-                  border: "none",
-                  borderRadius: 999,
-                  background: name.trim() ? "var(--accent2)" : "rgba(255,255,255,.12)",
-                  color: name.trim() ? "var(--onAccent)" : "var(--onBanner3)",
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: name.trim() ? "pointer" : "not-allowed",
-                }}
+                className={cx(
+                  "min-h-6 rounded-full border-none px-3.5 py-2 text-md font-bold transition-colors duration-150",
+                  name.trim()
+                    ? "cursor-pointer bg-accent2 text-onAccent hover:bg-[rgba(255,255,255,.15)] dark:bg-accent2-d dark:text-onAccent-d"
+                    : "cursor-not-allowed bg-[rgba(255,255,255,.12)] text-onBanner-3",
+                )}
               >
                 Create
               </button>
             </div>
             <button
               type="button"
-              className="hv-white"
               onClick={openChat}
-              style={{
-                padding: "10px 16px",
-                border: "1px solid rgba(255,255,255,.2)",
-                borderRadius: 999,
-                background: "rgba(255,255,255,.07)",
-                color: "var(--onBanner)",
-                fontSize: 12.5,
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "background .18s ease",
-              }}
+              className="min-h-6 cursor-pointer rounded-full border border-[rgba(255,255,255,.2)] bg-[rgba(255,255,255,.07)] px-4 py-2.5 text-md font-semibold text-onBanner transition-colors duration-150 hover:bg-[rgba(242,239,232,.16)]"
             >
               Ask the Director what to start
             </button>
@@ -189,27 +105,9 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)",
-          gap: 12,
-          marginTop: 12,
-          alignItems: "start",
-        }}
-      >
-        <div
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: 20,
-            background: "var(--surface)",
-            padding: "18px 18px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 700 }}>How it goes from here</div>
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-3">
+        <div className={cx(PANEL, "flex flex-col gap-3.5")}>
+          <div className="text-lg font-bold">How it goes from here</div>
           <Step
             n="1"
             title="Pick a repository"
@@ -232,16 +130,9 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
           />
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              padding: "18px 18px",
-            }}
-          >
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Before you start</div>
+        <div className="flex flex-col gap-3">
+          <div className={PANEL}>
+            <div className="mb-3 text-lg font-bold">Before you start</div>
             {[
               {
                 label: "Claude",
@@ -268,44 +159,31 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
             ].map((row, i) => (
               <div
                 key={row.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 0",
-                  borderTop: i === 0 ? "none" : "1px solid var(--line2)",
-                }}
+                className={cx(
+                  "flex items-center gap-2.5 py-2.5",
+                  i > 0 && "border-t border-line2 dark:border-line2-d",
+                )}
               >
                 <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    flex: "none",
-                    borderRadius: "50%",
-                    background: row.ok ? "var(--ok)" : "var(--warn)",
-                  }}
+                  className={cx(
+                    "h-1.75 w-1.75 flex-none rounded-full",
+                    row.ok ? "bg-ok dark:bg-ok-d" : "bg-warn dark:bg-warn-d",
+                  )}
                 />
-                <span style={{ flex: "none", minWidth: 96, fontSize: 12.5, fontWeight: 600 }}>
-                  {row.label}
-                </span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: "var(--text3)", ...truncateStyle }}>
+                <span className="min-w-24 flex-none text-md font-semibold">{row.label}</span>
+                <span
+                  className={cx(
+                    truncate,
+                    "flex-1 text-sm text-text3 dark:text-text3-d",
+                  )}
+                >
                   {row.ok ? row.good : row.bad}
                 </span>
                 {!row.ok && row.label === "Agent sidecar" && status?.sidecar.node_found && (
                   <button
                     type="button"
-                    className="hv-bright"
                     onClick={installSidecar}
-                    style={{
-                      padding: "6px 12px",
-                      border: "none",
-                      borderRadius: 999,
-                      background: "var(--accent)",
-                      color: "var(--onAccent)",
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
+                    className="min-h-6 cursor-pointer rounded-full border-none bg-accent px-3 py-1.5 text-sm font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] dark:bg-accent-d dark:text-onAccent-d"
                   >
                     Install
                   </button>
@@ -314,29 +192,15 @@ export function FirstRun({ openChat }: { openChat: () => void }) {
             ))}
           </div>
 
-          <div
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 20,
-              background: "var(--surface)",
-              padding: "18px 18px",
-            }}
-          >
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-              Where Relay keeps things
-            </div>
+          <div className={PANEL}>
+            <div className="mb-1.5 text-lg font-bold">Where Relay keeps things</div>
             <div
               title={dataDir}
-              style={{
-                fontSize: 11.5,
-                color: "var(--text3)",
-                fontFamily: "var(--mono)",
-                ...truncateStyle,
-              }}
+              className={cx(truncate, "font-mono text-sm text-text3 dark:text-text3-d")}
             >
               {dataDir || "—"}
             </div>
-            <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--text3)", lineHeight: 1.6 }}>
+            <div className="mt-2 text-sm leading-relaxed text-text3 dark:text-text3-d">
               Event logs, run transcripts, agent profiles and worktrees live there. Your repository
               only ever receives commits.
             </div>

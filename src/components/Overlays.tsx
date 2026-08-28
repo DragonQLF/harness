@@ -3,78 +3,59 @@
  *  screen now, not an overlay. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { ago } from "../lib/format";
-import { tone } from "../lib/types";
+import { cx } from "../lib/cx";
+import { sheetIn, toastIn, veil } from "../lib/motion";
+import { TONE, tone, type Tone, type ToneName } from "../lib/types";
 import { useStore } from "../state/store";
-import { truncateStyle } from "./ui";
+import { truncate } from "./ui";
+
+/** O véu por trás de uma folha: escurece e desfoca o que está atrás. */
+const SCRIM =
+  "absolute inset-0 z-[80] flex items-center justify-center bg-[rgba(18,18,26,.42)] backdrop-blur-[4px]";
+
+/** A folha em si. */
+const SHEET =
+  "rounded-xl border border-line bg-elev p-6 shadow-soft dark:border-line-d dark:bg-elev-d dark:shadow-soft-d";
 
 export function Toasts() {
   const { toasts, dismissToast } = useStore();
   return (
-    <div
-      style={{
-        position: "absolute",
-        right: 22,
-        bottom: 22,
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        alignItems: "flex-end",
-        zIndex: 60,
-      }}
-    >
-      {toasts.map((t) => (
-        <div
-          className="hv-soft"
-          key={t.id}
-          onClick={() => dismissToast(t.id)}
-          style={{
-            minWidth: 250,
-            maxWidth: 330,
-            display: "flex",
-            gap: 12,
-            padding: "14px 16px",
-            borderRadius: 16,
-            background: "var(--elev)",
-            border: "1px solid var(--line)",
-            boxShadow: "var(--shadow)",
-            animation: "toastIn .3s cubic-bezier(.2,.8,.2,1) both",
-            cursor: "pointer",
-          }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              marginTop: 6,
-              flex: "none",
-              background: t.tone,
-            }}
-          />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>{t.title}</div>
-            {t.body && (
-              <div style={{ fontSize: 12.5, color: "var(--text3)", lineHeight: 1.5 }}>{t.body}</div>
-            )}
-          </div>
-        </div>
-      ))}
+    <div className="absolute bottom-5.5 right-5.5 z-[60] flex flex-col items-end gap-2.5">
+      <AnimatePresence>
+        {toasts.map((t) => {
+          const dot = TONE[t.tone as ToneName] ?? TONE.accent;
+          return (
+            <motion.button
+              key={t.id}
+              layout
+              variants={toastIn}
+              initial="hidden"
+              animate="shown"
+              exit="gone"
+              type="button"
+              onClick={() => dismissToast(t.id)}
+              className="flex w-[250px] max-w-[330px] cursor-pointer gap-3 rounded-lg border border-line bg-elev px-4 py-3.5 text-left shadow-soft transition-colors duration-150 hover:bg-hovered dark:border-line-d dark:bg-elev-d dark:shadow-soft-d dark:hover:bg-hovered-d"
+            >
+              <span
+                className={cx("mt-1.5 h-1.75 w-1.75 flex-none rounded-full", dot.solid)}
+              />
+              <div className="min-w-0">
+                <div className="mb-1 text-md font-bold">{t.title}</div>
+                {t.body && (
+                  <div className="text-md leading-normal text-text3 dark:text-text3-d">
+                    {t.body}
+                  </div>
+                )}
+              </div>
+            </motion.button>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }
-
-const scrim = {
-  position: "absolute" as const,
-  inset: 0,
-  zIndex: 80,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  background: "rgba(18,18,26,.42)",
-  backdropFilter: "blur(4px)",
-  animation: "fadeIn .18s ease both",
-};
 
 export function ApprovalSheet({ close }: { close: () => void }) {
   const { approvals, answerApproval, agents, snapshot, projects } = useStore();
@@ -90,7 +71,7 @@ export function ApprovalSheet({ close }: { close: () => void }) {
   const card = snapshot?.cards.find((c) => c.id === request.card_id);
   const agent = agents.find((a) => a.id === card?.agent_id);
   const project = projects.find((p) => p.id === request.project_id);
-  const t = tone(agent?.tone ?? "warn");
+  const t: Tone = tone(agent?.tone ?? "warn");
 
   const answer = (allow: boolean) => {
     answerApproval(request.request_id, allow, allow && always);
@@ -98,166 +79,96 @@ export function ApprovalSheet({ close }: { close: () => void }) {
   };
 
   return (
-    <div style={scrim} onClick={close}>
-      <div
+    <motion.div
+      variants={veil}
+      initial="hidden"
+      animate="shown"
+      exit="gone"
+      className={SCRIM}
+      onClick={close}
+    >
+      <motion.div
+        variants={sheetIn}
+        initial="hidden"
+        animate="shown"
+        exit="gone"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 490,
-          padding: 24,
-          borderRadius: 20,
-          background: "var(--elev)",
-          border: "1px solid var(--line)",
-          boxShadow: "var(--shadow)",
-          animation: "popIn .3s cubic-bezier(.2,.8,.2,1) both",
-        }}
+        className={cx(SHEET, "w-[490px]")}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div className="mb-4 flex items-center gap-3">
           <span
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: "50%",
-              background: t.cssSoft,
-              color: t.cssColor,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 12.5,
-              fontWeight: 700,
-            }}
+            className={cx(
+              "flex h-[38px] w-[38px] items-center justify-center rounded-full text-md font-bold",
+              t.soft,
+              t.fg,
+            )}
           >
             {agent?.initial ?? "?"}
           </span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 700 }}>
+          <span className="min-w-0 flex-1">
+            <span className="block text-lg font-bold">
               {agent?.name ?? "An agent"} is asking
             </span>
-            <span
-              style={{
-                display: "block",
-                fontFamily: "var(--mono)",
-                fontSize: 11.5,
-                color: "var(--text3)",
-                marginTop: 4,
-              }}
-            >
+            <span className="mt-1 block font-mono text-sm text-text3 dark:text-text3-d">
               {request.card_id ?? "—"} · paused · {project?.name ?? request.project_id}
             </span>
           </span>
-          <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{ago(request.asked_ms)}</span>
+          <span className="text-sm text-text3 dark:text-text3-d">{ago(request.asked_ms)}</span>
         </div>
 
-        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6, letterSpacing: "-.02em" }}>
+        <div className="mb-1.5 text-[20px] font-extrabold tracking-[-.02em]">
           {card?.title ?? `Permission for ${request.tool}`}
         </div>
-        <div
-          style={{
-            display: "inline-block",
-            fontFamily: "var(--mono)",
-            fontSize: 12.5,
-            color: "var(--warn)",
-            background: "var(--warnSoft)",
-            padding: "6px 12px",
-            borderRadius: 8,
-            marginBottom: 14,
-          }}
-        >
+        <div className="mb-3.5 inline-block rounded-sm bg-warnSoft px-3 py-1.5 font-mono text-md text-warn dark:bg-warnSoft-d dark:text-warn-d">
           {request.tool}
         </div>
-        <pre
-          style={{
-            margin: "0 0 14px",
-            padding: "14px 16px",
-            borderRadius: 16,
-            background: "var(--surface2)",
-            fontFamily: "inherit",
-            fontSize: 12.5,
-            lineHeight: 1.65,
-            color: "var(--text2)",
-            maxHeight: 160,
-            overflow: "auto",
-            whiteSpace: "pre-wrap",
-          }}
-        >
+        <pre className="mx-0 mb-3.5 mt-0 max-h-[160px] overflow-auto whitespace-pre-wrap rounded-lg bg-surface2 px-4 py-3.5 font-sans text-md leading-[1.65] text-text2 dark:bg-surface2-d dark:text-text2-d">
           {request.summary ||
             "The agent asked to use a tool outside its permissions. No details were given."}
         </pre>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <div className="mb-4 flex items-center gap-2.5">
           <button
-            className="hv-soft"
             type="button"
+            role="checkbox"
+            aria-checked={always}
+            aria-label={`Stop asking me about ${request.tool}`}
             onClick={() => setAlways((v) => !v)}
-            aria-pressed={always}
-            style={{
-              width: 18,
-              height: 18,
-              flex: "none",
-              borderRadius: 8,
-              border: "1px solid var(--line)",
-              background: always ? "var(--accent)" : "transparent",
-              cursor: "pointer",
-              color: "var(--onAccent)",
-              fontSize: 10.5,
-              lineHeight: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+            className={cx(
+              "flex h-4.5 w-4.5 flex-none cursor-pointer items-center justify-center rounded-sm border border-line text-xs leading-none text-onAccent transition-colors duration-150 dark:border-line-d dark:text-onAccent-d",
+              always ? "bg-accent dark:bg-accent-d" : "bg-transparent",
+            )}
           >
             {always ? "✓" : ""}
           </button>
-          <span style={{ fontSize: 12.5, color: "var(--text2)" }}>
+          <span className="text-md text-text2 dark:text-text2-d">
             Stop asking me about {request.tool}
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
+        <div className="flex gap-2.5">
           <button
             type="button"
-            className="hv-bright"
             onClick={() => answer(true)}
-            style={{
-              flex: 1,
-              padding: 12,
-              border: "none",
-              borderRadius: 999,
-              background: "var(--accent)",
-              color: "var(--onAccent)",
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: "pointer",
-              transition: "filter .18s ease",
-            }}
+            className="min-h-6 flex-1 cursor-pointer rounded-full border-none bg-accent p-3 text-lg font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] dark:bg-accent-d dark:text-onAccent-d"
           >
             {always ? "Allow from now on" : "Allow once"}
           </button>
           <button
             type="button"
-            className="hv-danger"
             onClick={() => answer(false)}
-            style={{
-              flex: 1,
-              padding: 12,
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              background: "transparent",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-              transition: "all .18s ease",
-            }}
+            className="min-h-6 flex-1 cursor-pointer rounded-full border border-line bg-transparent p-3 text-lg font-semibold transition-colors duration-150 hover:border-transparent hover:bg-badSoft hover:text-bad dark:border-line-d dark:hover:bg-badSoft-d dark:hover:text-bad-d"
           >
             Deny
           </button>
         </div>
         {approvals.length > 1 && (
-          <div style={{ marginTop: 12, fontSize: 11.5, color: "var(--text3)", textAlign: "center" }}>
+          <div className="mt-3 text-center text-sm text-text3 dark:text-text3-d">
             {approvals.length - 1} more waiting after this one
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -278,23 +189,24 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
   };
 
   return (
-    <div style={scrim} onClick={close}>
-      <div
+    <motion.div
+      variants={veil}
+      initial="hidden"
+      animate="shown"
+      exit="gone"
+      className={SCRIM}
+      onClick={close}
+    >
+      <motion.div
+        variants={sheetIn}
+        initial="hidden"
+        animate="shown"
+        exit="gone"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 440,
-          padding: 24,
-          borderRadius: 20,
-          background: "var(--elev)",
-          border: "1px solid var(--line)",
-          boxShadow: "var(--shadow)",
-          animation: "popIn .3s cubic-bezier(.2,.8,.2,1) both",
-        }}
+        className={cx(SHEET, "w-[440px]")}
       >
-        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6, letterSpacing: "-.02em" }}>
-          Send it back
-        </div>
-        <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--text2)", lineHeight: 1.55 }}>
+        <div className="mb-1.5 text-[20px] font-extrabold tracking-[-.02em]">Send it back</div>
+        <p className="mx-0 mb-3.5 mt-0 text-md leading-[1.55] text-text2 dark:text-text2-d">
           {card?.title ?? cardId}
         </p>
         <textarea
@@ -305,68 +217,39 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
           }}
+          aria-label="What has to change?"
           placeholder="What has to change? The agent gets this verbatim."
-          className="hv-border"
-          style={{
-            width: "100%",
-            resize: "none",
-            padding: "14px 16px",
-            borderRadius: 16,
-            border: "1px solid var(--line)",
-            background: "var(--surface2)",
-            fontSize: 12.5,
-            lineHeight: 1.6,
-            outline: "none",
-          }}
+          className="w-full resize-none rounded-lg border border-line bg-surface2 px-4 py-3.5 text-md leading-relaxed outline-none transition-colors duration-150 hover:border-accentLine focus-visible:border-accentLine dark:border-line-d dark:bg-surface2-d dark:hover:border-accentLine-d dark:focus-visible:border-accentLine-d"
         />
-        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <div className="mt-3.5 flex gap-2.5">
           <button
             type="button"
-            className="hv-bright"
             onClick={send}
-            style={{
-              flex: 1,
-              padding: 12,
-              border: "none",
-              borderRadius: 999,
-              background: "var(--bad)",
-              color: "var(--onAccent)",
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: "pointer",
-              transition: "filter .18s ease",
-              opacity: why.trim() ? 1 : 0.65,
-            }}
+            className={cx(
+              "min-h-6 flex-1 cursor-pointer rounded-full border-none bg-bad p-3 text-lg font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] dark:bg-bad-d dark:text-onAccent-d",
+              why.trim() ? "opacity-100" : "opacity-65",
+            )}
           >
             Send back with reason
           </button>
           <button
             type="button"
-            className="hv-soft"
             onClick={close}
-            style={{
-              padding: "12px 18px",
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              background: "transparent",
-              color: "var(--text2)",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
+            className="min-h-6 cursor-pointer rounded-full border border-line bg-transparent px-4.5 py-3 text-lg font-semibold text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d"
           >
             Cancel
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
 export interface PaletteAction {
   name: string;
   hint: string;
-  color: string;
+  /** O tom do ponto à esquerda — já resolvido em classes. */
+  tone: Tone;
   run: () => void;
 }
 
@@ -403,8 +286,6 @@ export function CommandPalette({
       .slice(0, 9);
   }, [actions, q]);
 
-  if (!open) return null;
-
   const pick = (i: number) => {
     const action = hits[i];
     if (!action) return;
@@ -413,103 +294,77 @@ export function CommandPalette({
   };
 
   return (
-    <div
-      className="hv-soft"
-      onClick={close}
-      style={{
-        position: "absolute",
-        inset: 0,
-        zIndex: 90,
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: 100,
-        background: "rgba(18,18,26,.38)",
-        backdropFilter: "blur(4px)",
-        animation: "fadeIn .16s ease both",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 560,
-          borderRadius: 20,
-          background: "var(--elev)",
-          border: "1px solid var(--line)",
-          boxShadow: "var(--shadow)",
-          overflow: "hidden",
-          animation: "popIn .26s cubic-bezier(.2,.8,.2,1) both",
-        }}
-      >
-        <input
-          ref={input}
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setCursor(0);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setCursor((c) => Math.min(hits.length - 1, c + 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setCursor((c) => Math.max(0, c - 1));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              pick(cursor);
-            } else if (e.key === "Escape") {
-              close();
-            }
-          }}
-          placeholder="Search cards, sessions, agents…"
-          style={{
-            width: "100%",
-            padding: "18px 20px",
-            border: "none",
-            borderBottom: "1px solid var(--line)",
-            background: "transparent",
-            fontSize: 14,
-            outline: "none",
-          }}
-        />
-        <div style={{ maxHeight: 320, overflowY: "auto", padding: 8 }}>
-          {hits.map((a, i) => (
-            <button
-              key={`${a.name}-${i}`}
-              type="button"
-              onMouseEnter={() => setCursor(i)}
-              onClick={() => pick(i)}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                padding: "10px 12px",
-                border: "none",
-                borderRadius: 12,
-                background: i === cursor ? "var(--hover)" : "transparent",
-                color: "var(--text)",
-                fontSize: 14,
-                cursor: "pointer",
-                textAlign: "left",
-                transition: "background .14s ease",
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          variants={veil}
+          initial="hidden"
+          animate="shown"
+          exit="gone"
+          onClick={close}
+          className="absolute inset-0 z-[90] flex items-start justify-center bg-[rgba(18,18,26,.38)] pt-[100px] backdrop-blur-[4px]"
+        >
+          <motion.div
+            variants={sheetIn}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            onClick={(e) => e.stopPropagation()}
+            className="w-[560px] overflow-hidden rounded-xl border border-line bg-elev shadow-soft dark:border-line-d dark:bg-elev-d dark:shadow-soft-d"
+          >
+            <input
+              ref={input}
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setCursor(0);
               }}
-            >
-              <span
-                style={{ width: 7, height: 7, borderRadius: "50%", flex: "none", background: a.color }}
-              />
-              <span style={{ flex: 1, fontWeight: 500, ...truncateStyle }}>{a.name}</span>
-              <span style={{ fontSize: 11.5, color: "var(--text3)" }}>{a.hint}</span>
-            </button>
-          ))}
-          {hits.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", fontSize: 12.5, color: "var(--text3)" }}>
-              No matches
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setCursor((c) => Math.min(hits.length - 1, c + 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setCursor((c) => Math.max(0, c - 1));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  pick(cursor);
+                } else if (e.key === "Escape") {
+                  close();
+                }
+              }}
+              aria-label="Search cards, sessions, agents"
+              placeholder="Search cards, sessions, agents…"
+              className="w-full border-none border-b border-line bg-transparent px-5 py-4.5 text-lg outline-none dark:border-line-d"
+            />
+            <div className="max-h-[320px] overflow-y-auto p-2">
+              {hits.map((a, i) => (
+                <button
+                  key={`${a.name}-${i}`}
+                  type="button"
+                  onMouseEnter={() => setCursor(i)}
+                  onClick={() => pick(i)}
+                  className={cx(
+                    "flex w-full cursor-pointer items-center gap-3 rounded-md border-none px-3 py-2.5 text-left text-lg text-text transition-colors duration-150 dark:text-text-d",
+                    i === cursor
+                      ? "bg-hovered dark:bg-hovered-d"
+                      : "bg-transparent",
+                  )}
+                >
+                  <span className={cx("h-1.75 w-1.75 flex-none rounded-full", a.tone.solid)} />
+                  <span className={cx(truncate, "flex-1 font-medium")}>{a.name}</span>
+                  <span className="text-sm text-text3 dark:text-text3-d">{a.hint}</span>
+                </button>
+              ))}
+              {hits.length === 0 && (
+                <div className="p-6 text-center text-md text-text3 dark:text-text3-d">
+                  No matches
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

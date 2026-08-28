@@ -150,9 +150,11 @@ work. It is one success out of five attempts, on one card, reviewed once.
 - `docs/DEBT.md` — rewritten each pass; current state of what is unfinished.
 - `docs/SPEC-ORIGINAL.md` — the founding architecture document.
 - `docs/screenshots/` — the shipped screens, light and dark.
-- The UI is a transcription of a design file, `Relay v4.dc.html`: tokens and
-  keyframes live in `src/styles/theme.css`, every other style is inline so a
-  screen can be read beside the design.
+- The UI is a transcription of a design file, `Relay v4.dc.html`. It was
+  written with the design's tokens in `src/styles/theme.css` and every other
+  style inline, so a screen could be read beside the design. Since decision #80
+  it is Tailwind: the tokens are literal values in `tailwind.config.js`, and
+  what a screen says about itself is in its class names. `theme.css` is gone.
 
 No customers, testimonials, benchmarks, pricing, or deployment claims exist.
 Future work must not invent any.

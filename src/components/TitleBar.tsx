@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../lib/ipc";
+import { cx } from "../lib/cx";
+import { popover } from "../lib/motion";
 import { money } from "../lib/format";
 import { useStore } from "../state/store";
-import { Icon, monoStyle } from "./ui";
+import { Icon, mono } from "./ui";
 import type { View } from "../views/views";
 
 const appWindow = getCurrentWindow();
@@ -38,66 +41,64 @@ function Menu({ name, items }: { name: string; items: MenuItem[] }) {
   }, [open]);
 
   return (
-    <span ref={box} style={{ position: "relative", display: "flex", alignItems: "stretch" }}>
-      <span
-        className="hv-soft"
+    <span ref={box} className="relative flex items-stretch">
+      <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        style={{
-          display: "grid",
-          placeItems: "center",
-          padding: "0 10px",
-          font: "400 11.5px var(--sans)",
-          color: open ? "var(--text)" : "var(--text2)",
-          background: open ? "var(--active)" : "transparent",
-          cursor: "pointer",
-        }}
+        className={cx(
+          "grid cursor-pointer place-items-center border-none px-2.5 text-sm font-normal transition-colors duration-150",
+          open
+            ? "bg-active text-text dark:bg-active-d dark:text-text-d"
+            : "bg-transparent text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+        )}
       >
         {name}
-      </span>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            zIndex: 200,
-            minWidth: 208,
-            padding: 6,
-            borderRadius: 12,
-            background: "var(--elev)",
-            border: "1px solid var(--line3)",
-            boxShadow: "var(--shadow)",
-            animation: "fadeIn .14s ease both",
-          }}
-        >
-          {items.map((item) => (
-            <div
-              key={item.label}
-              className={item.run ? "row" : undefined}
-              onClick={() => {
-                if (!item.run) return;
-                setOpen(false);
-                item.run();
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "6px 10px",
-                borderRadius: 8,
-                font: "400 12.5px var(--sans)",
-                color: item.run ? "var(--text1)" : "var(--text4)",
-                cursor: item.run ? "pointer" : "default",
-              }}
-            >
-              <span style={{ flex: 1 }}>{item.label}</span>
-              {item.hint && (
-                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>{item.hint}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            variants={popover}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            className="absolute left-0 top-full z-[200] min-w-[208px] rounded-md border border-line3 bg-elev p-1.5 shadow-soft dark:border-line3-d dark:bg-elev-d dark:shadow-soft-d"
+          >
+            {items.map((item) =>
+              item.run ? (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    item.run?.();
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-1.5 text-left text-md font-normal text-text1 transition-colors duration-150 hover:bg-hovered dark:text-text1-d dark:hover:bg-hovered-d"
+                >
+                  <span className="flex-1">{item.label}</span>
+                  {item.hint && (
+                    <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
+                      {item.hint}
+                    </span>
+                  )}
+                </button>
+              ) : (
+                <div
+                  key={item.label}
+                  className="flex cursor-default items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-md font-normal text-text4 dark:text-text4-d"
+                >
+                  <span className="flex-1">{item.label}</span>
+                  {item.hint && (
+                    <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
+                      {item.hint}
+                    </span>
+                  )}
+                </div>
+              ),
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </span>
   );
 }
@@ -160,50 +161,43 @@ export function TitleBar({
     };
   }, []);
 
-  const chrome = (label: string, icon: React.ReactNode, run: () => void, width: number, dim = false) => (
-    <span
-      className="hv-soft"
+  const chrome = (
+    label: string,
+    icon: React.ReactNode,
+    run: () => void,
+    width: string,
+    dim = false,
+  ) => (
+    <button
+      type="button"
       title={label}
+      aria-label={label}
+      disabled={dim}
       onClick={run}
-      style={{
-        display: "grid",
-        placeItems: "center",
+      className={cx(
+        "grid h-6 place-items-center rounded-sm border-none bg-transparent transition-colors duration-150",
         width,
-        height: 24,
-        borderRadius: 8,
-        color: dim ? "var(--line4)" : "var(--text4)",
-        cursor: dim ? "default" : "pointer",
-      }}
+        dim
+          ? "cursor-default text-line4 dark:text-line4-d"
+          : "cursor-pointer text-text4 hover:bg-hovered hover:text-text dark:text-text4-d dark:hover:bg-hovered-d dark:hover:text-text-d",
+      )}
     >
       {icon}
-    </span>
+    </button>
   );
 
   return (
     <div
       data-tauri-drag-region
-      style={{
-        flex: "none",
-        height: 30,
-        display: "flex",
-        alignItems: "stretch",
-        background: "var(--recess)",
-        borderBottom: "1px solid var(--line)",
-        userSelect: "none",
-        zIndex: 100,
-      }}
+      className="z-[100] flex h-[30px] flex-none select-none items-stretch border-b border-line bg-recess dark:border-line-d dark:bg-recess-d"
     >
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          paddingLeft: IS_MAC && !fullscreen ? TRAFFIC_LIGHTS : 8,
-        }}
+        className="flex items-center gap-px"
+        style={{ paddingLeft: IS_MAC && !fullscreen ? TRAFFIC_LIGHTS : 8 }}
       >
-        {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, 24)}
-        {chrome("Back", <Icon.back />, () => canBack && back(), 22, !canBack)}
-        {chrome("Forward", <Icon.forward />, () => canForward && forward(), 22, !canForward)}
+        {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, "w-6")}
+        {chrome("Back", <Icon.back />, back, "w-[22px]", !canBack)}
+        {chrome("Forward", <Icon.forward />, forward, "w-[22px]", !canForward)}
         {!IS_MAC && (
           <>
             <Menu
@@ -250,19 +244,15 @@ export function TitleBar({
 
       <div
         data-tauri-drag-region
-        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+        className="flex flex-1 items-center justify-center gap-2"
       >
-        <span style={{ ...monoStyle, fontSize: 11.5, fontWeight: 500, color: "var(--text3)" }}>{line}</span>
+        <span className={cx(mono, "text-sm font-medium text-text3 dark:text-text3-d")}>{line}</span>
         {stats != null && settings != null && stats.spend_today > settings.daily_budget_usd && (
           <span
-            style={{
-              ...monoStyle,
-              fontSize: 10.5,
-              padding: "1px 6px",
-              borderRadius: 8,
-              background: "var(--badSoft)",
-              color: "var(--bad2)",
-            }}
+            className={cx(
+              mono,
+              "rounded-sm bg-badSoft px-1.5 py-px text-xs text-bad2 dark:bg-badSoft-d dark:text-bad2-d",
+            )}
           >
             over budget
           </span>
@@ -270,34 +260,47 @@ export function TitleBar({
       </div>
 
       {!IS_MAC && (
-        <div style={{ display: "flex", alignItems: "stretch" }}>
+        <div className="flex items-stretch">
           {[
-            { label: "minimize", icon: <Icon.minimize />, run: () => appWindow.minimize(), w: 42 },
+            {
+              label: "minimize",
+              icon: <Icon.minimize />,
+              run: () => appWindow.minimize(),
+              w: "w-[42px]",
+              close: false,
+            },
             {
               label: "maximize",
               icon: <Icon.maximize />,
               run: () =>
                 appWindow.isMaximized().then((m) => (m ? appWindow.unmaximize() : appWindow.maximize())),
-              w: 42,
+              w: "w-[42px]",
+              close: false,
             },
-            { label: "close", icon: <Icon.close />, run: () => appWindow.close(), w: 44 },
+            {
+              label: "close",
+              icon: <Icon.close />,
+              run: () => appWindow.close(),
+              w: "w-11",
+              close: true,
+            },
           ].map((b) => (
             <button
               key={b.label}
               type="button"
               aria-label={b.label}
-              className={b.label === "close" ? "hv-close" : "hv-win"}
               onClick={b.run}
-              style={{
-                width: b.w,
-                border: "none",
-                background: "transparent",
-                color: "var(--text4)",
-                display: "grid",
-                placeItems: "center",
-                cursor: "pointer",
-                transition: "all .16s ease",
-              }}
+              className={cx(
+                "grid cursor-pointer place-items-center border-none bg-transparent text-text4 transition-colors duration-150 dark:text-text4-d",
+                b.w,
+                b.close
+                  ? "hover:bg-bad hover:text-onAccent dark:hover:bg-bad-d dark:hover:text-onAccent-d"
+                  : // Os controlos da janela assentam no `recess`, onde o `hover`
+                    // é um degrau tão pequeno que num alvo de 42px não se lê. A
+                    // convenção da plataforma é um fundo simples e o glifo a
+                    // subir à força toda.
+                    "hover:bg-surface2 hover:text-text active:bg-active dark:hover:bg-surface2-d dark:hover:text-text-d dark:active:bg-active-d",
+              )}
             >
               {b.icon}
             </button>

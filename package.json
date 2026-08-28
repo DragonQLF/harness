@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:styles": "node scripts/no-static-inline-style.mjs",
+    "check": "tsc --noEmit && node scripts/no-static-inline-style.mjs",
     "preview": "vite preview",
     "codegen": "cargo test --workspace --test export_types",
     "test:sidecar": "node --test sidecar/pathguard.test.mjs sidecar/toolsum.test.mjs",

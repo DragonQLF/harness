@@ -24,6 +24,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-24 | 66 | Pathguard guarda por omissão |
 | 2026-08-24 | 67–69 | Modo Destacado e Voz (fase 1 desenhada; fase 2 atrás de uma semana de uso) |
 | 2026-08-26 | 78–79 | O Director vê o próprio histórico: self_report, read_docs, caixa de entrada e fecho do dia |
+| 2026-08-28 | 80 | Tailwind v3: os tokens deixam de ser custom properties e o inline sai das vistas |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -1139,3 +1140,77 @@ cartão no `_harness` → agente corrige → compila → o operador instala.
   relógio; propostas já escritas estão salvas porque se escrevem no momento da
   chamada, não no fim. Sem wip a commitar e sem fecho devido, a janela fecha
   como sempre fechou.
+
+### 80. Tailwind v3 — os tokens são literais e o inline sai das vistas
+O `PRODUCT.md` dizia, e era verdade até aqui, que "tokens and keyframes live in
+`src/styles/theme.css`, every other style is inline so a screen can be read
+beside the design". **Isto contradiz essa escolha de propósito.** O que a
+justificava era poder ler um ecrã ao lado do ficheiro de desenho; o que ela
+custava eram 778 objectos de estilo inline contra 124 `className`, e um inline
+não tem `:hover`, `:focus-visible` nem `:disabled` — que é a razão por que
+metade dos controlos deste app eram `<span onClick>` sem teclado.
+
+- **Os tokens são valores literais no `tailwind.config.js`.** As 96
+  declarações de custom property do `theme.css` passam a valores escritos. O
+  valor base é o do tema **claro** e a variante `dark:` é a do escuro, porque é
+  assim que o Tailwind lê um tema; o selector é o atributo que o `store.tsx` já
+  escreve (`darkMode: ["selector", '[data-theme="dark"]']`), portanto o
+  `applyTheme` não mudou uma linha. Os ~38 tokens que diferem entre temas
+  passam a precisar de `dark:` em cada sítio onde são usados. É trabalho, era
+  esperado, está feito.
+- **Uma excepção, e só uma: o acento.** O operador pode escolher um acento nas
+  definições, e o `applyTheme` escreve seis propriedades no elemento raiz em
+  runtime. Essas seis ficam como `var(--accent, <literal>)` no config: o
+  literal é o fallback e é o caso normal, e nenhuma folha de estilo as declara —
+  só existem quando o operador escolhe. Sem isto o selector de acento passava a
+  não fazer nada, o que seria mudar comportamento em nome de uma migração.
+- **`src/styles/theme.css` foi eliminado.** No seu lugar fica
+  `src/styles/app.css`, que é a folha de entrada do Tailwind e mais nada: as
+  directivas, e o que não cabe numa `className` — o corpo, as barras de rolagem,
+  a selecção, o cursor de texto, e o bloco global de
+  `prefers-reduced-motion`. Zero tokens, zero utilitários soltos.
+- **As 94 classes do desenho desapareceram.** As de layout (`.row`, `.chip`,
+  `.tile`, `.stagger`, `.cols`, `.hv-*`) viraram classes nas vistas ou
+  constantes com nome dentro do ficheiro que as usa; as que eram componentes
+  viraram variantes no `ui.tsx` — `Card`, `Pill`, `Avatar`, `Meter`,
+  `DiffBlocks` e `Glyph` aceitam agora um tom em vez de receberem cores por
+  cima.
+- **Um tom deixou de ser uma cor.** `TONE` e `STATUS_TONE` continuam no
+  `types.ts` como o `DEBT.md` diz, mas cada tom passa a ser um conjunto de
+  classes (`fg`, `soft`, `solid`, `line`, `edge`, `wash`), porque o Tailwind
+  precisa do nome escrito em código para o gerar.
+- **O movimento fica em CSS por omissão.** As Web Interface Guidelines preferem
+  CSS a JavaScript, e girar, pulsar, piscar, aparecer e crescer ficaram em
+  `animate-*`. O `motion` entrou só para o que o CSS não faz: um cartão que
+  muda de coluna (é removido de uma coluna e montado noutra, e o CSS anima a
+  montagem, não a viagem), a **saída** de painéis, folhas, avisos e do rail — que
+  até aqui apareciam com animação e desapareciam num salto — e as sequências
+  orquestradas do `.stagger`, com os mesmos atrasos que estavam escritos à mão.
+  A preferência de movimento reduzido é respeitada dos dois lados: o bloco
+  global no `app.css` e `<MotionConfig reducedMotion="user">`, mais
+  `useReducedMotion()` no quadro, onde a resposta certa não é "não mexas" mas
+  "diz-o de outra maneira" — o cartão que mudou lava-se de acento em vez de
+  viajar.
+- **Os SVG à mão passaram a `lucide-react`.** Trinta dos trinta e um; o
+  trigésimo primeiro é o grafo de commits do ecrã de projecto, que é geometria
+  vinda da história real e não um ícone. A fachada `Icon.*` ficou, e cada
+  entrada guarda o tamanho e o peso de traço que o desenho lhe deu, convertidos
+  para a grelha de 24 do lucide. As marcas dos agentes não são ícones: são
+  identidade e ficaram exactamente como estavam.
+- **Uma guarda impede a volta.** `pnpm check:styles`
+  (`scripts/no-static-inline-style.mjs`) percorre a AST de cada `.tsx` e falha
+  se algum `style={{ }}` for feito só de literais. Corre no workflow de
+  release, ao lado do `tsc --noEmit`. Um objecto de estilo sem variável nenhuma
+  é uma classe que ninguém escreveu; sem esta verificação voltam a ser duzentas
+  dentro de um mês.
+
+**O que ficou inline, e porquê.** Dezanove objectos, todos calculados: a
+largura de uma barra em percentagem, a altura de um glifo que o chamador
+escolheu, o avanço de uma linha da transcrição pela profundidade da chamada, o
+atraso de uma barra pelo seu índice. Nenhum deles é uma classe disfarçada.
+
+**Uma coisa que não foi corrigida, de propósito.** O `.tile:hover` do desenho
+levanta um cartão do quadro com três valores crus (`#1e1d19`, `#33302b`) e não
+tem par para o tema claro, portanto um cartão claro escurece ao passar por
+cima. Está preservado tal e qual: é opinião de desenho e pertence ao brief da
+v2, não a uma migração que promete não mudar pixels.

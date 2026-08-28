@@ -76,6 +76,7 @@ jobs:
       - name: Check before publishing
         run: |
           pnpm exec tsc --noEmit
+          pnpm run check:styles
           cargo test --workspace
 
       - uses: tauri-apps/tauri-action@v0

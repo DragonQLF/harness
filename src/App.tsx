@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { check, type Update as Release } from "@tauri-apps/plugin-updater";
-import { MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { TitleBar } from "./components/TitleBar";
 import { NavRail } from "./components/NavRail";
@@ -11,10 +11,12 @@ import {
   Toasts,
   type PaletteAction,
 } from "./components/Overlays";
-import { Icon, Loading, Spinner, monoStyle, truncateStyle } from "./components/ui";
+import { Icon, Loading, Spinner, mono, truncate } from "./components/ui";
+import { cx } from "./lib/cx";
+import { sheetIn, veil } from "./lib/motion";
 import { api, events, reason } from "./lib/ipc";
 import { ago, money, plural } from "./lib/format";
-import { STATUS_TONE, tone } from "./lib/types";
+import { STATUS_TONE, TONE, tone } from "./lib/types";
 import type { ClosingBegan, ClosingPhase, PendingUpdate } from "./lib/types";
 import { StoreProvider, useStore } from "./state/store";
 import { Chat } from "./views/Chat";
@@ -27,8 +29,10 @@ import { ProjectPage, Projects } from "./views/Projects";
 import { Activity, Settings, Worktrees } from "./views/Misc";
 import { VIEW_TITLES, type View } from "./views/views";
 import "./styles/app.css";
-// Sai no último commit da migração, quando já não restar nada a apontar-lhe.
-import "./styles/theme.css";
+
+/** Uma pastilha de contorno no cabeçalho. */
+const CHIP =
+  "min-h-6 cursor-pointer rounded-sm border border-line3 bg-transparent text-text2 transition-[border-color,background,color] duration-150 hover:border-line4 hover:bg-surface2 hover:text-text dark:border-line3-d dark:text-text2-d dark:hover:border-line4-d dark:hover:bg-surface2-d dark:hover:text-text-d";
 
 /** The window is held on close for two deliberate reasons — agents leaving a
  *  wip commit, and once a day the Director's end-of-day look. Held silently,
@@ -60,92 +64,63 @@ function ClosingOverlay() {
     return () => clearInterval(id);
   }, [began]);
 
-  if (!began) return null;
-
-  const leaving = phase?.phase === "skipped" || phase?.phase === "timeout" || phase?.phase === "done";
-  const waitingFor = began.look
+  const leaving =
+    phase?.phase === "skipped" || phase?.phase === "timeout" || phase?.phase === "done";
+  const waitingFor = began?.look
     ? "The Director is taking his end-of-day look"
-    : began.wip
+    : began?.wip
       ? "Letting the agents commit what they have"
       : "Closing down";
-  const left = Math.max(0, began.limit_secs - elapsed);
+  const left = Math.max(0, (began?.limit_secs ?? 0) - elapsed);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 900,
-        display: "grid",
-        placeItems: "center",
-        background: "rgba(8,8,14,.62)",
-        backdropFilter: "blur(3px)",
-        animation: "fadeIn .18s ease both",
-      }}
-    >
-      <div
-        style={{
-          width: 420,
-          maxWidth: "88vw",
-          padding: "22px 24px 18px",
-          borderRadius: 20,
-          background: "var(--elev)",
-          border: "1px solid var(--line3)",
-          boxShadow: "var(--shadow)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Spinner />
-          <span style={{ font: "700 14px var(--sans)", letterSpacing: "-.01em" }}>
-            {leaving ? "Closing Relay" : waitingFor}
-          </span>
-        </div>
-
-        <p
-          style={{
-            margin: "12px 0 0",
-            font: "400 12.5px/1.6 var(--sans)",
-            color: "var(--text2)",
-          }}
+    <AnimatePresence>
+      {began && (
+        <motion.div
+          variants={veil}
+          initial="hidden"
+          animate="shown"
+          exit="gone"
+          className="fixed inset-0 z-[900] grid place-items-center bg-[rgba(8,8,14,.62)] backdrop-blur-[3px]"
         >
-          {phase?.detail ??
-            "Relay is finishing what it started before it lets go of the window."}
-        </p>
+          <motion.div
+            variants={sheetIn}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            className="w-[420px] max-w-[88vw] rounded-xl border border-line3 bg-elev px-6 pb-4.5 pt-5.5 shadow-soft dark:border-line3-d dark:bg-elev-d dark:shadow-soft-d"
+          >
+            <div className="flex items-center gap-2.5">
+              <Spinner />
+              <span className="text-lg font-bold tracking-[-.01em]">
+                {leaving ? "Closing Relay" : waitingFor}
+              </span>
+            </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 16,
-            paddingTop: 14,
-            borderTop: "1px solid var(--line2)",
-          }}
-        >
-          <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)" }}>
-            {elapsed}s · closes on its own in {left}s
-          </span>
-          <div style={{ flex: 1 }} />
-          {!leaving && (
-            <span
-              className="primary"
-              onClick={() => api.closeNow().catch(() => {})}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                background: "var(--surface2)",
-                border: "1px solid var(--line3)",
-                font: "600 11.5px var(--sans)",
-                color: "var(--text)",
-                cursor: "pointer",
-              }}
-            >
-              Close now
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
+            <p className="mx-0 mb-0 mt-3 text-md font-normal leading-relaxed text-text2 dark:text-text2-d">
+              {phase?.detail ??
+                "Relay is finishing what it started before it lets go of the window."}
+            </p>
+
+            <div className="mt-4 flex items-center gap-2 border-t border-line2 pt-3.5 dark:border-line2-d">
+              <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
+                {elapsed}s · closes on its own in {left}s
+              </span>
+              <div className="flex-1" />
+              {!leaving && (
+                <button
+                  type="button"
+                  onClick={() => api.closeNow().catch(() => {})}
+                  className="min-h-6 cursor-pointer rounded-sm border border-line3 bg-surface2 px-3.5 py-1.5 text-sm font-semibold text-text transition-[filter,transform] duration-150 hover:-translate-y-px hover:brightness-[1.08] active:translate-y-px dark:border-line3-d dark:bg-surface2-d dark:text-text-d"
+                >
+                  Close now
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -258,17 +233,10 @@ function UpdateBanner() {
   if (feedError && !pending?.length) {
     return (
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 16px",
-          borderBottom: "1px solid var(--line)",
-          background: "var(--surface)",
-          ...monoStyle,
-          fontSize: 10.5,
-          color: "var(--text4)",
-        }}
+        className={cx(
+          mono,
+          "flex items-center gap-2 border-b border-line bg-surface px-4 py-1.5 text-xs text-text4 dark:border-line-d dark:bg-surface-d dark:text-text4-d",
+        )}
         title={feedError}
       >
         <span>could not check for updates — {feedError}</span>
@@ -334,57 +302,31 @@ function Banner({
   onLater: () => void;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 16px",
-        borderBottom: "1px solid var(--line)",
-        background: "var(--accentSoft)",
-      }}
-    >
-      <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--accent2)" }}>UPDATE</span>
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          font: "400 12.5px var(--sans)",
-          color: "var(--text)",
-          ...truncateStyle,
-        }}
-      >
-        <b style={{ fontWeight: 600 }}>{label}</b> · {detail}
+    <div className="flex items-center gap-2.5 border-b border-line bg-accentSoft px-4 py-2 dark:border-line-d dark:bg-accentSoft-d">
+      <span className={cx(mono, "text-xs text-accent2 dark:text-accent2-d")}>UPDATE</span>
+      <span className={cx(truncate, "flex-1 text-md font-normal text-text dark:text-text-d")}>
+        <b className="font-semibold">{label}</b> · {detail}
       </span>
       {!busy && (
-        <span
-          className="quiet"
+        <button
+          type="button"
           onClick={onLater}
-          style={{
-            padding: "4px 8px",
-            borderRadius: 8,
-            font: "500 11.5px var(--sans)",
-            cursor: "pointer",
-          }}
+          className="min-h-6 cursor-pointer rounded-sm border-none bg-transparent px-2 py-1 text-sm font-medium transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d"
         >
           Later
-        </span>
+        </button>
       )}
-      <span
-        className="primary"
-        onClick={busy ? undefined : onInstall}
-        style={{
-          padding: "4px 12px",
-          borderRadius: 8,
-          background: "var(--accent)",
-          color: "var(--onAccent)",
-          font: "600 11.5px var(--sans)",
-          cursor: busy ? "default" : "pointer",
-          opacity: busy ? 0.6 : 1,
-        }}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onInstall}
+        className={cx(
+          "min-h-6 rounded-sm border-none bg-accent px-3 py-1 text-sm font-semibold text-onAccent transition-[filter,transform] duration-150 hover:-translate-y-px hover:brightness-[1.08] active:translate-y-px disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:brightness-100 dark:bg-accent-d dark:text-onAccent-d",
+          busy ? "cursor-default" : "cursor-pointer",
+        )}
       >
         {action}
-      </span>
+      </button>
     </div>
   );
 }
@@ -645,26 +587,26 @@ function Shell() {
     const list: PaletteAction[] = screens.map((v) => ({
       name: VIEW_TITLES[v],
       hint: "screen",
-      color: "var(--accent)",
+      tone: TONE.accent,
       run: () => go(v),
     }));
 
     list.push({
       name: "New chat",
       hint: "action",
-      color: "var(--info)",
+      tone: TONE.info,
       run: () => {
         newConversation();
         go("chat");
       },
     });
-    list.push({ name: "Add a project", hint: "action", color: "var(--ok)", run: addProject });
+    list.push({ name: "Add a project", hint: "action", tone: TONE.ok, run: addProject });
 
     conversations.forEach((c) =>
       list.push({
         name: c.title,
         hint: "chat",
-        color: "var(--accent2)",
+        tone: TONE.accent,
         run: () => openChat(c.id),
       }),
     );
@@ -672,7 +614,7 @@ function Shell() {
       list.push({
         name: p.name,
         hint: "project",
-        color: tone(p.tone).cssColor,
+        tone: tone(p.tone),
         run: () => {
           selectProject(p.id);
           go("board");
@@ -683,7 +625,7 @@ function Shell() {
       list.push({
         name: a.name,
         hint: "agent",
-        color: tone(a.tone).cssColor,
+        tone: tone(a.tone),
         run: () => openAgent(a.id),
       }),
     );
@@ -691,7 +633,7 @@ function Shell() {
       list.push({
         name: c.title,
         hint: c.id,
-        color: STATUS_TONE[c.status].cssColor,
+        tone: STATUS_TONE[c.status],
         run: () => (c.status === "review" ? openReview(c.id) : openRun(c.id)),
       }),
     );
@@ -701,7 +643,7 @@ function Shell() {
         list.push({
           name: `Start: ${c.title}`,
           hint: "run",
-          color: "var(--info)",
+          tone: TONE.info,
           run: () => startRun(c.id),
         }),
       );
@@ -724,24 +666,12 @@ function Shell() {
 
   if (fatal) {
     return (
-      <div style={{ padding: 40, maxWidth: 640 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.02em" }}>
-          Relay could not start
-        </h1>
-        <pre
-          style={{
-            padding: "14px 16px",
-            borderRadius: 16,
-            background: "var(--surface)",
-            border: "1px solid var(--line3)",
-            fontFamily: "var(--mono)",
-            fontSize: 12.5,
-            whiteSpace: "pre-wrap",
-          }}
-        >
+      <div className="max-w-[640px] p-10">
+        <h1 className="text-[20px] font-bold tracking-[-.02em]">Relay could not start</h1>
+        <pre className="whitespace-pre-wrap rounded-lg border border-line3 bg-surface px-4 py-3.5 font-mono text-md dark:border-line3-d dark:bg-surface-d">
           {fatal}
         </pre>
-        <p style={{ fontSize: 12.5, color: "var(--text3)" }}>
+        <p className="text-md text-text3 dark:text-text3-d">
           The backend refused the first call. Check the terminal Relay was started from.
         </p>
       </div>
@@ -750,7 +680,7 @@ function Shell() {
 
   if (!ready) {
     return (
-      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
+      <div className="grid h-full place-items-center">
         <Loading what="Starting Relay" />
       </div>
     );
@@ -802,16 +732,7 @@ function Shell() {
   const [headTitle, headMeta] = heads[view];
 
   return (
-    <div
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--recess)",
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
+    <div className="relative flex h-full flex-col overflow-hidden bg-recess dark:bg-recess-d">
       <TitleBar
         go={go}
         back={back}
@@ -829,54 +750,37 @@ function Shell() {
 
       {status && !status.ready && status.blocker && (
         <div
-          style={{
-            flex: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            padding: "8px 18px",
-            background: status.claude.logged_in ? "var(--warnSoft)" : "var(--badSoft)",
-            color: status.claude.logged_in ? "var(--warn)" : "var(--bad2)",
-            borderBottom: "1px solid var(--line)",
-            font: "500 11.5px var(--sans)",
-          }}
+          className={cx(
+            "flex flex-none items-center gap-3 border-b border-line px-4.5 py-2 text-sm font-medium dark:border-line-d",
+            status.claude.logged_in
+              ? "bg-warnSoft text-warn dark:bg-warnSoft-d dark:text-warn-d"
+              : "bg-badSoft text-bad2 dark:bg-badSoft-d dark:text-bad2-d",
+          )}
         >
           <span>{status.blocker}</span>
-          <span style={{ flex: 1 }} />
+          <span className="flex-1" />
           {!status.claude.logged_in && (
-            <span
-              className="quiet"
+            <button
+              type="button"
               onClick={() => api.openClaudeTerminal().catch(() => {})}
-              style={{
-                padding: "6px 12px",
-                border: "1px solid currentColor",
-                borderRadius: 999,
-                font: "600 11.5px var(--sans)",
-                cursor: "pointer",
-              }}
+              className="min-h-6 cursor-pointer rounded-full border border-current bg-transparent px-3 py-1.5 text-sm font-semibold transition-colors duration-150 hover:bg-[rgba(127,127,127,.12)]"
             >
               Open a terminal
-            </span>
+            </button>
           )}
           {status.claude.logged_in && !status.sidecar.ready && status.sidecar.node_found && (
-            <span
-              className="quiet"
+            <button
+              type="button"
               onClick={installSidecar}
-              style={{
-                padding: "6px 12px",
-                border: "1px solid currentColor",
-                borderRadius: 999,
-                font: "600 11.5px var(--sans)",
-                cursor: "pointer",
-              }}
+              className="min-h-6 cursor-pointer rounded-full border border-current bg-transparent px-3 py-1.5 text-sm font-semibold transition-colors duration-150 hover:bg-[rgba(127,127,127,.12)]"
             >
               Install the sidecar
-            </span>
+            </button>
           )}
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {sidebar && (
           <NavRail
             view={view}
@@ -888,31 +792,17 @@ function Shell() {
         )}
 
         <main
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: "flex",
-            flexDirection: "column",
-            background: "var(--bg)",
-            borderRight: railVisible ? "1px solid var(--line)" : undefined,
-            overflow: "hidden",
-          }}
+          className={cx(
+            "flex min-w-0 flex-1 flex-col overflow-hidden bg-bg dark:bg-bg-d",
+            railVisible && "border-r border-line dark:border-line-d",
+          )}
         >
-          <div
-            style={{
-              flex: "none",
-              height: 46,
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "0 18px",
-              borderBottom: "1px solid var(--line)",
-            }}
-          >
+          <div className="flex h-[46px] flex-none items-center gap-2.5 border-b border-line px-4.5 dark:border-line-d">
             {renaming && conversation ? (
               <input
                 autoFocus
                 value={draft}
+                aria-label="Rename this conversation"
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={() => {
                   if (draft.trim()) renameConversation(conversation.id, draft.trim());
@@ -924,60 +814,40 @@ function Shell() {
                     setRenaming(false);
                   }
                 }}
-                style={{
-                  flex: 1,
-                  maxWidth: 420,
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid var(--accentLine)",
-                  background: "var(--surface)",
-                  font: "600 12.5px var(--sans)",
-                  color: "var(--text)",
-                  outline: "none",
-                }}
+                className="max-w-[420px] flex-1 rounded-sm border border-accentLine bg-surface px-2.5 py-1.5 text-md font-semibold text-text outline-none dark:border-accentLine-d dark:bg-surface-d dark:text-text-d"
               />
             ) : (
               <>
                 <span
-                  style={{
-                    font: "600 14px var(--sans)",
-                    color: "var(--text)",
-                    letterSpacing: "-.01em",
-                    maxWidth: 460,
-                    ...truncateStyle,
-                  }}
+                  className={cx(
+                    truncate,
+                    "max-w-[460px] text-lg font-semibold tracking-[-.01em] text-text dark:text-text-d",
+                  )}
                 >
                   {headTitle}
                 </span>
-                <span style={{ ...monoStyle, fontSize: 10.5, color: "var(--text4)", ...truncateStyle }}>
+                <span className={cx(mono, truncate, "text-xs text-text4 dark:text-text4-d")}>
                   {headMeta}
                 </span>
               </>
             )}
-            <div style={{ flex: 1 }} />
+            <div className="flex-1" />
 
             {view === "chat" && conversation && (
               <>
                 <span
-                  className="chip"
                   title={
                     conversation.session_id
                       ? "The Claude session this chat continues"
                       : "No session yet — your next message starts one"
                   }
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "var(--surface)",
-                    border: "1px solid var(--line3)",
-                    ...monoStyle,
-                    fontSize: 10.5,
-                    color: conversation.resume_failed ? "var(--bad2)" : "var(--text2)",
-                    cursor: "default",
-                  }}
+                  className={cx(
+                    mono,
+                    "flex cursor-default items-center gap-2 rounded-full border border-line3 bg-surface px-2.5 py-1 text-xs dark:border-line3-d dark:bg-surface-d",
+                    conversation.resume_failed
+                      ? "text-bad2 dark:text-bad2-d"
+                      : "text-text2 dark:text-text2-d",
+                  )}
                 >
                   {conversation.session_id
                     ? `${conversation.session_id.slice(0, 12)} · ${
@@ -1005,69 +875,46 @@ function Shell() {
                     run: () => deleteConversation(conversation.id),
                   },
                 ].map((b) => (
-                  <span
+                  <button
                     key={b.label}
-                    className="chip"
+                    type="button"
                     title={b.label}
+                    aria-label={b.label}
                     onClick={b.run}
-                    style={{
-                      display: "grid",
-                      placeItems: "center",
-                      width: 24,
-                      height: 24,
-                      borderRadius: 8,
-                      border: "1px solid var(--line3)",
-                      color: "var(--text2)",
-                      cursor: "pointer",
-                    }}
+                    className={cx(CHIP, "grid h-6 w-6 place-items-center")}
                   >
                     {b.icon}
-                  </span>
+                  </button>
                 ))}
               </>
             )}
 
-            <span
-              className="chip"
+            <button
+              type="button"
               title="New chat"
+              aria-label="New chat"
               onClick={() => {
                 newConversation();
                 go("chat");
               }}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                width: 24,
-                height: 24,
-                borderRadius: 8,
-                border: "1px solid var(--line3)",
-                color: "var(--text2)",
-                cursor: "pointer",
-              }}
+              className={cx(CHIP, "grid h-6 w-6 place-items-center")}
             >
               <Icon.plus />
-            </span>
+            </button>
             {!railVisible && !RAIL_HIDDEN.includes(view) && (
-              <span
-                className="chip"
+              <button
+                type="button"
                 title="Right now"
                 onClick={() => setRail(true)}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "1px solid var(--line3)",
-                  font: "500 10.5px var(--sans)",
-                  color: "var(--text2)",
-                  cursor: "pointer",
-                }}
+                className={cx(CHIP, "rounded-full px-2.5 py-1 text-xs font-medium")}
               >
                 Right now
-              </span>
+              </button>
             )}
           </div>
 
           {firstRun ? (
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <div className="min-h-0 flex-1 overflow-y-auto">
               <FirstRun openChat={() => go("chat")} />
             </div>
           ) : (
@@ -1089,7 +936,7 @@ function Shell() {
               )}
               {(view === "code" || view === "activity" || view === "trees" || view === "projects" ||
                 view === "settings") && (
-                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                <div className="min-h-0 flex-1 overflow-y-auto">
                   {view === "code" && <ProjectPage go={go} />}
                   {view === "activity" && <Activity openRun={openRun} />}
                   {view === "trees" && <Worktrees />}
@@ -1101,20 +948,27 @@ function Shell() {
           )}
         </main>
 
-        {railVisible ? (
-          <RightNow
-            close={() => setRail(false)}
-            openReview={openReview}
-            openSession={openRun}
-            openTrees={() => go("trees")}
-          />
-        ) : (
-          !RAIL_HIDDEN.includes(view) && <RightNowStrip open={() => setRail(true)} />
-        )}
+        {/* O rail sai por onde entrou: é o `AnimatePresence` que lhe dá a
+            saída, e é isso que o CSS nunca conseguiu animar. */}
+        <AnimatePresence mode="wait">
+          {railVisible ? (
+            <RightNow
+              key="rail"
+              close={() => setRail(false)}
+              openReview={openReview}
+              openSession={openRun}
+              openTrees={() => go("trees")}
+            />
+          ) : (
+            !RAIL_HIDDEN.includes(view) && <RightNowStrip key="strip" open={() => setRail(true)} />
+          )}
+        </AnimatePresence>
       </div>
 
       <CommandPalette open={palette} close={() => setPalette(false)} actions={actions} />
-      {approvalSheet && <ApprovalSheet close={() => setApprovalSheet(false)} />}
+      <AnimatePresence>
+        {approvalSheet && <ApprovalSheet key="approval" close={() => setApprovalSheet(false)} />}
+      </AnimatePresence>
       <Toasts />
       {/* Above everything, including the palette and the approval sheet: once
           the window is going, nothing else is actionable. */}
