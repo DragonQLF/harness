@@ -182,8 +182,9 @@ pub struct ClaudeStatus {
     pub credentials_path: Option<String>,
 }
 
-/// A subscription login writes credentials next to the CLI config; an API key
-/// in the environment works too.
+/// A subscription login is stored in the login Keychain on macOS and in a file
+/// next to the CLI config everywhere else; an API key in the environment works
+/// too.
 pub fn claude_status() -> ClaudeStatus {
     let version = no_window(&mut Command::new("claude"))
         .arg("--version")
@@ -209,19 +210,62 @@ pub fn claude_status() -> ClaudeStatus {
                 .map(|h| PathBuf::from(h).join(".claude"))
         });
     let credentials = config_dir.map(|d| d.join(".credentials.json"));
-    let logged_in = credentials.as_ref().map(|p| p.exists()).unwrap_or(false);
+    let on_disk = credentials.as_ref().map(|p| p.exists()).unwrap_or(false);
+
+    // The file being absent is not proof of a logout: on macOS it never exists,
+    // because the token lives in the Keychain instead.
+    if !on_disk && keychain_login() {
+        return ClaudeStatus {
+            cli_found: version.is_some(),
+            cli_version: version,
+            logged_in: true,
+            credentials_path: Some(format!("login keychain: {KEYCHAIN_SERVICE}")),
+        };
+    }
 
     ClaudeStatus {
         cli_found: version.is_some(),
         cli_version: version,
-        logged_in,
+        logged_in: on_disk,
         credentials_path: credentials.map(|p| p.to_string_lossy().to_string()),
     }
+}
+
+/// The Keychain item the CLI writes its subscription token to on macOS.
+const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+/// Whether that Keychain item exists. Asking for the item *without* `-w` reports
+/// its presence without reading the secret back, so this never puts an unlock
+/// prompt in front of someone who only opened the app.
+#[cfg(target_os = "macos")]
+fn keychain_login() -> bool {
+    Command::new("security")
+        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Every other platform keeps the token in the file, so there is nothing to ask.
+#[cfg(not(target_os = "macos"))]
+fn keychain_login() -> bool {
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_login_is_not_judged_by_the_credentials_file_alone_on_macos() {
+        // On macOS this probe is the only thing standing between a logged-in
+        // operator and a banner telling them they are not, so calling it at all
+        // is the assertion: it must answer without panicking or prompting.
+        let found = keychain_login();
+        if !cfg!(target_os = "macos") {
+            assert!(!found, "only macOS keeps the token in a keychain");
+        }
+    }
 
     #[test]
     fn status_reports_a_missing_script_without_panicking() {
