@@ -124,7 +124,7 @@ pub async fn send(
     // global.md: small, always in the prompt on a fresh session.
     let global_memory =
         harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
-    let outside_work = ws.outside_work();
+    let outside_work = ws.outside_work().await;
     let prompt = director::chat_prompt(
         &ChatContext {
             speaker: Speaker {

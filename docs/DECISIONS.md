@@ -1422,9 +1422,15 @@ de mutexes; forçá-los custaria mais do que devolve.
   flight*: o dono registar que alguém já está a construir e o segundo esperar.
   Isso muda comportamento, e esta passagem era de estrutura. Está no `DEBT.md`.
 
-`inbox` e `outside_work` ficaram igualmente de fora, e o `inbox` pela mesma
-razão do `settings`: o `daily_look_due()` é lido do guardo síncrono do fecho da
-janela.
+`inbox` ficou igualmente de fora, pela mesma razão do `settings`: o
+`daily_look_due()` é lido do guardo síncrono do fecho da janela.
+
+**Emenda (mesmo dia).** O `outside_work` também tinha ficado de fora, mas por
+âmbito e não por argumento — e a diferença importa, porque era o único dos
+quatro cujos dois leitores (`chat::send` e `bootstrap`) são `async` e podem
+esperar pela fila. Passou para o `registry.rs`: o espelho é um projecto, e este
+é o dono dos projectos. Ficam três campos atrás de um lock, cada um com o seu
+motivo escrito acima.
 
 `workspace.rs`: 1300 → 1204 linhas **no momento desta decisão** — o ficheiro
 cresce a seguir com trabalho que nada tem a ver com esta passagem (as concessões

@@ -103,7 +103,7 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
             .map(|r| r.label())
             .collect(),
         inbox: ws.inbox().proposals,
-        outside_work: ws.outside_work_warning(),
+        outside_work: ws.outside_work_warning().await,
     })
 }
 

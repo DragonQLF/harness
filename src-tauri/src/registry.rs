@@ -25,7 +25,28 @@ use harness_app::projects::Project;
 /// projectos uma vez por cada engine que levanta) sem crescer sem conta.
 const QUEUE_CAPACITY: usize = 128;
 
+/// O que a vigia ao repositório do Relay encontrou da última vez.
+///
+/// Vive aqui, e não atrás de um lock no `Workspace`, porque o espelho é um
+/// projecto e este é o dono dos projectos — e porque, ao contrário do
+/// `settings` e do `inbox`, os dois leitores dele (`chat::send` e `bootstrap`)
+/// são `async` e podem esperar pela fila. Era o único dos quatro que podia
+/// mudar sem obrigar a uma cópia síncrona ao lado (#87).
+pub struct Finding {
+    /// O parágrafo inteiro, tal como o `chat.rs` o põe no prompt.
+    pub said: String,
+    /// O mesmo achado como dados, mais a metade dirigida ao Director.
+    pub warning: harness_app::mirror::MirrorWarning,
+}
+
 enum Msg {
+    OutsideWork {
+        reply: oneshot::Sender<Option<(String, harness_app::mirror::MirrorWarning)>>,
+    },
+    SetOutsideWork {
+        found: Option<Finding>,
+        reply: oneshot::Sender<()>,
+    },
     Agents {
         reply: oneshot::Sender<Vec<AgentProfile>>,
     },
@@ -71,6 +92,7 @@ struct Registry {
     paths: AppPaths,
     agents: Vec<AgentProfile>,
     projects: Vec<Project>,
+    outside_work: Option<Finding>,
 }
 
 impl Registry {
@@ -120,6 +142,17 @@ impl Registry {
     async fn run(mut self, mut rx: mpsc::Receiver<Msg>) {
         while let Some(msg) = rx.recv().await {
             match msg {
+                Msg::OutsideWork { reply } => {
+                    let _ = reply.send(
+                        self.outside_work
+                            .as_ref()
+                            .map(|f| (f.said.clone(), f.warning.clone())),
+                    );
+                }
+                Msg::SetOutsideWork { found, reply } => {
+                    self.outside_work = found;
+                    let _ = reply.send(());
+                }
                 Msg::Agents { reply } => {
                     let _ = reply.send(self.agents.clone());
                 }
@@ -225,6 +258,7 @@ impl RegistryHandle {
             paths,
             agents,
             projects,
+            outside_work: None,
         };
         tauri::async_runtime::spawn(registry.run(rx));
         Self { tx }
@@ -245,6 +279,18 @@ impl RegistryHandle {
 
     /// A tripulação. Um actor caído devolve uma lista vazia em vez de rebentar:
     /// só acontece a fechar, e nessa altura ninguém precisa de perfis.
+    /// O achado, nas duas formas que os dois leitores querem: o parágrafo para
+    /// o prompt do Director, os números para a janela.
+    pub async fn outside_work(&self) -> Option<(String, harness_app::mirror::MirrorWarning)> {
+        self.ask(|reply| Msg::OutsideWork { reply })
+            .await
+            .unwrap_or_default()
+    }
+
+    pub async fn set_outside_work(&self, found: Option<Finding>) {
+        let _ = self.ask(|reply| Msg::SetOutsideWork { found, reply }).await;
+    }
+
     pub async fn agents(&self) -> Vec<AgentProfile> {
         self.ask(|reply| Msg::Agents { reply })
             .await

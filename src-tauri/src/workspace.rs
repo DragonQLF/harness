@@ -94,13 +94,6 @@ pub struct ProjectRuntime {
 /// window wants the numbers. Keeping both together means the sentence the
 /// operator is shown a piece of is the same sentence the Director received,
 /// not one written again later against a different clock.
-pub struct Finding {
-    /// The whole paragraph, exactly as `chat.rs` puts it in the prompt.
-    pub said: String,
-    /// The same finding as data, plus the half addressed to the Director.
-    pub warning: harness_app::mirror::MirrorWarning,
-}
-
 pub struct Workspace {
     app: AppHandle,
     pub paths: AppPaths,
@@ -125,7 +118,6 @@ pub struct Workspace {
     /// went through a card. Held here so the Director's next turn receives it
     /// rather than having to know to ask — and so the window can come and get
     /// it, which the startup emit cannot promise (see [`Finding`]).
-    outside_work: Mutex<Option<Finding>>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
     /// Set by whoever wins the race to close the window, so a second close
@@ -198,7 +190,6 @@ impl Workspace {
             chats,
             chat_log,
             inbox: Mutex::new(inbox),
-            outside_work: Mutex::new(None),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
@@ -973,8 +964,8 @@ impl Workspace {
 
     /// The last thing the look at Relay's own repository found, if anything,
     /// as the Director's prompt wants it: one paragraph.
-    pub fn outside_work(&self) -> Option<String> {
-        self.outside_work.lock().unwrap().as_ref().map(|f| f.said.clone())
+    pub async fn outside_work(&self) -> Option<String> {
+        self.registry.outside_work().await.map(|(said, _)| said)
     }
 
     /// The same finding as the window wants it: numbers, not prose.
@@ -984,8 +975,8 @@ impl Workspace {
     /// slow window mean the event is emitted to nobody — and a reload loses it
     /// the same way. The `bootstrap` call the window opens with reads this, so
     /// a warning that already existed is on screen either way.
-    pub fn outside_work_warning(&self) -> Option<harness_app::mirror::MirrorWarning> {
-        self.outside_work.lock().unwrap().as_ref().map(|f| f.warning.clone())
+    pub async fn outside_work_warning(&self) -> Option<harness_app::mirror::MirrorWarning> {
+        self.registry.outside_work().await.map(|(_, warning)| warning)
     }
 
     /// Has Relay's own source moved without a card behind it?
@@ -1071,10 +1062,12 @@ impl Workspace {
         // Recorded before it is announced, never after: a window that hears
         // the event and asks in the same breath must not be told there is
         // nothing to report.
-        *self.outside_work.lock().unwrap() = Some(Finding {
-            said: said.clone(),
-            warning: warning.clone(),
-        });
+        self.registry
+            .set_outside_work(Some(crate::registry::Finding {
+                said: said.clone(),
+                warning: warning.clone(),
+            }))
+            .await;
         let _ = self.app.emit("mirror://outside-work", &warning);
         Some(said)
     }
