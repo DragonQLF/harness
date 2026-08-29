@@ -4,21 +4,41 @@
    O que fica é o que não se pode escrever numa className — as superfícies que
    o browser desenha por nós, e a preferência de movimento reduzido. */
 
+@import "../assets/fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html,
-  body,
-  #root {
+  body {
     height: 100%;
+    overflow: hidden;
   }
 
   body {
-    @apply bg-desk font-sans text-base text-text antialiased dark:bg-desk-d dark:text-text-d;
+    @apply bg-canvas font-sans text-base text-ink antialiased dark:bg-canvas-d dark:text-ink-d;
     line-height: 1.5;
     overflow: hidden;
+  }
+
+  /* A app inteira desenha a .86. É uma escolha de densidade, não um acidente:
+     os quadros foram afinados a esta escala e a 1.0 ficam largos — ver
+     `docs/design/README.md`, "Fidelity".
+
+     A altura é `100%` e não `calc(100vh / .86)`. O motor já resolve uma
+     percentagem contra o pai *antes* de aplicar o `zoom` — é por isso que
+     `width: 100%` sempre encheu a janela em vez de deixar 14% de vazio à
+     direita. Dividir a altura outra vez pelo mesmo factor contava-o duas
+     vezes: a raiz ficava ~16% mais alta do que a janela, e o que estava
+     encostado ao fundo — o compositor do chat, o cartão do operador na barra
+     lateral — caía por baixo do rebordo, sem barra de deslocamento que lá
+     chegasse, porque o `body` corta o que transborda. */
+  #root {
+    zoom: 0.86;
+    width: 100%;
+    height: 100%;
   }
 
   /* O movimento aqui é decoração — linhas a chegar, painéis a subir. Nada
@@ -49,11 +69,11 @@
   }
 
   :where(button, input, textarea, a, [tabindex]):focus-visible {
-    outline: 2px solid var(--accent, #0d74b8);
+    outline: 2px solid var(--accent, #3559e9);
     outline-offset: 2px;
   }
   [data-theme="dark"] :where(button, input, textarea, a, [tabindex]):focus-visible {
-    outline-color: var(--accent, #38adee);
+    outline-color: var(--accent, #6e92f0);
   }
 
   ::-webkit-scrollbar {
@@ -61,7 +81,7 @@
     height: 9px;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-line3 dark:bg-line3-d;
+    @apply bg-line4 dark:bg-line4-d;
     border-radius: 9px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -87,30 +107,30 @@
      A selecção tem peso próprio: `accentSoft` é uma lavagem, e uma lavagem não
      consegue mostrar que palavras estão seguras. */
   ::selection {
-    background: var(--select, #cae3f7);
+    background: var(--select, #dce4fc);
     @apply text-text;
   }
   [data-theme="dark"] ::selection {
-    background: var(--select, rgba(56, 173, 238, 0.32));
+    background: var(--select, rgba(110, 146, 240, 0.32));
     @apply text-text-d;
   }
 
   input,
   textarea,
   [contenteditable] {
-    caret-color: var(--accent, #0d74b8);
+    caret-color: var(--accent, #3559e9);
   }
   [data-theme="dark"] input,
   [data-theme="dark"] textarea,
   [data-theme="dark"] [contenteditable] {
-    caret-color: var(--accent, #38adee);
+    caret-color: var(--accent, #6e92f0);
   }
 
   :root {
-    accent-color: var(--accent, #0d74b8);
+    accent-color: var(--accent, #3559e9);
   }
   :root[data-theme="dark"] {
-    accent-color: var(--accent, #38adee);
+    accent-color: var(--accent, #6e92f0);
   }
 
   /* Números lidos uns contra os outros — gastos, contagens, durações, ids —

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;background:#08090B}
+a{color:#6FA0FF;text-decoration:none}a:hover{color:#A8C4FF}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#2A3140;border-radius:9px;border:2px solid transparent;background-clip:padding-box}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#08090B;color:#EDEFF3;font-family:'Inter',system-ui,sans-serif;padding:44px 40px 80px">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="tile" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#22262E"></stop><stop offset="1" stop-color="#0D0F13"></stop></linearGradient>
+<linearGradient id="tileL" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#DFE3EA"></stop></linearGradient>
+<linearGradient id="ink" x1="20" y1="16" x2="46" y2="50" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#B9C0CC"></stop></linearGradient>
+<linearGradient id="accent" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#3B5BFF"></stop><stop offset="1" stop-color="#1B2CA8"></stop></linearGradient>
+<clipPath id="topHalf"><path d="M0 0h64v33.2H0z"></path></clipPath>
+<clipPath id="botHalf"><path d="M0 32.8h64V64H0z"></path></clipPath>
+<mask id="koR"><rect x="4" y="4" width="56" height="56" rx="16" fill="#fff"></rect><g stroke="#000" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 47V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 13"></path></g></mask>
+</defs></svg>
+
+<div style="max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:32px">
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid #191D24;padding-bottom:22px">
+<div>
+<div style="font:600 11px 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6B7484">IDENTITY · ROUND 4 · MONOGRAM IN A TILE</div>
+<div style="font:700 32px 'Space Grotesk',sans-serif;letter-spacing:-.015em;margin-top:8px">Relay mark</div>
+<div style="font:400 13px/1.65 'Inter',sans-serif;color:#8B94A3;margin-top:8px;max-width:640px">One R, one tile, six different crafts — the register you pointed at: mostly achromatic, the interest coming from construction rather than colour. Each row shows the tile at 112px, the lockup, the 18px title-bar size, and the light inverse.</div>
+</div>
+<div style="display:flex;align-items:center;gap:14px;padding-bottom:4px">
+<div style="font:600 10.5px 'IBM Plex Mono',monospace;color:#6B7484">CURRENT</div>
+<img src="public/relay.svg" alt="current mark" width="44" height="44" style="border-radius:12px">
+</div>
+</div>
+
+<!-- ROW 1 -->
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+
+<!-- A EXTRUDED -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64">
+<rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect>
+<g stroke="#7E8798" stroke-width="6.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)" opacity=".55"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g>
+<g stroke="url(#ink)" stroke-width="6.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g>
+</svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">A</span><span style="font:700 16px 'Space Grotesk',sans-serif">Extruded</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">Flat cut terminals with the letter lifted off its own shadow. Depth without perspective.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect><g stroke="#7E8798" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)" opacity=".55"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g><g stroke="url(#ink)" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g stroke="url(#ink)" stroke-width="8" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tileL)"></rect><g stroke="#3A4150" stroke-width="8" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+</span>
+</div>
+</div>
+
+<!-- B KNOT -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64">
+<rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect>
+<g fill="none" stroke-linecap="round"><path d="M23 46V20h9a7.5 7.5 0 0 1 0 15H20" stroke="url(#ink)" stroke-width="6.5"></path><path d="M27 30l16 16" stroke="#191D24" stroke-width="13" stroke-linecap="butt"></path><path d="M27 30l16 16" stroke="url(#ink)" stroke-width="6.5"></path></g>
+</svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">B</span><span style="font:700 16px 'Space Grotesk',sans-serif">Knot</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">The leg passes over the bowl and the bowl passes through the stem — one woven path.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect><g fill="none" stroke-linecap="round"><path d="M23 46V20h9a7.5 7.5 0 0 1 0 15H20" stroke="url(#ink)" stroke-width="7"></path><path d="M27 30l16 16" stroke="#191D24" stroke-width="14" stroke-linecap="butt"></path><path d="M27 30l16 16" stroke="url(#ink)" stroke-width="7"></path></g></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g fill="none" stroke-linecap="round"><path d="M23 46V20h9a7.5 7.5 0 0 1 0 15H20" stroke="url(#ink)" stroke-width="8"></path><path d="M27 30l16 16" stroke="#14171D" stroke-width="16" stroke-linecap="butt"></path><path d="M27 30l16 16" stroke="url(#ink)" stroke-width="8"></path></g></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tileL)"></rect><g fill="none" stroke-linecap="round"><path d="M23 46V20h9a7.5 7.5 0 0 1 0 15H20" stroke="#3A4150" stroke-width="8"></path><path d="M27 30l16 16" stroke="#EDEFF3" stroke-width="16" stroke-linecap="butt"></path><path d="M27 30l16 16" stroke="#3A4150" stroke-width="8"></path></g></svg>
+</span>
+</div>
+</div>
+
+<!-- C FACETED -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64">
+<rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect>
+<g stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="7"><path d="M23.5 46V19" stroke="#FFFFFF"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5" stroke="#C6CCD8"></path><path d="M30 34l12 12" stroke="#8A93A3"></path></g>
+</svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">C</span><span style="font:700 16px 'Space Grotesk',sans-serif">Faceted</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">Three strokes, three tones — the letter lit like an object rather than drawn like type.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect><g stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="7.5"><path d="M23.5 46V19" stroke="#FFFFFF"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5" stroke="#C6CCD8"></path><path d="M30 34l12 12" stroke="#8A93A3"></path></g></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="8.5"><path d="M23.5 46V19" stroke="#FFFFFF"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5" stroke="#C6CCD8"></path><path d="M30 34l12 12" stroke="#8A93A3"></path></g></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tileL)"></rect><g stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="8.5"><path d="M23.5 46V19" stroke="#20242C"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5" stroke="#4E5766"></path><path d="M30 34l12 12" stroke="#8A93A3"></path></g></svg>
+</span>
+</div>
+</div>
+</div>
+
+<!-- ROW 2 -->
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+
+<!-- D KNOCKOUT -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#ink)" mask="url(#koR)"></rect></svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">D</span><span style="font:700 16px 'Space Grotesk',sans-serif">Knockout</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">Solid tile, letter removed from it. Highest contrast, works down to a favicon.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#ink)" mask="url(#koR)"></rect></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#ink)" mask="url(#koR)"></rect></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#accent)" mask="url(#koR)"></rect></svg>
+</span>
+</div>
+</div>
+
+<!-- E SPLIT -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64">
+<rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect>
+<g clip-path="url(#topHalf)"><g stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(2 0)"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g>
+<g clip-path="url(#botHalf)"><g stroke="#8A93A3" stroke-width="6.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g>
+</svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">E</span><span style="font:700 16px 'Space Grotesk',sans-serif">Sheared</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">Cut at the waist, the top half pushed forward. A diff, read as a letter.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect><g clip-path="url(#topHalf)"><g stroke="#FFFFFF" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(2 0)"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g><g clip-path="url(#botHalf)"><g stroke="#8A93A3" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g clip-path="url(#topHalf)"><g stroke="#FFFFFF" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(2 0)"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g><g clip-path="url(#botHalf)"><g stroke="#8A93A3" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tileL)"></rect><g clip-path="url(#topHalf)"><g stroke="#20242C" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(2 0)"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g><g clip-path="url(#botHalf)"><g stroke="#7E8798" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 46V19"></path><path d="M23.5 19H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 34l12 12"></path></g></g></svg>
+</span>
+</div>
+</div>
+
+<!-- F CHAMFERED -->
+<div style="background:#0F1116;border:1px solid #191D24;border-radius:20px;padding:24px 26px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="height:126px;display:grid;place-items:center">
+<svg width="112" height="112" viewBox="0 0 64 64">
+<rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect>
+<path d="M18 47V17h13.5c5.8 0 9.5 3.6 9.5 9s-3.7 9-9.5 9h-3.7L41 47h-8.4L22.6 36.5V47Z" fill="url(#ink)"></path>
+<path d="M25.4 23.4v6.2h5.4c2.2 0 3.4-1.2 3.4-3.1s-1.2-3.1-3.4-3.1Z" fill="#12151A"></path>
+</svg>
+</div>
+<div style="display:flex;align-items:baseline;gap:9px"><span style="font:700 11px 'IBM Plex Mono',monospace;color:#6B7484">F</span><span style="font:700 16px 'Space Grotesk',sans-serif">Solid</span></div>
+<div style="font:400 11.5px/1.55 'Inter',sans-serif;color:#8B94A3;margin-top:-8px">Drawn as a filled letterform, not a monoline — square counter, heavy leg, no gradient tricks.</div>
+<div style="margin-top:auto;border-top:1px solid #191D24;padding-top:14px;display:flex;align-items:center;gap:11px">
+<svg width="30" height="30" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)" stroke="#2A2F39"></rect><path d="M18 47V17h13.5c5.8 0 9.5 3.6 9.5 9s-3.7 9-9.5 9h-3.7L41 47h-8.4L22.6 36.5V47Z" fill="url(#ink)"></path><path d="M25.4 23.4v6.2h5.4c2.2 0 3.4-1.2 3.4-3.1s-1.2-3.1-3.4-3.1Z" fill="#12151A"></path></svg>
+<span style="font:700 19px 'Space Grotesk',sans-serif;color:#fff">Relay</span>
+<span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><path d="M18 47V17h13.5c5.8 0 9.5 3.6 9.5 9s-3.7 9-9.5 9h-3.7L41 47h-8.4L22.6 36.5V47Z" fill="url(#ink)"></path><path d="M25.4 23.4v6.2h5.4c2.2 0 3.4-1.2 3.4-3.1s-1.2-3.1-3.4-3.1Z" fill="#12151A"></path></svg>
+<svg width="18" height="18" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tileL)"></rect><path d="M18 47V17h13.5c5.8 0 9.5 3.6 9.5 9s-3.7 9-9.5 9h-3.7L41 47h-8.4L22.6 36.5V47Z" fill="#20242C"></path><path d="M25.4 23.4v6.2h5.4c2.2 0 3.4-1.2 3.4-3.1s-1.2-3.1-3.4-3.1Z" fill="#F1F3F6"></path></svg>
+</span>
+</div>
+</div>
+</div>
+
+<!-- TITLE BAR — A, WITHOUT THE REDUNDANCY -->
+<div style="display:flex;flex-direction:column;gap:16px;border-top:1px solid #191D24;padding-top:26px">
+<div>
+<div style="font:700 12px 'Space Grotesk',sans-serif;letter-spacing:.11em">TITLE BAR · CONCEPT A</div>
+<div style="font:400 12.5px/1.6 'Inter',sans-serif;color:#8B94A3;margin-top:7px;max-width:620px">The tile already says R, so the bar should not say it again. Four ways to spend that space instead — all the same mark, at 24px, on the real bar.</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:10px 14px">
+<svg width="24" height="24" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g stroke="#7E8798" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)" opacity=".55"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g><g stroke="url(#ink)" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<span style="width:1px;height:17px;background:#E4E7EC"></span>
+<span style="display:flex;align-items:center;gap:8px;border:1px solid #E4E7EC;border-radius:9px;padding:5px 9px"><span style="width:17px;height:17px;border-radius:5px;background:#16191E;display:grid;place-items:center;color:#fff;font:700 8px 'Inter',sans-serif">7G</span><span style="font:600 12px 'Inter',sans-serif;color:#16191E">7Graus</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#98A1B2">harness</span></span>
+<span style="margin-left:auto;display:flex;gap:14px;font:500 12px 'Inter',sans-serif;color:#98A1B2"><span style="color:#16191E">Home</span><span>Chat</span><span>Board</span><span>Code</span><span>Sessions</span></span>
+</div>
+<div style="font:400 11.5px 'Inter',sans-serif;color:#6B7484;padding-left:2px">1 · Mark alone, then the project. The name lives in the window title and the installer — the bar spends its space on where you are.</div>
+
+<div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:10px 14px;margin-top:6px">
+<span style="font:700 15px 'Space Grotesk',sans-serif;letter-spacing:.075em;color:#16191E;text-shadow:1.6px 1.6px 0 #C3C9D3">RELAY</span>
+<span style="width:1px;height:17px;background:#E4E7EC"></span>
+<span style="display:flex;align-items:center;gap:8px;border:1px solid #E4E7EC;border-radius:9px;padding:5px 9px"><span style="width:17px;height:17px;border-radius:5px;background:#16191E;display:grid;place-items:center;color:#fff;font:700 8px 'Inter',sans-serif">7G</span><span style="font:600 12px 'Inter',sans-serif;color:#16191E">7Graus</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#98A1B2">harness</span></span>
+<span style="margin-left:auto;display:flex;gap:14px;font:500 12px 'Inter',sans-serif;color:#98A1B2"><span style="color:#16191E">Home</span><span>Chat</span><span>Board</span><span>Code</span><span>Sessions</span></span>
+</div>
+<div style="font:400 11.5px 'Inter',sans-serif;color:#6B7484;padding-left:2px">2 · Wordmark only, carrying A's offset shadow instead of the tile. Same idea as the icon, no monogram at all.</div>
+
+<div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:10px 14px;margin-top:6px">
+<svg width="24" height="24" viewBox="0 0 64 64" style="flex:none"><g stroke="#C3C9D3" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g><g stroke="#16191E" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<span style="width:1px;height:17px;background:#E4E7EC"></span>
+<span style="display:flex;align-items:center;gap:8px;border:1px solid #E4E7EC;border-radius:9px;padding:5px 9px"><span style="width:17px;height:17px;border-radius:5px;background:#16191E;display:grid;place-items:center;color:#fff;font:700 8px 'Inter',sans-serif">7G</span><span style="font:600 12px 'Inter',sans-serif;color:#16191E">7Graus</span><span style="font:400 11px 'IBM Plex Mono',monospace;color:#98A1B2">harness</span></span>
+<span style="margin-left:auto;display:flex;gap:14px;font:500 12px 'Inter',sans-serif;color:#98A1B2"><span style="color:#16191E">Home</span><span>Chat</span><span>Board</span><span>Code</span><span>Sessions</span></span>
+</div>
+<div style="font:400 11.5px 'Inter',sans-serif;color:#6B7484;padding-left:2px">3 · Untiled glyph — the tile is for the installer and the taskbar; inside the app the letter stands on the bar itself. Lightest of the four.</div>
+
+<div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:10px 14px;margin-top:6px">
+<svg width="24" height="24" viewBox="0 0 64 64" style="flex:none"><rect x="4" y="4" width="56" height="56" rx="16" fill="url(#tile)"></rect><g stroke="#7E8798" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)" opacity=".55"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g><g stroke="url(#ink)" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<span style="display:flex;flex-direction:column;gap:1px"><span style="font:600 11.5px 'Inter',sans-serif;color:#16191E">7Graus</span><span style="font:400 10px 'IBM Plex Mono',monospace;color:#98A1B2">harness · master</span></span>
+<span style="margin-left:auto;display:flex;gap:14px;font:500 12px 'Inter',sans-serif;color:#98A1B2"><span style="color:#16191E">Home</span><span>Chat</span><span>Board</span><span>Code</span><span>Sessions</span></span>
+</div>
+<div style="font:400 11.5px 'Inter',sans-serif;color:#6B7484;padding-left:2px">4 · Mark plus a two-line context slug — project over branch, which is what you actually need to know at a glance.</div>
+</div>
+
+<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">
+<div style="display:flex;align-items:center;gap:12px;background:#12161D;border:1px solid #232B3A;border-radius:12px;padding:11px 15px">
+<svg width="22" height="22" viewBox="0 0 64 64" style="flex:none"><g stroke="#454E5E" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none" transform="translate(3.4 3.4)"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g><g stroke="#F5F7FA" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter" fill="none"><path d="M23.5 45.5V20"></path><path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5"></path><path d="M30 35l11 10.5"></path></g></svg>
+<span style="font:400 10.5px 'IBM Plex Mono',monospace;color:#6B7484">untiled, dark bar</span>
+</div>
+<div style="display:flex;align-items:center;gap:12px;background:#12161D;border:1px solid #232B3A;border-radius:12px;padding:11px 15px">
+<span style="font:700 14px 'Space Grotesk',sans-serif;letter-spacing:.075em;color:#F5F7FA;text-shadow:1.5px 1.5px 0 #454E5E">RELAY</span>
+<span style="font:400 10.5px 'IBM Plex Mono',monospace;color:#6B7484">wordmark, dark bar</span>
+</div>
+</div>
+</div>
+
+<div style="font:400 12.5px/1.7 'Inter',sans-serif;color:#8B94A3;max-width:660px">My pick is 1 for the app and the tile for the installer: the icon is the only place the letter needs to appear, and the bar then carries the project instead of repeating the product name.</div>
+
+</div>
+</div>
+</x-dc>
+</body>
+</html>

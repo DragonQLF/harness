@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body{height:100%}
+body{margin:0;background:#F6F7F9;font-family:'Inter',system-ui,sans-serif;overflow:hidden}
+a{color:#3559E9;text-decoration:none}a:hover{color:#1D2E8C}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#D3D8E0;border-radius:9px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes hSpin{to{transform:rotate(360deg)}}
+@keyframes hBlink{0%,45%{opacity:1}50%,100%{opacity:0}}
+</style>
+</helmet>
+<div style="zoom:.86;width:100%;height:calc(100vh / .86);display:flex;flex-direction:column;background:#F6F7F9;color:#16191E;font-family:'Inter',system-ui,sans-serif">
+
+<div style="height:52px;flex:none;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid #E4E7EC;background:#fff">
+<div style="font:700 15px 'Space Grotesk',sans-serif;letter-spacing:.075em;color:#16191E;text-shadow:1.6px 1.6px 0 #C3C9D3;flex:none">RELAY</div>
+<div onClick="{{ onNav }}" style="display:flex;gap:2px;margin:0 auto;font:500 12.5px 'Inter',sans-serif;color:#5A6472">
+<span data-view="home" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ homeBg }};color:{{ homeFg }};font-weight:{{ homeW }}">Home</span><span data-view="chat" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ chatBg }};color:{{ chatFg }};font-weight:{{ chatW }}">Chat</span><span data-view="board" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ boardBg }};color:{{ boardFg }};font-weight:{{ boardW }}">Board</span><span data-view="code" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ codeBg }};color:{{ codeFg }};font-weight:{{ codeW }}">Code</span><span data-view="sessions" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ sessionsBg }};color:{{ sessionsFg }};font-weight:{{ sessionsW }}">Sessions</span><span data-view="automations" style="padding:7px 13px;border-radius:8px;cursor:pointer;background:{{ automationsBg }};color:{{ automationsFg }};font-weight:{{ automationsW }}">Automations</span>
+</div>
+<div style="display:flex;align-items:center;gap:16px">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M6 3v12"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 7h-9M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>
+</div>
+</div>
+
+<div style="flex:1;min-height:0;display:flex">
+
+<div style="width:258px;flex:none;border-right:1px solid #E4E7EC;background:#fff;display:flex;flex-direction:column;padding:14px 12px">
+<div style="display:flex;align-items:center;gap:8px">
+<div style="flex:1;display:flex;align-items:center;gap:9px;border:1px solid #E4E7EC;border-radius:9px;padding:7px 10px"><div style="width:20px;height:20px;border-radius:6px;background:#16191E;display:grid;place-items:center;color:#fff;font:700 9px 'Inter',sans-serif">7G</div><span style="font:600 12.5px 'Inter',sans-serif">7Graus</span><span style="margin-left:auto;display:flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></span></div>
+<div style="width:28px;height:28px;border-radius:50%;background:#3559E9;display:grid;place-items:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg></div>
+</div>
+<div style="font:600 10.5px 'Inter',sans-serif;letter-spacing:.08em;color:#98A1B2;padding:18px 8px 8px">RECORDS&nbsp;&nbsp;<span style="background:#F1F3F7;border-radius:8px;padding:1px 6px;color:#5A6472">3</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m12 14 4-4"></path><path d="M3.34 19a10 10 0 1 1 17.32 0"></path></svg>Usage</div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>Activity<span style="margin-left:auto;background:#3559E9;color:#fff;border-radius:9px;padding:1px 7px;font:600 10.5px 'Inter',sans-serif">24</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="4.5" r="2.5"></circle><circle cx="4.5" cy="19.5" r="2.5"></circle><circle cx="19.5" cy="19.5" r="2.5"></circle><path d="M12 7v4M10 17l-3.5-3.5M14 17l3.5-3.5"></path></svg>Worktrees<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#98A1B2">3</span></div>
+<div style="font:600 10.5px 'Inter',sans-serif;letter-spacing:.08em;color:#98A1B2;padding:18px 8px 8px">CREW&nbsp;&nbsp;<span style="background:#F1F3F7;border-radius:8px;padding:1px 6px;color:#5A6472">5</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="4"></circle><path d="M5.5 21a7 7 0 0 1 13 0"></path></svg>Director<span style="margin-left:auto;background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">watching</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;background:#EEF1FE;border-radius:8px;font:600 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3559E9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="4"></circle><path d="M5.5 21a7 7 0 0 1 13 0"></path></svg>Builder<span style="margin-left:auto;background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">working</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="4"></circle><path d="M5.5 21a7 7 0 0 1 13 0"></path></svg>Scout<span style="margin-left:auto;background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">working</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="4"></circle><path d="M5.5 21a7 7 0 0 1 13 0"></path></svg>Tester<span style="margin-left:auto;background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">blocked on you</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="4"></circle><path d="M5.5 21a7 7 0 0 1 13 0"></path></svg>Archivist<span style="margin-left:auto;background:#F1F3F7;color:#5A6472;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">idle 22m</span></div>
+
+<div style="margin-top:auto">
+<div style="font:600 10.5px 'Inter',sans-serif;letter-spacing:.08em;color:#98A1B2;padding:0 8px 8px">SYSTEM</div>
+<div style="display:flex;align-items:center;gap:9px;padding:6px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>Projects<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#98A1B2">4</span></div>
+<div style="display:flex;align-items:center;gap:9px;padding:6px 10px;font:500 12.5px 'Inter',sans-serif;color:#3A4353"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 7h-9M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>Settings</div>
+<div style="display:flex;align-items:center;gap:10px;border:1px solid #E4E7EC;border-radius:10px;padding:8px 10px;margin-top:10px"><div style="width:28px;height:28px;border-radius:50%;background:#FEE9D9;display:grid;place-items:center;font:600 10.5px 'Inter',sans-serif;color:#C2410C">MF</div><div><div style="font:600 12px 'Inter',sans-serif">Miguel Ferreira</div><div style="font:400 10.5px 'Inter',sans-serif;color:#98A1B2">Owner · local</div></div><span style="margin-left:auto;display:flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></span></div>
+</div>
+</div>
+
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}"><div style="flex:1;min-width:0;overflow:auto;padding:20px 22px"><div style="min-width:880px;display:flex;flex-direction:column;gap:13px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between">
+<div>
+<div style="font:500 12px 'Inter',sans-serif;color:#5A6472">harness · main</div>
+<div style="font:700 20px 'Inter',sans-serif;margin-top:2px">Good morning, Miguel</div>
+<div style="font:400 12px 'Inter',sans-serif;color:#98A1B2;margin-top:3px">3 agents working · 3 things need you · $1.86 spent today</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px">
+<span style="border:1px solid #E4E7EC;background:#fff;border-radius:999px;padding:7px 15px;font:500 12px 'Inter',sans-serif;color:#3A4353">Stop all runs</span>
+<span style="background:#3559E9;border-radius:999px;padding:7px 17px;font:700 12px 'Inter',sans-serif;color:#fff">New card</span>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px">
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font:500 11.5px 'Inter',sans-serif;color:#5A6472">Working now</span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">3 live</span></div><div style="display:flex;align-items:baseline;gap:8px;margin-top:4px"><span style="font:700 24px 'Inter',sans-serif">3</span><span style="font:400 11.5px 'Inter',sans-serif;color:#98A1B2">runs · 3 worktrees open</span></div></div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font:500 11.5px 'Inter',sans-serif;color:#5A6472">Needs you</span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">waiting</span></div><div style="display:flex;align-items:baseline;gap:8px;margin-top:4px"><span style="font:700 24px 'Inter',sans-serif">3</span><span style="font:400 11.5px 'Inter',sans-serif;color:#98A1B2">2 reviews · 1 permission</span></div></div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 16px"><div style="display:flex;align-items:center;gap:8px"><span style="font:500 11.5px 'Inter',sans-serif;color:#5A6472">Cards done today</span></div><div style="display:flex;align-items:baseline;gap:8px;margin-top:4px"><span style="font:700 24px 'Inter',sans-serif">9</span><span style="font:400 11.5px 'Inter',sans-serif;color:#98A1B2">+2,412 −806 lines</span></div></div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #E4E7EC;border-radius:999px;padding:9px 16px;margin-top:12px">
+<span style="flex:1;font:400 12.5px 'Inter',sans-serif;color:#98A1B2">Describe what should happen next…</span>
+<span style="border:1px solid #E4E7EC;border-radius:999px;padding:4px 12px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Builder</span>
+<span style="border:1px solid #E4E7EC;border-radius:999px;padding:4px 12px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Plan</span>
+<span style="background:#3559E9;border-radius:999px;padding:4px 14px;font:700 11.5px 'Inter',sans-serif;color:#fff">Add</span>
+</div>
+<div style="display:none">
+<span style="display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #E4E7EC;border-radius:9px;padding:7px 13px;font:600 12.5px 'Inter',sans-serif"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16191E" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>Run history</span>
+<span style="display:flex;align-items:center;gap:7px;padding:7px 13px;font:500 12.5px 'Inter',sans-serif;color:#5A6472"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>Settings</span>
+</div>
+
+<div style="display:flex;gap:16px;margin-top:14px;align-items:flex-start">
+<div style="flex:1;min-width:0">
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:16px 18px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between">
+<div><div style="font:500 12.5px 'Inter',sans-serif;color:#5A6472">Agent runs · last 38 weeks</div><div style="font:700 26px 'Inter',sans-serif;margin-top:2px">12,439</div></div>
+<div style="display:flex;background:#F1F3F7;border-radius:9px;padding:3px">
+<span style="background:#fff;border-radius:7px;padding:4px 13px;font:600 11.5px 'Inter',sans-serif;box-shadow:0 1px 2px rgba(0,0,0,.06)">All</span>
+<span style="padding:4px 13px;font:500 11.5px 'Inter',sans-serif;color:#5A6472">Director</span>
+<span style="padding:4px 13px;font:500 11.5px 'Inter',sans-serif;color:#5A6472">Agents</span>
+</div>
+</div>
+<div style="display:flex;gap:10px;margin-top:14px">
+<div style="display:flex;flex-direction:column;justify-content:space-between;padding:16px 0 2px;font:400 9.5px 'Inter',sans-serif;color:#98A1B2"><span>M</span><span>W</span><span>F</span></div>
+<div style="flex:1;min-width:0">
+<div style="display:flex;gap:4px;font:400 10px 'Inter',sans-serif;color:#98A1B2;margin-bottom:6px">
+<span style="flex:1;min-width:0">1</span><span style="flex:1;min-width:0">4</span><span style="flex:1;min-width:0">7</span><span style="flex:1;min-width:0">10</span><span style="flex:1;min-width:0">13</span><span style="flex:1;min-width:0">16</span><span style="flex:1;min-width:0">19</span><span style="flex:1;min-width:0">22</span><span style="flex:1;min-width:0">25</span><span style="flex:1;min-width:0">28</span><span style="flex:1;min-width:0">31</span><span style="flex:1;min-width:0">4</span><span style="flex:1;min-width:0">7</span></div>
+<div style="display:flex;gap:4px">
+<sc-for list="{{ heat }}" as="wk" hint-placeholder-count="12">
+<div style="flex:none;display:flex;flex-direction:column;gap:4px">
+<sc-for list="{{ wk }}" as="c" hint-placeholder-count="7"><span style="width:13px;height:13px;border-radius:3.5px;background:{{ c }}"></span></sc-for>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:5px;margin-top:10px;font:400 11px 'Inter',sans-serif;color:#5A6472">Fewer
+<span style="width:13px;height:13px;border-radius:3.5px;background:#EEF0F4"></span><span style="width:13px;height:13px;border-radius:3.5px;background:#DCE4FC"></span><span style="width:13px;height:13px;border-radius:3.5px;background:#AABBF5"></span><span style="width:13px;height:13px;border-radius:3.5px;background:#3559E9"></span><span style="width:13px;height:13px;border-radius:3.5px;background:#1D2E8C"></span>
+More</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;gap:12px;margin-top:12px">
+<div style="flex:1;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 15px;display:flex;justify-content:space-between;align-items:flex-end">
+<div><div style="font:500 11.5px 'Inter',sans-serif;color:#98A1B2">Last 1h</div><div style="font:700 21px 'Inter',sans-serif;margin-top:3px">23</div><div style="font:400 11px 'Inter',sans-serif;color:#5A6472">Successful</div></div>
+<svg width="88" height="30" viewBox="0 0 88 30"><path d="M0,20 C12,12 20,24 32,18 C44,12 52,22 64,14 C74,8 82,16 88,10" fill="none" stroke="#3559E9" stroke-width="1.6"></path></svg>
+</div>
+<div style="flex:1;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 15px;display:flex;justify-content:space-between;align-items:flex-end">
+<div><div style="font:500 11.5px 'Inter',sans-serif;color:#98A1B2">Last 24h</div><div style="font:700 21px 'Inter',sans-serif;margin-top:3px">362</div><div style="font:400 11px 'Inter',sans-serif;color:#5A6472">Successful</div></div>
+<svg width="88" height="30" viewBox="0 0 88 30"><path d="M0,24 C14,22 22,10 34,14 C46,18 54,6 66,10 C76,13 82,6 88,4" fill="none" stroke="#3559E9" stroke-width="1.6"></path></svg>
+</div>
+<div style="flex:1;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:13px 15px;display:flex;justify-content:space-between;align-items:flex-end">
+<div><div style="font:500 11.5px 'Inter',sans-serif;color:#98A1B2">Last 7d</div><div style="font:700 21px 'Inter',sans-serif;margin-top:3px">2,435</div><div style="font:400 11px 'Inter',sans-serif;color:#5A6472">Successful</div></div>
+<svg width="88" height="30" viewBox="0 0 88 30"><path d="M0,18 C10,22 20,8 32,12 C44,16 54,20 64,10 C74,4 82,12 88,8" fill="none" stroke="#3559E9" stroke-width="1.6"></path></svg>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:12px;margin-top:12px;overflow:hidden">
+<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:10px 16px;border-bottom:1px solid #EEF0F4;font:600 11.5px 'Inter',sans-serif;color:#5A6472"><span style="display:flex;align-items:center;gap:5px">Agent<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></span><span>Card</span><span>Started</span><span style="display:flex;align-items:center;gap:5px">Status<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></span><span style="display:flex;align-items:center;gap:5px">Duration<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m7 15 5 5 5-5"></path><path d="m7 9 5-5 5 5"></path></svg></span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Builder</span><span style="color:#5A6472">Sidecar: retry on stdio</span><span style="color:#5A6472">4:12 PM</span><span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">RUNNING</span></span><span style="color:#5A6472">2m 14s</span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Scout</span><span style="color:#5A6472">Map RunProfile uses</span><span style="color:#5A6472">9:00 AM</span><span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">RUNNING</span></span><span style="color:#5A6472">0m 41s</span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Director</span><span style="color:#5A6472">Review c_7b30</span><span style="color:#5A6472">6:41 PM</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472">2m</span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Tester</span><span style="color:#5A6472">Allowlist cases</span><span style="color:#5A6472">3:22 PM</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472">4m</span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Builder</span><span style="color:#5A6472">Covering index on runs</span><span style="color:#5A6472">11:08 AM</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472">1m</span></div><div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.9fr) minmax(0,.7fr);column-gap:12px;padding:11px 16px;border-bottom:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="color:#3A4353;display:flex;align-items:center;gap:7px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg>Tester</span><span style="color:#5A6472">Approval router scope</span><span style="color:#5A6472">8:54 PM</span><span><span style="background:#FBE9EC;color:#B3243B;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">FAILED</span></span><span style="color:#5A6472">6m</span></div><div style="display:flex;align-items:center;gap:8px;padding:10px 16px;font:500 11.5px 'Inter',sans-serif;color:#5A6472">Showing 7 of 12,439 runs across 5 agents<span style="margin-left:auto;color:#3559E9;font-weight:600">Open in Sessions →</span></div>
+</div>
+</div>
+
+<div style="width:286px;flex:none;display:flex;flex-direction:column;gap:12px">
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:600 13px 'Inter',sans-serif">Usage</div>
+<div style="margin-top:12px"><div style="display:flex;justify-content:space-between;font:600 12px 'Inter',sans-serif"><span>Total</span><span style="color:#5A6472">37%</span></div><div style="height:4px;margin-top:6px;background:#EEF0F4;border-radius:4px"><div style="width:37%;height:100%;background:#3559E9;border-radius:4px"></div></div><div style="font:400 10.5px 'Inter',sans-serif;color:#98A1B2;margin-top:5px">Of today's $5.00 budget — includes your Claude Code login usage.</div></div>
+<div style="border-top:1px dashed #EEF0F4;margin-top:12px;padding-top:12px"><div style="display:flex;justify-content:space-between;font:600 12px 'Inter',sans-serif"><span>Director</span><span style="color:#5A6472">12%</span></div><div style="height:4px;margin-top:6px;background:#EEF0F4;border-radius:4px"><div style="width:12%;height:100%;background:#3559E9;border-radius:4px"></div></div><div style="font:400 10.5px 'Inter',sans-serif;color:#98A1B2;margin-top:5px">Review passes and board actions (Opus).</div></div>
+<div style="border-top:1px dashed #EEF0F4;margin-top:12px;padding-top:12px"><div style="display:flex;justify-content:space-between;font:600 12px 'Inter',sans-serif"><span>Agents</span><span style="color:#5A6472">25%</span></div><div style="height:4px;margin-top:6px;background:#EEF0F4;border-radius:4px"><div style="width:25%;height:100%;background:#3559E9;border-radius:4px"></div></div><div style="font:400 10.5px 'Inter',sans-serif;color:#98A1B2;margin-top:5px">Runs by Builder, Scout and Tester.</div></div>
+</div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:600 13px 'Inter',sans-serif">Daily budget</div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px"><span style="font:700 15px 'Inter',sans-serif">$1.86</span><span style="font:600 12px 'IBM Plex Mono',monospace;color:#5A6472">of $5.00</span></div>
+<div style="height:4px;margin-top:8px;background:#EEF0F4;border-radius:4px"><div style="width:37%;height:100%;background:#3559E9;border-radius:4px"></div></div>
+<div style="font:400 11px 'Inter',sans-serif;color:#98A1B2;margin-top:6px">Resets at midnight · runs pause at the cap</div>
+<span style="display:inline-block;border:1px solid #E4E7EC;border-radius:8px;padding:5px 13px;font:600 11.5px 'Inter',sans-serif;color:#3A4353;margin-top:11px">Adjust cap</span>
+</div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:600 13px 'Inter',sans-serif">Worktrees</div>
+<div style="display:flex;justify-content:space-between;margin-top:11px;font:400 12px 'Inter',sans-serif;color:#3A4353"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">harness/c_7b30</span><span style="color:#1B7F4D;font-weight:600">running</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:8px;font:400 12px 'Inter',sans-serif;color:#3A4353"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">harness/c_9a12</span><span style="color:#1B7F4D;font-weight:600">running</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:8px;font:400 12px 'Inter',sans-serif;color:#3A4353"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">harness/c_5d08</span><span style="color:#98A1B2">stale 2d</span></div>
+<span style="display:inline-block;border:1px solid #E4E7EC;border-radius:8px;padding:5px 13px;font:600 11.5px 'Inter',sans-serif;color:#3A4353;margin-top:12px">Clean up stale</span>
+</div>
+</div>
+</div>
+</div></div></sc-if>
+<sc-if value="{{ isChat }}" hint-placeholder-val="{{ false }}"><div style="flex:1;min-width:0;min-height:0;overflow:hidden;padding:20px 22px"><div style="height:100%;min-width:860px;display:flex;flex-direction:row;gap:16px;align-items:stretch">
+<div style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:14px">
+<div><div style="font:700 20px 'Inter',sans-serif">Director</div><div style="font:400 12px 'Inter',sans-serif;color:#98A1B2;margin-top:3px">opus · every board at once · runs inside <span style="font-family:'IBM Plex Mono',monospace">harness</span></div></div>
+<div style="flex:1;min-height:0;overflow:auto;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:20px">
+<div style="align-self:flex-end;max-width:62%;background:#16191E;border-radius:16px 16px 4px 16px;padding:11px 15px;font:400 13px/1.55 'Inter',sans-serif;color:#fff">Split the approval router work — one agent scoping, one on tests.</div>
+<div style="max-width:82%;display:flex;flex-direction:column;gap:12px">
+<div style="font:400 13px/1.65 'Inter',sans-serif;color:#26303D">Two cards created. Builder has the scoping work in its own worktree; Tester is on the allowlist cases. I sent Scout ahead to map every use of <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:#F1F3F7;border-radius:5px;padding:1.5px 6px">RunProfile</span> so the two of them would not collide in the same file.</div>
+<div style="display:flex;gap:7px;flex-wrap:wrap">
+<span style="display:flex;align-items:center;gap:7px;border:1px solid #E4E7EC;border-radius:9px;padding:6px 10px;font:500 11px 'IBM Plex Mono',monospace;color:#3A4353"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1B7F4D" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg>create_card · scope git allowlist</span>
+<span style="display:flex;align-items:center;gap:7px;border:1px solid #E4E7EC;border-radius:9px;padding:6px 10px;font:500 11px 'IBM Plex Mono',monospace;color:#3A4353"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1B7F4D" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 6 9 17l-5-5"></path></svg>create_card · allowlist tests</span>
+<span style="display:flex;align-items:center;gap:7px;background:#EEF1FE;border:1px solid #DCE4FC;border-radius:9px;padding:6px 10px;font:500 11px 'IBM Plex Mono',monospace;color:#3559E9"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3559E9" stroke-width="2.6" style="animation:hSpin 1.2s linear infinite;flex:none"><circle cx="12" cy="12" r="9" stroke-dasharray="14 10"></circle></svg>read_diff · c_7b30</span>
+</div>
+</div>
+<div style="max-width:82%;border:1px solid #F0C9A8;background:#FEF9F4;border-radius:16px;padding:15px 17px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><span style="width:17px;height:17px;border-radius:50%;border:1.5px solid #C2410C;color:#C2410C;display:grid;place-items:center;font:700 10.5px 'Inter',sans-serif">!</span><span style="font:700 12px 'Inter',sans-serif;color:#C2410C">Tester wants permission</span><span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#B08A62">4m ago</span></div>
+<div style="font:500 12.5px 'IBM Plex Mono',monospace;background:#fff;border:1px solid #F0DFCE;border-radius:8px;padding:9px 11px">git push origin harness/c_7b30</div>
+<div style="font:400 12px/1.55 'Inter',sans-serif;color:#5A6472">Two of its own cases fail against the current resolver — pushing now would ship red.</div>
+<div style="display:flex;gap:7px"><span style="background:#C2410C;border-radius:999px;padding:7px 16px;font:700 11.5px 'Inter',sans-serif;color:#fff">Allow once</span><span style="border:1px solid #E4E7EC;background:#fff;border-radius:999px;padding:7px 16px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Always allow git push</span><span style="border:1px solid #E4E7EC;background:#fff;border-radius:999px;padding:7px 16px;font:500 11.5px 'Inter',sans-serif;color:#B3243B">Deny</span></div>
+</div>
+<div style="max-width:82%;font:400 13px/1.65 'Inter',sans-serif;color:#26303D">Builder's diff touches the policy resolver, so I would hold that push until the checks are green<span style="display:inline-block;width:6px;height:13px;background:#3559E9;vertical-align:-2px;margin-left:3px;animation:hBlink 1.05s steps(1) infinite"></span></div>
+</div>
+<div style="background:#fff;border:1.5px solid #DCE4FC;border-radius:16px;padding:12px 14px;box-shadow:0 5px 16px -12px rgba(53,89,233,.4)">
+<div style="font:400 12.5px 'Inter',sans-serif;color:#98A1B2">Tell the crew what happens next…</div>
+<div style="display:flex;align-items:center;gap:7px;margin-top:12px">
+<span style="width:26px;height:26px;border-radius:50%;border:1px solid #E4E7EC;display:grid;place-items:center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg></span>
+<span style="border:1px solid #E4E7EC;border-radius:999px;padding:4px 12px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Opus 4.5</span>
+<span style="border:1px solid #E4E7EC;border-radius:999px;padding:4px 12px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Agent</span>
+<span style="border:1px solid #E4E7EC;border-radius:999px;padding:4px 12px;font:500 11.5px 'Inter',sans-serif;color:#98A1B2">Voice · soon</span>
+<span style="margin-left:auto;width:26px;height:26px;border-radius:50%;background:#3559E9;display:grid;place-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg></span>
+</div>
+</div>
+</div>
+<div style="width:286px;flex:0 1 286px;min-width:210px;display:flex;flex-direction:column;gap:13px;min-height:0;overflow:auto">
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:700 12.5px 'Inter',sans-serif">What it touched</div>
+<div style="margin-top:12px;font:600 12px 'Inter',sans-serif">Scope git allowlist</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:2px">c_7b30 · Builder · Review</div>
+<div style="border-top:1px solid #F4F5F8;margin-top:11px;padding-top:11px;font:600 12px 'Inter',sans-serif">Allowlist tests</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:2px">c_9a12 · Tester · Working</div>
+<div style="border-top:1px solid #F4F5F8;margin-top:11px;padding-top:11px;font:600 12px 'Inter',sans-serif">Map RunProfile uses</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:2px">c_4c71 · Scout · Done</div>
+</div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:700 12.5px 'Inter',sans-serif">This thread</div>
+<div style="display:flex;justify-content:space-between;margin-top:12px;font:400 12px 'Inter',sans-serif;color:#5A6472">Tokens<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">18,412</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Spend<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">$0.31</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Tool calls<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">11</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Context<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">61%</span></div>
+</div>
+</div>
+</div></div></sc-if>
+<sc-if value="{{ isBoard }}" hint-placeholder-val="{{ false }}"><div style="flex:1;min-width:0;overflow:auto;padding:20px 22px"><div style="min-width:960px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:flex-end;justify-content:space-between"><div><div style="font:700 20px 'Inter',sans-serif">Board</div><div style="font:400 12px 'Inter',sans-serif;color:#98A1B2;margin-top:3px">12 cards · drag to move · a run gets its own worktree</div></div><span style="background:#3559E9;border-radius:999px;padding:7px 17px;font:700 12px 'Inter',sans-serif;color:#fff">New card</span></div>
+<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:start">
+<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:700 12.5px 'Inter',sans-serif">Later</span><span style="background:#F1F3F7;color:#5A6472;border-radius:999px;padding:1.5px 8px;font:700 10px 'Inter',sans-serif">2</span></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Prune stale worktrees automatically</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">c_2f10</div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Per-agent budget caps in settings</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">c_31a8</div></div></div>
+<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:700 12.5px 'Inter',sans-serif">Ready</span><span style="background:#F1F3F7;color:#5A6472;border-radius:999px;padding:1.5px 8px;font:700 10px 'Inter',sans-serif">3</span></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Usage rollup endpoint</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">c_6b02 · Builder</div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Covering index on runs table</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">c_8d44 · Builder</div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Retry sidecar on stdio disconnect</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">c_1e57 · Scout</div></div></div>
+<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:700 12.5px 'Inter',sans-serif">Working</span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:1.5px 8px;font:700 10px 'Inter',sans-serif">2</span></div><div style="background:#fff;border:1px solid #DCE4FC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Scope git allowlist</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">Builder · 2m 14s · $0.04</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#3559E9;margin-top:6px">editing crates/app/policy.rs</div><div style="height:3px;margin-top:8px;background:#EEF0F4;border-radius:3px"><div style="width:62%;height:100%;background:#3559E9;border-radius:3px"></div></div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Map RunProfile uses</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">Scout · 0m 41s</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#3559E9;margin-top:6px">grep · 41 hits</div><div style="height:3px;margin-top:8px;background:#EEF0F4;border-radius:3px"><div style="width:88%;height:100%;background:#3559E9;border-radius:3px"></div></div></div></div>
+<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:700 12.5px 'Inter',sans-serif">Review</span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:1.5px 8px;font:700 10px 'Inter',sans-serif">3</span></div><div style="background:#fff;border:1px solid #F0C9A8;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Allowlist tests</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">Tester · wants git push</div><div style="margin-top:8px"><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 8px;font:700 10px 'Inter',sans-serif">2 checks red</span></div><div style="display:flex;gap:6px;margin-top:10px"><span style="flex:1;text-align:center;background:#16191E;border-radius:999px;padding:5px;font:700 11px 'Inter',sans-serif;color:#fff">Approve</span><span style="flex:1;text-align:center;border:1px solid #E4E7EC;border-radius:999px;padding:5px;font:500 11px 'Inter',sans-serif;color:#3A4353">Send back</span></div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Approval router: scope</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">Builder · Director: clean</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#5A6472;margin-top:6px"><span style="color:#1B7F4D">+212</span> <span style="color:#B3243B">−18</span></div><div style="display:flex;gap:6px;margin-top:10px"><span style="flex:1;text-align:center;background:#16191E;border-radius:999px;padding:5px;font:700 11px 'Inter',sans-serif;color:#fff">Approve</span><span style="flex:1;text-align:center;border:1px solid #E4E7EC;border-radius:999px;padding:5px;font:500 11px 'Inter',sans-serif;color:#3A4353">Send back</span></div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Usage rollup endpoint</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">Builder · covering index added</div><div style="display:flex;gap:6px;margin-top:10px"><span style="flex:1;text-align:center;background:#16191E;border-radius:999px;padding:5px;font:700 11px 'Inter',sans-serif;color:#fff">Approve</span><span style="flex:1;text-align:center;border:1px solid #E4E7EC;border-radius:999px;padding:5px;font:500 11px 'Inter',sans-serif;color:#3A4353">Send back</span></div></div></div>
+<div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:700 12.5px 'Inter',sans-serif">Done</span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:1.5px 8px;font:700 10px 'Inter',sans-serif">+9</span></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Covering index on runs</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">merged · 12:04</div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Sidecar: retry on stdio</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">merged · 11:41</div></div><div style="background:#fff;border:1px solid #E4E7EC;border-radius:14px;padding:12px 13px"><div style="font:600 12.5px/1.4 'Inter',sans-serif">Torn-write guard in store</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:7px">merged · 10:18</div></div><div style="text-align:center;font:500 11.5px 'Inter',sans-serif;color:#5A6472;padding:6px">6 more today</div></div>
+</div></div></div></sc-if>
+<sc-if value="{{ isCode }}" hint-placeholder-val="{{ false }}"><div style="flex:1;min-width:0;overflow:auto"><div style="min-width:940px;min-height:100%;display:flex;background:#fff">
+
+<div style="width:256px;flex:none;border-right:1px solid #E4E7EC;display:flex;flex-direction:column;background:#fff">
+<div style="height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #EEF0F4">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m15 18-6-6 6-6"></path></svg><span style="font:500 12.5px 'Inter',sans-serif;color:#16191E">Back</span>
+<div style="margin-left:auto;display:flex;gap:12px;align-items:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h.01M12 12h.01M19 12h.01"></path></svg></div>
+</div>
+<div style="flex:1;overflow:hidden;padding:10px 8px;font:400 12.5px 'Inter',sans-serif;color:#3A4353">
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="font-weight:600;color:#16191E">harness</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="font-weight:500">crates</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 40px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="font-weight:500">app</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;border-left:1px solid #EEF0F4;margin-left:14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>settings.rs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;background:#EEF1FE;border-radius:6px;margin-left:14px;border-left:2px solid #3559E9"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3559E9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg><span style="font-weight:600;color:#16191E">policy.rs</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;border-left:1px solid #EEF0F4;margin-left:14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>checks.rs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 40px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg><span style="font-weight:500">engine</span></div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;border-left:1px solid #EEF0F4;margin-left:14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>lib.rs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;border-left:1px solid #EEF0F4;margin-left:14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>runs.rs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 58px;border-left:1px solid #EEF0F4;margin-left:14px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>director.rs</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 40px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>domain</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 40px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>adapters</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>src</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>src-tauri</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m9 18 6-6-6-6"></path></svg><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>sidecar</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>Cargo.toml</div>
+<div style="display:flex;align-items:center;gap:7px;padding:5px 8px 5px 24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v5h5"></path></svg>README.md</div>
+</div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid #E4E7EC">
+<div style="height:46px;flex:none;display:flex;align-items:center;gap:4px;padding:0 12px;border-bottom:1px solid #EEF0F4">
+<span style="padding:6px 12px;border-radius:8px;background:#F1F3F7;font:600 12.5px 'Inter',sans-serif">Code</span>
+<span style="padding:6px 12px;font:500 12.5px 'Inter',sans-serif;color:#5A6472">Design</span>
+<span style="padding:6px 8px;color:#98A1B2">+</span>
+<div style="margin-left:auto;display:flex;gap:14px;align-items:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 3v5h5"></path><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"></path><path d="M12 7v5l4 2"></path></svg></div>
+</div>
+<div style="height:42px;flex:none;display:flex;align-items:center;gap:2px;padding:0 12px;border-bottom:1px solid #EEF0F4;font:500 12.5px 'Inter',sans-serif;color:#5A6472">
+<span style="padding:6px 10px">runs.rs</span>
+<span style="padding:6px 10px;background:#F1F3F7;border-radius:8px;color:#16191E;font-weight:600;display:flex;align-items:center;gap:8px">policy.rs<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M18 6 6 18M6 6l12 12"></path></svg></span>
+<span style="padding:6px 10px">DECISIONS.md</span>
+<div style="margin-left:auto;display:flex;gap:12px;align-items:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M9 3v18"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h.01M12 12h.01M19 12h.01"></path></svg></div>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:14px 0;font:400 12.5px/1.75 'IBM Plex Mono',monospace;color:#16191E">
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">1</span><span><span style="color:#7C3AED">use</span> crate::domain::{AgentProfile, RunProfile};</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">2</span><span><span style="color:#7C3AED">use</span> crate::ports::ClockPort;</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">3</span><span></span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">4</span><span style="color:#DB2777">/// Policy is resolved once, at the moment a run starts.</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">5</span><span style="color:#DB2777">/// The engine itself carries none of it.</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">6</span><span><span style="color:#7C3AED">pub fn</span> <span style="color:#2563EB">resolve_profile</span>(agent: &amp;AgentProfile, caps: &amp;Caps) -&gt; RunProfile {</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">7</span><span>&nbsp;&nbsp;<span style="color:#7C3AED">let</span> model = agent.model.<span style="color:#2563EB">clone</span>();</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">8</span><span>&nbsp;&nbsp;<span style="color:#7C3AED">let</span> budget = agent.budget.<span style="color:#2563EB">min</span>(caps.daily_remaining);</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">9</span><span></span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">10</span><span>&nbsp;&nbsp;<span style="color:#7C3AED">let</span> review = <span style="color:#7C3AED">match</span> agent.review {</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">11</span><span>&nbsp;&nbsp;&nbsp;&nbsp;Review::Director =&gt; Reviewer::Director,</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">12</span><span>&nbsp;&nbsp;&nbsp;&nbsp;Review::Operator =&gt; Reviewer::You,</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">13</span><span>&nbsp;&nbsp;&nbsp;&nbsp;Review::None =&gt; Reviewer::None,</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">14</span><span>&nbsp;&nbsp;};</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">15</span><span></span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">16</span><span>&nbsp;&nbsp;RunProfile {</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">17</span><span>&nbsp;&nbsp;&nbsp;&nbsp;model,</span></div>
+<div style="display:flex;background:#EEF1FE"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#3559E9">18</span><span><span style="color:#3559E9">+</span>&nbsp;&nbsp;&nbsp;budget: budget.<span style="color:#2563EB">clamp</span>(MIN_RUN_BUDGET, caps.per_run_cap),</span></div>
+<div style="display:flex;background:#EEF1FE"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#3559E9">19</span><span><span style="color:#3559E9">+</span>&nbsp;&nbsp;&nbsp;allow_push: <span style="color:#C2410C">false</span>, <span style="color:#DB2777">// never push without an allowance</span></span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">20</span><span>&nbsp;&nbsp;&nbsp;&nbsp;review,</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">21</span><span>&nbsp;&nbsp;&nbsp;&nbsp;workspace: agent.workspace,</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">22</span><span>&nbsp;&nbsp;}</span></div>
+<div style="display:flex"><span style="width:52px;flex:none;text-align:right;padding-right:16px;color:#98A1B2">23</span><span>}</span></div>
+</div>
+</div>
+
+<div style="width:380px;flex:none;display:flex;flex-direction:column;background:#fff">
+<div style="flex:none;padding:16px 16px 12px;border-bottom:1px solid #EEF0F4">
+<div style="display:flex;align-items:flex-start;gap:10px">
+<div style="width:38px;height:38px;border-radius:9px;background:#16191E;display:grid;place-items:center;color:#fff;font:700 12px 'Inter',sans-serif">HA</div>
+<div style="flex:1">
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font:700 14.5px 'Inter',sans-serif">harness</span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 11px 'Inter',sans-serif">Active</span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 11px 'Inter',sans-serif">Co-pilot · Needs approval</span></div>
+<div style="display:flex;gap:14px;margin-top:6px;font:500 11.5px 'Inter',sans-serif;color:#5A6472"><span style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M20 7h-9M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>Settings</span><span style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path></svg>Members</span></div>
+</div>
+<div style="display:flex;gap:10px;align-items:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 3v5h5"></path><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"></path><path d="M12 7v5l4 2"></path></svg><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M5 12h.01M12 12h.01M19 12h.01"></path></svg></div>
+</div>
+<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+<span style="background:#F1F3F7;border-radius:6px;padding:3px 9px;font:500 11px 'Inter',sans-serif;color:#3A4353">crates/app · 3 files</span>
+<span style="background:#F1F3F7;border-radius:6px;padding:3px 9px;font:500 11px 'Inter',sans-serif;color:#3A4353">engine</span>
+<span style="background:#F1F3F7;border-radius:6px;padding:3px 9px;font:500 11px 'Inter',sans-serif;color:#3A4353">worktree c_7b30</span>
+</div>
+</div>
+
+<div style="flex:1;min-height:0;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+<div>
+<div style="font:600 10.5px 'Inter',sans-serif;letter-spacing:.08em;color:#98A1B2">IN PROGRESS&nbsp;&nbsp;<span style="color:#5A6472">1</span></div>
+<div style="display:flex;gap:10px;margin-top:9px">
+<svg width="16" height="16" viewBox="0 0 16 16" style="flex:none;margin-top:2px;animation:hSpin 1.4s linear infinite"><circle cx="8" cy="8" r="6" fill="none" stroke="#C2410C" stroke-width="2" stroke-dasharray="4 4"></circle></svg>
+<div><div style="font:600 12.5px 'Inter',sans-serif">Scanning checks.rs for parity</div><div style="font:400 11.5px 'Inter',sans-serif;color:#5A6472;margin-top:2px">Checking the budget clamp against the failing cargo cases…</div></div>
+</div>
+</div>
+<div>
+<div style="font:600 10.5px 'Inter',sans-serif;letter-spacing:.08em;color:#98A1B2">NEEDS YOUR REVIEW&nbsp;&nbsp;<span style="color:#5A6472">2</span></div>
+<div style="display:flex;gap:10px;margin-top:9px">
+<span style="flex:none;width:16px;height:16px;border-radius:50%;border:1.5px solid #C2410C;color:#C2410C;display:grid;place-items:center;font:700 10px 'Inter',sans-serif;margin-top:2px">!</span>
+<div><div style="font:600 12.5px 'Inter',sans-serif">policy.rs — budget clamp + push guard</div><div style="font:400 11.5px 'Inter',sans-serif;color:#5A6472;margin-top:2px">Waiting on your review</div></div>
+</div>
+</div>
+
+<div style="border:1px solid #E4E7EC;border-radius:10px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #EEF0F4;font:500 12px 'IBM Plex Mono',monospace"><span>policy.rs</span><span style="color:#5A6472">resolve_profile</span><span style="margin-left:auto;display:flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#98A1B2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg></span></div>
+<div style="padding:10px 0;font:400 11.5px/1.7 'IBM Plex Mono',monospace;background:#FAFBFC">
+<div style="display:flex"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#98A1B2;border-left:3px solid #3559E9">1</span><span>&nbsp;&nbsp;RunProfile {</span></div>
+<div style="display:flex"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#98A1B2;border-left:3px solid #3559E9">2</span><span>&nbsp;&nbsp;&nbsp;&nbsp;model,</span></div>
+<div style="display:flex;background:#EEF1FE"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#3559E9;border-left:3px solid #3559E9">3</span><span><span style="color:#3559E9">+</span>&nbsp;&nbsp;&nbsp;budget: budget.clamp(MIN_RUN_BUDGET,</span></div>
+<div style="display:flex;background:#EEF1FE"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#3559E9;border-left:3px solid #3559E9">4</span><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;caps.per_run_cap),</span></div>
+<div style="display:flex;background:#EEF1FE"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#3559E9;border-left:3px solid #3559E9">5</span><span><span style="color:#3559E9">+</span>&nbsp;&nbsp;&nbsp;allow_push: <span style="color:#C2410C">false</span>,</span></div>
+<div style="display:flex"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#98A1B2;border-left:3px solid #3559E9">6</span><span>&nbsp;&nbsp;&nbsp;&nbsp;review,</span></div>
+<div style="display:flex"><span style="width:36px;flex:none;text-align:right;padding-right:12px;color:#98A1B2;border-left:3px solid #3559E9">7</span><span>&nbsp;&nbsp;}</span></div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid #EEF0F4">
+<span style="font:500 11.5px 'IBM Plex Mono',monospace;color:#5A6472">2 lines change</span>
+<span style="margin-left:auto;border:1px solid #E4E7EC;border-radius:999px;padding:7px 16px;font:500 12px 'Inter',sans-serif;color:#3A4353">Reject</span>
+<span style="background:#3559E9;border-radius:999px;padding:7px 18px;font:700 12px 'Inter',sans-serif;color:#fff">Approve</span>
+</div>
+</div>
+</div>
+
+<div style="flex:none;padding:12px 16px 14px">
+<div style="border:1.5px solid #DCE4FC;border-radius:14px;padding:12px 14px;box-shadow:0 4px 16px -8px rgba(53,89,233,.18)">
+<div style="font:400 13px 'Inter',sans-serif;color:#98A1B2">How can I help you?</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+<span style="width:26px;height:26px;border-radius:50%;border:1px solid #E4E7EC;display:grid;place-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 5v14M5 12h14"></path></svg></span>
+<span style="border:1px solid #E4E7EC;border-radius:14px;padding:4px 12px;font:500 12px 'Inter',sans-serif;color:#3A4353"><span style="display:flex;align-items:center;gap:5px">Opus 4.5<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#3A4353" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg></span></span>
+<span style="border:1px solid #E4E7EC;border-radius:14px;padding:4px 12px;font:500 12px 'Inter',sans-serif;color:#3A4353"><span style="display:flex;align-items:center;gap:5px">Agent<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#3A4353" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg></span></span>
+<span style="margin-left:auto;width:26px;height:26px;border-radius:50%;background:#F1F3F7;display:grid;place-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5A6472" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m5 12 7-7 7 7"></path><path d="M12 19V5"></path></svg></span>
+</div>
+</div>
+<div style="text-align:center;font:400 11px 'Inter',sans-serif;color:#98A1B2;margin-top:9px">Agents can make mistakes — nothing is applied until you approve it</div>
+</div>
+</div>
+</div></div></sc-if>
+<sc-if value="{{ isAutomations }}" hint-placeholder-val="{{ false }}"><div style="flex:1;min-width:0;overflow:auto;padding:20px 22px"><div style="min-width:880px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:flex-end;justify-content:space-between"><div><div style="font:700 20px 'Inter',sans-serif">Automations</div><div style="font:400 12px 'Inter',sans-serif;color:#98A1B2;margin-top:3px">Standing rules that send intents to the engine — same run lifecycle, same permissions</div></div><span style="background:#3559E9;border-radius:999px;padding:7px 17px;font:700 12px 'Inter',sans-serif;color:#fff;white-space:nowrap">New automation</span></div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;overflow:hidden">
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:10px 16px;font:600 11.5px 'Inter',sans-serif;color:#5A6472"><span>Automation</span><span>Trigger</span><span>Last fired</span><span>7d</span><span>State</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">Review finished diffs</span><span style="color:#5A6472">On card moved to Review</span><span style="color:#5A6472">4:12 PM</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">412</span><span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Active</span></span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">Nightly cargo test</span><span style="color:#5A6472">Every day at 09:00</span><span style="color:#5A6472">9:00 AM</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">7</span><span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Active</span></span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">Budget alerts</span><span style="color:#5A6472">On spend above 80% of cap</span><span style="color:#5A6472">yesterday</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">3</span><span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Active</span></span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">PR summariser</span><span style="color:#5A6472">On pull request opened</span><span style="color:#5A6472">2 days ago</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">18</span><span><span style="background:#E8F5EE;color:#1B7F4D;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Active</span></span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">Stale card nudges</span><span style="color:#5A6472">Every Monday at 09:00</span><span style="color:#5A6472">never</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">0</span><span><span style="background:#F1F3F7;color:#5A6472;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Offline</span></span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) minmax(0,1fr) minmax(0,.7fr) minmax(0,.7fr);column-gap:14px;padding:12px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="font:600 12.5px 'Inter',sans-serif">Worktree cleanup</span><span style="color:#5A6472">On card merged</span><span style="color:#5A6472">never</span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">0</span><span><span style="background:#F1F3F7;color:#5A6472;border-radius:999px;padding:2px 9px;font:700 10.5px 'Inter',sans-serif">Offline</span></span></div>
+</div>
+<div style="display:flex;gap:13px;align-items:flex-start">
+<div style="flex:1;min-width:0;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 17px">
+<div style="font:700 12.5px 'Inter',sans-serif">Triggers · Review finished diffs</div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:13px;font:400 12.5px 'Inter',sans-serif;color:#3A4353">On <span style="background:#EEF1FE;color:#3559E9;border-radius:7px;padding:3px 9px;font-weight:600">card moved</span> to <span style="background:#EEF1FE;color:#3559E9;border-radius:7px;padding:3px 9px;font-weight:600">Review</span> in <span style="background:#EEF1FE;color:#3559E9;border-radius:7px;padding:3px 9px;font-weight:600">harness</span></div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed #EEF0F4;font:400 12.5px 'Inter',sans-serif;color:#3A4353;flex-wrap:wrap">Then&nbsp;<span style="background:#F1F3F7;border-radius:7px;padding:3px 9px;font:500 11.5px 'IBM Plex Mono',monospace">read_diff</span> and <span style="background:#F1F3F7;border-radius:7px;padding:3px 9px;font:500 11.5px 'IBM Plex Mono',monospace">approve_card</span> if clean</div>
+<div style="margin-top:12px;font:400 11.5px 'Inter',sans-serif;color:#98A1B2">Anything that changes the board still reaches your permission sheet first.</div>
+</div>
+<div style="width:286px;flex:0 1 286px;min-width:220px;background:#fff;border:1px solid #E4E7EC;border-radius:16px;padding:15px 16px">
+<div style="font:700 12.5px 'Inter',sans-serif">Last 7 days</div>
+<div style="display:flex;justify-content:space-between;margin-top:12px;font:400 12px 'Inter',sans-serif;color:#5A6472">Fired<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">440</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Succeeded<span style="font-family:'IBM Plex Mono',monospace;color:#1B7F4D">431</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Failed<span style="font-family:'IBM Plex Mono',monospace;color:#B3243B">9</span></div>
+<div style="display:flex;justify-content:space-between;margin-top:9px;font:400 12px 'Inter',sans-serif;color:#5A6472">Spend<span style="font-family:'IBM Plex Mono',monospace;color:#16191E">$0.62</span></div>
+</div>
+</div>
+</div></div></sc-if>
+<sc-if value="{{ isSessions }}" hint-placeholder-val="{{ false }}"><div style="flex:1;min-width:0;overflow:auto;padding:20px 22px"><div style="min-width:900px;display:flex;flex-direction:row;gap:16px;align-items:flex-start">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+<div><div style="font:700 20px 'Inter',sans-serif">Sessions</div><div style="font:400 12px 'Inter',sans-serif;color:#98A1B2;margin-top:3px">Every recorded run, replayed from disk</div></div>
+<div style="background:#fff;border:1px solid #E4E7EC;border-radius:16px;overflow:hidden">
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:10px 16px;font:600 11.5px 'Inter',sans-serif;color:#5A6472"><span>Agent</span><span>Card</span><span>Started</span><span>Tools</span><span>Status</span><span>Time</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#EEF1FE;color:#3559E9">B</span>Builder</span><span style="color:#3A4353">Scope git allowlist</span><span style="color:#5A6472">4:12 PM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">Read·Edit×6</span><span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">RUNNING</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">2m14s</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#F3EEFE;color:#6D3FD4">S</span>Scout</span><span style="color:#3A4353">Map RunProfile uses</span><span style="color:#5A6472">9:00 AM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">Grep×3</span><span><span style="background:#FEF0E6;color:#C2410C;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">RUNNING</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">0m41s</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#F3EEFE;color:#6D3FD4">D</span>Director</span><span style="color:#3A4353">Review c_7b30</span><span style="color:#5A6472">6:41 PM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">read_diff</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">2m</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#FEF0E6;color:#C2410C">T</span>Tester</span><span style="color:#3A4353">Allowlist tests</span><span style="color:#5A6472">3:22 PM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">Bash</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">4m</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#EEF1FE;color:#3559E9">B</span>Builder</span><span style="color:#3A4353">Covering index on runs</span><span style="color:#5A6472">11:08 AM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">Edit×2</span><span><span style="background:#EEF1FE;color:#3559E9;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">SUCCEEDED</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">1m</span></div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1.6fr) minmax(0,1fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.6fr);column-gap:14px;padding:11px 16px;border-top:1px solid #F4F5F8;font:400 12px 'Inter',sans-serif;align-items:center"><span style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:600 9px 'IBM Plex Mono',monospace;background:#FEF0E6;color:#C2410C">T</span>Tester</span><span style="color:#3A4353">Approval router scope</span><span style="color:#5A6472">8:54 PM</span><span style="color:#5A6472;font:400 11px 'IBM Plex Mono',monospace">Bash</span><span><span style="background:#FBE9EC;color:#B3243B;border-radius:999px;padding:2px 9px;font:700 10px 'IBM Plex Mono',monospace">FAILED</span></span><span style="color:#5A6472;font-family:'IBM Plex Mono',monospace">6m</span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid #F4F5F8;font:500 11.5px 'Inter',sans-serif;color:#5A6472">Showing 6 of 12,439 runs<span style="margin-left:auto;color:#3559E9;font-weight:600">Export transcripts →</span></div>
+</div></div>
+<div style="width:340px;flex:none;background:#fff;border:1px solid #E4E7EC;border-radius:16px;overflow:hidden">
+<div style="padding:14px 16px;border-bottom:1px solid #F4F5F8"><div style="font:700 12.5px 'Inter',sans-serif">Transcript</div><div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98A1B2;margin-top:3px">Builder · c_7b30 · sonnet · $0.04</div></div>
+<div style="padding:12px 16px;font:400 11px/1.9 'IBM Plex Mono',monospace;color:#5A6472">
+<div><span style="color:#98A1B2">12:41:08</span> <span style="color:#3559E9">read</span> src/engine/runs.rs</div>
+<div><span style="color:#98A1B2">12:41:08</span> <span style="color:#98A1B2">↳</span> 412 lines · 3.1k tok</div>
+<div><span style="color:#98A1B2">12:41:05</span> <span style="color:#3559E9">edit</span> crates/app/policy.rs</div>
+<div><span style="color:#98A1B2">12:41:05</span> <span style="color:#1B7F4D">↳</span> <span style="color:#1B7F4D">+38 −6 applied</span></div>
+<div><span style="color:#98A1B2">12:40:55</span> <span style="color:#C2410C">permission</span> git push</div>
+<div><span style="color:#98A1B2">12:40:55</span> <span style="color:#C2410C">↳</span> <span style="color:#C2410C">awaiting operator</span></div>
+<div><span style="color:#98A1B2">12:40:31</span> <span style="color:#3559E9">run.started</span> c_9a12</div>
+<div><span style="color:#98A1B2">12:40:12</span> <span style="color:#B3243B">checks</span> cargo test → 2 failed</div>
+<div><span style="color:#98A1B2">12:39:58</span> <span style="color:#1B7F4D">git</span> worktree harness/c_7b30</div>
+</div>
+<div style="display:flex;gap:7px;padding:12px 16px;border-top:1px solid #F4F5F8"><span style="border:1px solid #E4E7EC;border-radius:999px;padding:6px 14px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Open diff</span><span style="border:1px solid #E4E7EC;border-radius:999px;padding:6px 14px;font:500 11.5px 'Inter',sans-serif;color:#3A4353">Replay</span></div>
+</div></div></div></sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { view: 'home' };
+  renderVals() {
+    const v = this.state.view;
+    const lv = ['#EEF0F4','#DCE4FC','#AABBF5','#3559E9','#1D2E8C'];
+    const heat = [];
+    for (let w = 0; w < 38; w++) {
+      const c = [];
+      for (let d = 0; d < 7; d++) {
+        const r = Math.abs(Math.sin(w * 12.9898 + d * 78.233) * 43758.5453) % 1;
+        c.push(lv[r < .42 ? 0 : r < .62 ? 1 : r < .8 ? 2 : r < .94 ? 3 : 4]);
+      }
+      heat.push(c);
+    }
+    const out = { heat };
+    const ids = ['home','chat','board','code','sessions','automations'];
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i], on = v === id;
+      out[id + 'Bg'] = on ? '#F1F3F7' : 'transparent';
+      out[id + 'Fg'] = on ? '#16191E' : '#5A6472';
+      out[id + 'W'] = on ? 600 : 500;
+      out['is' + id.charAt(0).toUpperCase() + id.slice(1)] = on;
+    }
+    out.onNav = (e) => {
+      const el = e.target.closest('[data-view]');
+      if (!el) return;
+      const id = el.getAttribute('data-view');
+      if (id && id !== this.state.view) this.setState({ view: id });
+    };
+    return out;
+  }
+}
+</script>
+</body>
+</html>

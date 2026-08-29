@@ -1,38 +1,52 @@
 /** Os tokens do desenho, em valores literais.
  *
- *  Antes viviam como custom properties em `src/styles/theme.css`, redefinidas
- *  num segundo bloco para o tema claro. Agora vivem aqui: o valor base é o do
- *  tema **claro** e a variante `dark:` é a do tema **escuro**, porque é assim
- *  que o Tailwind lê um tema. O atributo continua a ser o que o `store.tsx`
- *  escreve — `data-theme` — e é isso que o `darkMode` abaixo aponta.
+ *  O valor base é o do tema **claro** e a variante `dark:` é a do tema
+ *  **escuro**, porque é assim que o Tailwind lê um tema. O atributo continua a
+ *  ser o que o `store.tsx` escreve — `data-theme` — e é isso que o `darkMode`
+ *  abaixo aponta.
  *
- *  Os tokens do acento são a única excepção e trazem `var(--accent, …)`: o
- *  operador pode escolher um acento no ecrã de definições, e o `applyTheme`
- *  escreve essas seis propriedades no elemento raiz em runtime. O literal é o
- *  fallback — quando ninguém escolheu nada, e é o caso normal, resolve para a
- *  cor do tema. Nenhuma folha de estilo as declara; só existem quando o
- *  operador escolhe.
+ *  O tema claro é a paleta **Asphalt** do `docs/design/README.md`: pano de
+ *  fundo `#F6F7F9`, superfície branca, tinta `#16191E`, acento `#3559E9`. O
+ *  escuro é o seu par, e é um desenho por direito próprio, não uma inversão:
+ *  `#0C0E12` de fundo, `#14171D` de superfície, tinta `#E8EAEE`, acento
+ *  `#6E92F0` — um azul que clareia em vez de escurecer quando ganha ênfase,
+ *  porque num fundo escuro é para lá que a ênfase vai. Os
+ *  nomes dos tokens não mudaram — só os valores — para que um ecrã ainda não
+ *  migrado apanhe a paleta nova sem lhe tocar. Os nomes que o desenho usa
+ *  (`canvas`, `ink`, `muted`, `faint`, `primary`) existem também, e são o que
+ *  os ecrãs novos escrevem.
+ *
+ *  Os tokens do acento trazem `var(--accent, …)`: o operador pode escolher um
+ *  acento no ecrã de definições, e o `applyTheme` escreve essas propriedades
+ *  no elemento raiz em runtime. O literal é o fallback.
  *
  *  @type {import('tailwindcss').Config}
  */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
 
-  // O tema é um atributo, não uma classe: `store.tsx:380` põe
-  // `data-theme="dark"|"light"` na raiz e o index.html arranca já em dark.
   darkMode: ["selector", '[data-theme="dark"]'],
 
   theme: {
     // A escala do desenho substitui a do Tailwind por inteiro — trabalha em
     // meios-pontos, e `text-sm` tem de significar 11.5px e não 14px.
     fontSize: {
+      "2xs": "9.5px",
+      "10": "10px",
       xs: "10.5px",
+      "11": "11px",
       sm: "11.5px",
+      body: "12px",
       md: "12.5px",
       base: "13px",
       lg: "14px",
+      sheet: "14.5px",
+      "15": "15px",
       xl: "16px",
+      title: "20px",
       "2xl": "21px",
+      stat: "24px",
+      "26": "26px",
       "3xl": "30px",
     },
 
@@ -40,12 +54,17 @@ export default {
       none: "0",
       px: "1px",
       "2px": "2px",
+      "3.5px": "3.5px",
       "4px": "4px",
       "5px": "5px",
       "6px": "6px",
+      "7px": "7px",
       sm: "8px",
       DEFAULT: "8px",
+      "9px": "9px",
+      "10px": "10px",
       md: "12px",
+      sheet: "14px",
       lg: "16px",
       xl: "20px",
       full: "999px",
@@ -53,119 +72,144 @@ export default {
 
     extend: {
       fontFamily: {
-        sans: ['"Space Grotesk"', "system-ui", "-apple-system", '"Segoe UI"', "sans-serif"],
+        // Inter faz a interface; a Space Grotesk só existe para o wordmark.
+        sans: ["Inter", "system-ui", "-apple-system", '"Segoe UI"', "sans-serif"],
+        display: ['"Space Grotesk"', "system-ui", "sans-serif"],
         mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
 
-      // Os passos que o desenho usa e a escala de 4px do Tailwind não tem.
       spacing: {
+        0.75: "3px",
         1.25: "5px",
         1.75: "7px",
         2.25: "9px",
         2.75: "11px",
+        3.25: "13px",
+        3.75: "15px",
+        4.25: "17px",
         4.5: "18px",
+        4.75: "19px",
+        5.25: "21px",
         5.5: "22px",
         6.5: "26px",
+        7.5: "30px",
+        8.5: "34px",
+        9.5: "38px",
+        10.5: "42px",
       },
 
       colors: {
-        // Três planos de quase-preto quente no escuro, papel quente no claro:
-        // secretária, pano de fundo, painel.
-        desk: { DEFAULT: "#e9e5de", d: "#0b0b09" },
-        recess: { DEFAULT: "#f2efe9", d: "#0f0f0d" },
-        bg: { DEFAULT: "#f7f5f1", d: "#131311" },
-        surface: { DEFAULT: "#fffefc", d: "#1b1a17" },
-        surface2: { DEFAULT: "#f2efe9", d: "#232120" },
-        elev: { DEFAULT: "#ffffff", d: "#1a1916" },
-        hovered: { DEFAULT: "#ece8e1", d: "#1c1b18" },
-        active: { DEFAULT: "#ece8e1", d: "#1f1e1b" },
+        // ---- os nomes do desenho ----
+        canvas: { DEFAULT: "#F6F7F9", d: "#0C0E12" },
+        ink: { DEFAULT: "#16191E", d: "#E8EAEE" },
+        ink2: { DEFAULT: "#3A4353", d: "#C2C7D0" },
+        // Um título pousado num painel embutido. No claro é tinta como
+        // qualquer outro; no escuro abranda um passo, porque tinta cheia sobre
+        // `surface2` fica a vibrar.
+        inkHead: { DEFAULT: "#16191E", d: "#D3D8E1" },
+        muted: { DEFAULT: "#5A6472", d: "#949AA6" },
+        faint: { DEFAULT: "#98A1B2", d: "#6A707C" },
+        primary: { DEFAULT: "#3559E9", d: "#6E92F0" },
+        primaryDeep: { DEFAULT: "#1D2E8C", d: "#B3C6FA" },
+        // O acento sob o ponteiro e o acento desligado. No claro escurece, no
+        // escuro clareia: a ênfase afasta-se do fundo, nos dois sentidos.
+        primaryHover: { DEFAULT: "#1D2E8C", d: "#8AA9F5" },
+        primaryDim: { DEFAULT: "#AABBF5", d: "#3D4870" },
+        primarySoft: { DEFAULT: "#EEF1FE", d: "#171C2B" },
+        primaryLine: { DEFAULT: "#DCE4FC", d: "#2C3550" },
+        // Os cinco degraus do mapa de calor, do mais frio ao mais quente. No
+        // escuro a rampa é a própria escala do acento — soft, border, dim,
+        // primary, active — porque o desenho escuro não traz uma sua e uma
+        // rampa inventada ao lado de um acento definido lê-se como erro.
+        heat0: { DEFAULT: "#EEF0F4", d: "#191D24" },
+        heat1: { DEFAULT: "#DCE4FC", d: "#2C3550" },
+        heat2: { DEFAULT: "#AABBF5", d: "#3D4870" },
+        heat3: { DEFAULT: "#3559E9", d: "#6E92F0" },
+        heat4: { DEFAULT: "#1D2E8C", d: "#B3C6FA" },
 
-        line: { DEFAULT: "#e7e2d9", d: "#1f1e1b" },
-        line2: { DEFAULT: "#f0ece5", d: "#232120" },
-        line3: { DEFAULT: "#ddd7cb", d: "#2a2825" },
-        line4: { DEFAULT: "#c9c2b3", d: "#3f3b34" },
+        // ---- os nomes antigos, agora a apontar para a paleta nova ----
+        desk: { DEFAULT: "#F6F7F9", d: "#0C0E12" },
+        recess: { DEFAULT: "#FFFFFF", d: "#14171D" },
+        bg: { DEFAULT: "#F6F7F9", d: "#0C0E12" },
+        surface: { DEFAULT: "#FFFFFF", d: "#14171D" },
+        surface2: { DEFAULT: "#F1F3F7", d: "#191D24" },
+        elev: { DEFAULT: "#FFFFFF", d: "#14171D" },
+        hovered: { DEFAULT: "#FAFBFC", d: "#191D24" },
+        active: { DEFAULT: "#F1F3F7", d: "#212731" },
 
-        text: { DEFAULT: "#191712", d: "#f2efe8" },
-        text1: { DEFAULT: "#2c2820", d: "#e6e2d9" },
-        text2: { DEFAULT: "#55503f", d: "#c4bfb2" },
-        text3: { DEFAULT: "#8b8577", d: "#8d8880" },
-        text4: { DEFAULT: "#9a9487", d: "#6f6a60" },
+        line: { DEFAULT: "#E4E7EC", d: "#252A33" },
+        line2: { DEFAULT: "#F4F5F8", d: "#1B2027" },
+        line3: { DEFAULT: "#EEF0F4", d: "#1F242C" },
+        line4: { DEFAULT: "#D3D8E0", d: "#2C323E" },
 
-        // O acento que o operador pode trocar em runtime — ver o cabeçalho.
-        accent: {
-          DEFAULT: "var(--accent, #0d74b8)",
-          d: "var(--accent, #38adee)",
-        },
-        accent2: {
-          DEFAULT: "var(--accent2, #1f92da)",
-          d: "var(--accent2, #74c8f6)",
-        },
+        text: { DEFAULT: "#16191E", d: "#E8EAEE" },
+        text1: { DEFAULT: "#3A4353", d: "#C2C7D0" },
+        text2: { DEFAULT: "#5A6472", d: "#949AA6" },
+        text3: { DEFAULT: "#98A1B2", d: "#6A707C" },
+        text4: { DEFAULT: "#98A1B2", d: "#6A707C" },
+
+        accent: { DEFAULT: "var(--accent, #3559E9)", d: "var(--accent, #6E92F0)" },
+        accent2: { DEFAULT: "var(--accent2, #1D2E8C)", d: "var(--accent2, #B3C6FA)" },
         accentSoft: {
-          DEFAULT: "var(--accentSoft, #e7f3fb)",
-          d: "var(--accentSoft, rgba(56, 173, 238, 0.16))",
+          DEFAULT: "var(--accentSoft, #EEF1FE)",
+          d: "var(--accentSoft, #171C2B)",
         },
         accentLine: {
-          DEFAULT: "var(--accentLine, #c5e2f5)",
-          d: "var(--accentLine, rgba(56, 173, 238, 0.34))",
+          DEFAULT: "var(--accentLine, #DCE4FC)",
+          d: "var(--accentLine, #2C3550)",
         },
-        accentDeep: { DEFAULT: "#e7f3fb", d: "#0e2634" },
-        onAccent: {
-          DEFAULT: "var(--onAccent, #ffffff)",
-          d: "var(--onAccent, #041520)",
-        },
+        accentDeep: { DEFAULT: "#EEF1FE", d: "#171C2B" },
+        onAccent: { DEFAULT: "var(--onAccent, #ffffff)", d: "var(--onAccent, #0C0E12)" },
 
-        ok: { DEFAULT: "#12866a", d: "#4fd1a5" },
-        okSoft: { DEFAULT: "#e4f4ee", d: "rgba(79, 209, 165, 0.14)" },
-        warn: { DEFAULT: "#b5751a", d: "#ffb35c" },
-        warnSoft: { DEFAULT: "#fbf0dd", d: "rgba(255, 179, 92, 0.14)" },
-        bad: { DEFAULT: "#cf4257", d: "#ff6b81" },
-        bad2: { DEFAULT: "#cf4257", d: "#ff8b9d" },
-        badSoft: { DEFAULT: "#fbe9ec", d: "rgba(255, 107, 129, 0.12)" },
-        info: { DEFAULT: "#5a52d0", d: "#9b8cff" },
-        infoSoft: { DEFAULT: "#ecebfb", d: "rgba(155, 140, 255, 0.16)" },
+        ok: { DEFAULT: "#1B7F4D", d: "#5BC48D" },
+        okSoft: { DEFAULT: "#E8F5EE", d: "#12211A" },
+        warn: { DEFAULT: "#C2410C", d: "#E0965C" },
+        warnSoft: { DEFAULT: "#FEF0E6", d: "#241A11" },
+        // O cartão de permissão: fundo mais pálido que a pastilha, e uma linha
+        // própria — é a única superfície da app com contorno âmbar.
+        warnSheet: { DEFAULT: "#FEF9F4", d: "#2A1E13" },
+        warnLine: { DEFAULT: "#F0C9A8", d: "#47301B" },
+        // O cartão de permissão tem três camadas, não uma: a folha, a linha
+        // que aninha o comando lá dentro, e o texto secundário que os
+        // acompanha. Estavam os três escritos à mão nas vistas.
+        warnSheet2: { DEFAULT: "#FEF3EA", d: "#332413" },
+        warnLine2: { DEFAULT: "#F0DFCE", d: "#3A2A1A" },
+        warnText2: { DEFAULT: "#B08A62", d: "#A98358" },
+        bad: { DEFAULT: "#B3243B", d: "#E0687F" },
+        bad2: { DEFAULT: "#B3243B", d: "#E0687F" },
+        badSoft: { DEFAULT: "#FBE9EC", d: "#251419" },
+        info: { DEFAULT: "#6D3FD4", d: "#A78BE8" },
+        infoSoft: { DEFAULT: "#F3EEFE", d: "#1E1A2E" },
 
-        // O que assenta sobre o banner escuro não muda com o tema: o banner é
-        // escuro nos dois.
-        onBanner: {
-          DEFAULT: "#f2efe8",
-          2: "rgba(242, 239, 232, 0.66)",
-          3: "rgba(242, 239, 232, 0.44)",
-        },
+        // As cores do código. Existem porque o painel de fonte as escreve, e
+        // um realce que não segue o tema é a única coisa no ecrã que fica com
+        // o contraste do outro.
+        syntaxPurple: { DEFAULT: "#7C3AED", d: "#A78BE8" },
+        syntaxPurpleSoft: { DEFAULT: "#F3EEFE", d: "#1E1A2E" },
+        syntaxPink: { DEFAULT: "#DB2777", d: "#DE7FA8" },
+        syntaxBlue: { DEFAULT: "#2563EB", d: "#6E92F0" },
 
-        // O levantamento de um cartão sob o ponteiro, que o desenho declarava
-        // com valores crus em vez de tokens.
-        tileHover: "#1e1d19",
-        tileHoverLine: "#33302b",
-      },
+        // A extrusão do wordmark: um deslocamento chapado, não um esbatimento.
+        wordmarkShadow: { DEFAULT: "#C3C9D3", d: "#2C323E" },
 
-      backgroundImage: {
-        ink: "linear-gradient(140deg, #14252f 0%, #16191b 60%, #131311 100%)",
-        "ink-light": "linear-gradient(122deg, #26302a 0%, #1a201c 58%, #141715 100%)",
-        banner: "radial-gradient(120% 150% at 12% 8%, #16323f 0%, #172227 45%, #131311 100%)",
-        "banner-light":
-          "radial-gradient(120% 150% at 12% 8%, #2f3b33 0%, #1d2420 45%, #141715 100%)",
-        bannerGlow: "radial-gradient(circle, rgba(56, 173, 238, 0.3), transparent 68%)",
-        // A trama de pontos por cima do banner.
-        bannerDots: "radial-gradient(rgba(242, 239, 232, 0.055) 1px, transparent 1px)",
       },
 
       boxShadow: {
-        soft: "0 40px 90px -32px rgba(45, 38, 24, 0.26), 0 0 0 1px rgba(30, 26, 16, 0.05)",
+        soft: "0 24px 60px -28px rgba(22, 25, 30, .22), 0 0 0 1px rgba(22, 25, 30, .05)",
         "soft-d": "0 30px 70px -28px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04)",
-        lift: "0 12px 26px -18px rgba(45, 38, 24, 0.3)",
+        lift: "0 12px 26px -18px rgba(22, 25, 30, 0.26)",
         "lift-d": "0 6px 18px rgba(0, 0, 0, 0.35)",
-        // O painel pousado no pano de fundo. A linha interior é o rebordo
-        // iluminado: numa superfície quase preta é isso que lê como material,
-        // onde uma sombra projectada não lê nada.
-        panel:
-          "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(45, 38, 24, 0.07), 0 14px 30px -24px rgba(45, 38, 24, 0.24)",
-        "panel-d":
-          "inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 1px 2px rgba(0, 0, 0, 0.45), 0 14px 32px -22px rgba(0, 0, 0, 0.8)",
+        panel: "0 1px 2px rgba(22, 25, 30, 0.04)",
+        "panel-d": "0 1px 2px rgba(0, 0, 0, 0.45)",
         banner: "0 26px 60px -30px rgba(0, 0, 0, 0.7)",
+        // A única sombra do desenho: o compositor com o foco.
+        composer: "0 5px 16px -12px rgba(53, 89, 233, .4)",
+        "composer-d": "0 5px 16px -12px rgba(110, 146, 240, .4)",
+        hunk: "0 4px 16px -8px rgba(53, 89, 233, .18)",
+        // O separador escolhido dentro de um `Segmented`.
+        segment: "0 1px 2px rgba(0, 0, 0, .06)",
       },
 
-      // Movimento que fica em CSS. O que anima posição no DOM ou saídas está
-      // no `motion` — ver `src/lib/motion.ts`.
       keyframes: {
         spin: { to: { transform: "rotate(360deg)" } },
         pulse: { "0%,100%": { opacity: "1" }, "50%": { opacity: "0.3" } },
@@ -181,9 +225,6 @@ export default {
           from: { opacity: "0", transform: "scale(0.97) translateY(8px)" },
           to: { opacity: "1", transform: "none" },
         },
-        // Um agente parou e não continua sem resposta do operador. É a única
-        // coisa na app que está mesmo bloqueada por uma pessoa, por isso pode
-        // chegar em vez de aparecer — uma vez, à entrada.
         askedIn: {
           from: { opacity: "0", transform: "translateY(-8px)" },
           to: { opacity: "1", transform: "none" },
@@ -195,25 +236,32 @@ export default {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "none" },
         },
-        // A coluna que recebeu o cartão, para a mudança ser apanhável pelo
-        // canto do olho sem estar a olhar para o cartão.
+        // A barrinha de progresso a assentar no seu valor.
+        fill: { from: { width: "0%" } },
+        // Uma corrida que está a acontecer e não sabe dizer quanto falta. Não
+        // é uma percentagem disfarçada: atravessa e volta, e não pára — é
+        // exactamente o que se sabe.
+        crawl: {
+          "0%": { transform: "translateX(-110%)" },
+          "100%": { transform: "translateX(410%)" },
+        },
         tookOne: {
           "0%": { boxShadow: "inset 0 2px 0 -1px transparent" },
-          "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #0d74b8)" },
+          "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #3559E9)" },
           "100%": { boxShadow: "inset 0 2px 0 -1px transparent" },
         },
-        // O mesmo no escuro: um keyframe não tem variante `dark:`, por isso
-        // são dois.
         tookOneDark: {
           "0%": { boxShadow: "inset 0 2px 0 -1px transparent" },
-          "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #38adee)" },
+          "30%": { boxShadow: "inset 0 2px 0 -1px var(--accent, #6E92F0)" },
           "100%": { boxShadow: "inset 0 2px 0 -1px transparent" },
         },
       },
 
       animation: {
         spin: "spin .7s linear infinite",
-        "spin-slow": "spin 1.1s linear infinite",
+        // O círculo tracejado de um recibo de ferramenta a meio.
+        "spin-tool": "spin 1.2s linear infinite",
+        "spin-slow": "spin 1.4s linear infinite",
         pulse: "pulse 2.4s ease-in-out infinite",
         breathe: "breathe 2.6s ease-in-out infinite",
         blink: "blink 1.05s steps(1) infinite",
@@ -228,6 +276,8 @@ export default {
         "riseBar-fast": "riseBar .6s cubic-bezier(.2,.8,.2,1) both",
         barGrow: "barGrow .8s cubic-bezier(.2,.8,.2,1) both",
         barIn: "barIn .4s cubic-bezier(.2,.8,.25,1) both",
+        fill: "fill .6s cubic-bezier(.2,.8,.25,1) both",
+        crawl: "crawl 1.6s cubic-bezier(.4,0,.6,1) infinite",
         tookOne: "tookOne .9s ease both",
         tookOneDark: "tookOneDark .9s ease both",
       },
