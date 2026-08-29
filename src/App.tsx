@@ -754,14 +754,20 @@ function Shell() {
         </main>
       </div>
 
-      {/* Never a scrim and never modal: the whole point of the sheets is that
-          an update cannot stand between the operator and a running agent. */}
-      <UpdateSheets />
       <CommandPalette open={palette} close={() => setPalette(false)} actions={actions} />
       <AnimatePresence>
         {approvalSheet && <ApprovalSheet key="approval" close={() => setApprovalSheet(false)} />}
       </AnimatePresence>
-      <Toasts />
+
+      {/* Never a scrim and never modal: an update cannot stand between the
+          operator and a running agent. Bottom-right for the same reason — the
+          top of the pane is where a card list begins, and a release note
+          parked over a working card was blocking exactly what it must not.
+          The sheet holds the corner; toasts come and go above it. */}
+      <div className="pointer-events-none absolute bottom-5.5 right-5.5 z-[70] flex flex-col items-end">
+        <Toasts />
+        <UpdateSheets />
+      </div>
       {/* Above everything, including the palette and the approval sheet: once
           the window is going, nothing else is actionable. */}
       <ClosingOverlay />

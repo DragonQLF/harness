@@ -22,7 +22,14 @@ const SHEET =
 export function Toasts() {
   const { toasts, dismissToast } = useStore();
   return (
-    <div className="absolute bottom-5.5 right-5.5 z-[60] flex flex-col items-end gap-2.5">
+    // Positioned by the shell's floating corner. The margin only exists when
+    // there is a toast to hold off the sheet below.
+    <div
+      className={cx(
+        "pointer-events-auto flex flex-col items-end gap-2.5",
+        toasts.length > 0 && "mb-2.5",
+      )}
+    >
       <AnimatePresence>
         {toasts.map((t) => {
           const dot = TONE[t.tone as ToneName] ?? TONE.accent;

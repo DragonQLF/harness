@@ -302,7 +302,8 @@ export function UpdateSheets() {
   const agents = running === null ? null : plural(running, "agent");
 
   return (
-    <div className="pointer-events-none absolute right-5.5 top-5.5 z-[70] flex flex-col items-end">
+    // The shell owns the corner: this stacks with the toasts there.
+    <div className="pointer-events-none flex flex-col items-end">
       <AnimatePresence>
         {stage !== "none" && (
           <motion.div
