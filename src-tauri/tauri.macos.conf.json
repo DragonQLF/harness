@@ -12,8 +12,27 @@
         "decorations": true,
         "transparent": false,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "visible": false,
+        "dragDropEnabled": false
+      },
+      {
+        "label": "splash",
+        "url": "splash.html",
+        "title": "Relay",
+        "width": 420,
+        "height": 264,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "center": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "visible": false
       }
-    ]
+    ],
+    "macOSPrivateApi": true
   }
 }

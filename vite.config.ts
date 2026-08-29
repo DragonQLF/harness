@@ -13,6 +13,18 @@ const PORT = 1751;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // Two documents, because there are two windows. `splash.html` is the launch
+  // window and shares nothing with the app but the fonts — it has to paint
+  // while the engine is still coming up, so it carries no React and no store.
+  build: {
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        splash: "splash.html",
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

@@ -1,0 +1,214 @@
+/* The launch window's own stylesheet.
+ *
+ * Separate from the app's on purpose: this window has to paint before React,
+ * the store or a single IPC round trip exists. It carries no Tailwind and no
+ * app tokens — the splash is a fixed dark surface in both themes, so its
+ * palette is the tile's, named here once and used by name.
+ *
+ * The beats are the design's (`Relay Lifecycle.dc.html`, "03 · LAUNCH") and
+ * they are keyframes rather than a script because that is the only way they
+ * still run while the main thread is busy starting the engine. They belong
+ * here rather than in `tailwind.config.js`: nothing in the app draws them. */
+
+@import "../assets/fonts.css";
+
+:root {
+  --tile-top: #1b1f27;
+  --tile-bottom: #0a0c10;
+  --edge: #232b3a;
+  --lift: #7e8798;
+  --wordmark: #f5f7fa;
+  --wordmark-lift: #454e5e;
+  --note: #6b7484;
+  --rule: #1a1f28;
+  --rule-lead: #5a6472;
+  --rise: cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: radial-gradient(120% 100% at 50% 0%, var(--tile-top) 0%, var(--tile-bottom) 70%);
+  opacity: 1;
+  transition: opacity 160ms linear;
+}
+
+/* The exit: 160ms out while the main window fades up, so there is never a
+   black frame between the two. */
+body.leaving .card {
+  opacity: 0;
+}
+
+.mark {
+  flex: none;
+}
+
+.wordmark {
+  font: 700 19px "Space Grotesk", system-ui, sans-serif;
+  letter-spacing: 0.09em;
+  color: var(--wordmark);
+  text-shadow: 1.6px 1.6px 0 var(--wordmark-lift);
+}
+
+.foot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.status {
+  display: grid;
+  height: 34px;
+  place-items: center;
+  font: 400 11px "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--note);
+}
+
+.hairline {
+  height: 2px;
+  background: var(--rule);
+}
+
+/* Width is set from the phase that actually landed — see `splash.ts`. A
+   timer pretending to be progress is the one thing a splash must not do. */
+.fill {
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--rule-lead), var(--wordmark));
+  transition: width 340ms var(--rise);
+}
+
+/* Nothing moves until the window is on screen. It is shown at 400ms, and a
+   launch that beats that never shows it at all — so the animation cannot be
+   allowed to have already played to itself in the dark. */
+.stem,
+.bowl,
+.leg,
+.lift,
+.wordmark,
+.foot {
+  opacity: 0;
+}
+
+body.live .stem,
+body.live .bowl,
+body.live .leg {
+  opacity: 1;
+  animation: draw 170ms ease-out both;
+}
+
+body.live .stem {
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+}
+
+body.live .bowl {
+  stroke-dasharray: 42;
+  stroke-dashoffset: 42;
+  animation-duration: 210ms;
+  animation-delay: 150ms;
+}
+
+body.live .leg {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation-duration: 140ms;
+  animation-delay: 340ms;
+}
+
+/* The shadow slides out from under the letter. This is the whole identity in
+   one move, and it is the reason the splash exists at all. */
+body.live .lift {
+  animation: lift 220ms var(--rise) 480ms both;
+}
+
+body.live .wordmark {
+  animation: rise 260ms var(--rise) 720ms both;
+}
+
+body.live .foot {
+  animation: appear 220ms ease-out 900ms both;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes lift {
+  from {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  to {
+    opacity: 0.55;
+    transform: translate(3.4px, 3.4px);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Asked for quiet: the mark is simply there. */
+@media (prefers-reduced-motion: reduce) {
+  body.live .stem,
+  body.live .bowl,
+  body.live .leg,
+  body.live .lift,
+  body.live .wordmark,
+  body.live .foot {
+    animation: none;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+
+  body.live .lift {
+    opacity: 0.55;
+    transform: translate(3.4px, 3.4px);
+  }
+
+  .card,
+  .fill {
+    transition: none;
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "splash",
+  "description": "The launch window. It listens for the shell's real bootstrap phases, shows itself only if the shell is still unpainted after 400ms, and hands over to the main window. Nothing else — it has no engine to talk to.",
+  "windows": ["splash"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-get-all-windows",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-close"
+  ]
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relay</title>
+  </head>
+
+  <body>
+    <!-- The launch window. Undecorated, transparent, 420×264 — the card below
+         is the whole window, corners and all. Design: `Relay Lifecycle.dc.html`,
+         "03 · LAUNCH". No React and no store here on purpose: this window has
+         to draw while the engine is still coming up. -->
+    <div class="card">
+      <svg class="mark" width="76" height="76" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="ink" x1="20" y1="16" x2="46" y2="50" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFFFFF" />
+            <stop offset="1" stop-color="#B9C0CC" />
+          </linearGradient>
+        </defs>
+        <g class="lift" stroke="#7E8798" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter">
+          <path d="M23.5 45.5V20" />
+          <path d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5" />
+          <path d="M30 35l11 10.5" />
+        </g>
+        <g stroke="url(#ink)" stroke-width="7" stroke-linecap="butt" stroke-linejoin="miter">
+          <path class="stem" d="M23.5 45.5V20" />
+          <path class="bowl" d="M23.5 20H32a7.5 7.5 0 0 1 0 15h-8.5" />
+          <path class="leg" d="M30 35l11 10.5" />
+        </g>
+      </svg>
+
+      <div class="wordmark">RELAY</div>
+
+      <div class="foot">
+        <div class="status" id="status"></div>
+        <div class="hairline"><div class="fill" id="fill"></div></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/splash/splash.ts"></script>
+  </body>
+</html>
