@@ -506,7 +506,7 @@ export function Chat() {
   useEffect(() => {
     const el = thread.current;
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
-  }, [chat, chatBusy, chatThinking, approvals.length]);
+  }, [chat, chatBusy, chatThinking]);
 
   const send = (body: string = text) => {
     if ((!body.trim() && attached.length === 0) || chatBusy) return;
@@ -826,10 +826,24 @@ export function Chat() {
               </div>
             )}
 
-            {approvals.map((request) => (
-              <PermissionSheet key={request.request_id} request={request} />
-            ))}
           </motion.div>
+
+          {/* Outside the thread on purpose.
+              A permission is not a message: an agent is stopped until it is
+              answered. Inside the scroller it was appended below whatever the
+              operator happened to be reading, and the thread only scrolls
+              itself when they are already at the bottom — so a request that
+              arrived while they were looking further up simply never came into
+              view, and the first they knew of it was the sheet appearing when
+              they navigated to another screen. Pinned here it cannot be
+              missed and cannot be scrolled away from. */}
+          {approvals.length > 0 && (
+            <div className="flex flex-none flex-col gap-2.5">
+              {approvals.map((request) => (
+                <PermissionSheet key={request.request_id} request={request} />
+              ))}
+            </div>
+          )}
 
           <div
             onDragOver={(e) => {
