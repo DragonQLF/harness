@@ -4,9 +4,10 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { cx } from "../lib/cx";
-import { clock, money } from "../lib/format";
+import { ago, clock, money } from "../lib/format";
 import { ruleIsRevoked, ruleLabel, TONE, type Provider, type WorktreeRow } from "../lib/types";
 import { useStore } from "../state/store";
+import { checkForUpdate, useAppVersion, useUpdater } from "../components/Updater";
 import { Loading, Switch, mono, tabular, truncate } from "../components/ui";
 
 /** O painel que estes três ecrãs repetem: linha de 1px, raio 20, superfície. */
@@ -344,6 +345,60 @@ const PROVIDER_INPUT =
 
 /** O painel de definições traz margem por baixo; o último não. */
 const SECTION = cx(PANEL, "mb-3");
+
+/** Where the updater lives when there is nothing to say — the design's own
+ *  words for it. The version, whatever the feed last answered and the one
+ *  toggle; the four sheets take over the moment there is a release. */
+function UpdateRow() {
+  const { settings, saveSettings } = useStore();
+  const version = useAppVersion();
+  const { release, stage, checking, checkedMs, error } = useUpdater();
+
+  const state = error
+    ? `could not check · ${error}`
+    : checking
+      ? "checking…"
+      : release && stage !== "none"
+        ? `${release.version} ready to install`
+        : checkedMs
+          ? `up to date · checked ${ago(checkedMs)}`
+          : "not checked yet";
+
+  return (
+    <div className={cx(PANEL, "mb-3")}>
+      <div className="flex items-center gap-3.5 p-4.5">
+        <img src="/relay.svg" alt="" width={30} height={30} className="flex-none" />
+        <div className="min-w-0">
+          <div className="text-base font-semibold">Relay {version ?? "—"}</div>
+          <div
+            title={error ?? undefined}
+            className={cx(mono, truncate, "mt-0.5 text-11 text-text3 dark:text-text3-d")}
+          >
+            {state}
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-4">
+          <span className="flex items-center gap-2.25 text-body text-text2 dark:text-text2-d">
+            Install updates automatically
+            <Switch
+              on={settings?.auto_install_updates ?? false}
+              onChange={(v) => saveSettings({ auto_install_updates: v })}
+              label="Install updates automatically"
+            />
+          </span>
+          <button
+            type="button"
+            disabled={checking}
+            onClick={() => checkForUpdate()}
+            className={cx(QUIET, "px-4 py-2 text-body disabled:cursor-default disabled:opacity-60")}
+          >
+            {checking ? "Checking…" : "Check now"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function Settings() {
   const { settings, status, dataDir, saveSettings, installSidecar, toast, projects, refreshProjects } =
@@ -692,6 +747,8 @@ export function Settings() {
           </Row>
         </div>
       )}
+
+      <UpdateRow />
 
       <div className={PANEL}>
         <div className="flex flex-col gap-2.5 p-4.5">

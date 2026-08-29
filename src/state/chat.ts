@@ -45,7 +45,7 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
     case "failed":
       return { role: "notice", text: line.message ?? "the answer did not arrive", ts };
     case "tool_use": {
-      const tool = (line.tool ?? "tool").replace(/^(harness|mcp__harness__)/, "").replace(/^__/, "");
+      const tool = toolName(line.tool);
       const ids = line as RunLogLine & {
         tool_use_id?: string | null;
         parent_tool_use_id?: string | null;
@@ -67,6 +67,11 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
         role: "tool",
         text: res.summary ?? "",
         ts,
+        // Without this the fold below has nothing to match on, and every
+        // finished call rendered twice — once as a receipt still spinning,
+        // once as its own orphaned result. The live path always carried it;
+        // only the stored transcript dropped it.
+        toolUseId: res.tool_use_id ?? null,
         ok: res.ok !== false,
         detail: res.detail ?? null,
       } as ChatMsg;
@@ -76,6 +81,20 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
     default:
       return null;
   }
+}
+
+/** The tool's own name, without the plumbing that routed it.
+ *
+ *  A call arrives as `mcp__harness__read_docs` over MCP or `harness:read_docs`
+ *  from the CLI adapter, and the operator cares about neither prefix. The two
+ *  paths into the transcript used to strip with two different patterns, and
+ *  the one that matched `harness` without its colon left every stored receipt
+ *  reading `:read_docs`. */
+export function toolName(raw: string | undefined | null): string {
+  return (raw ?? "tool")
+    .replace(/^mcp__[a-z0-9_]+?__/i, "")
+    .replace(/^harness[:_]+/i, "")
+    .trim() || "tool";
 }
 
 /** Stored logs list call and result as separate lines; the transcript wants
@@ -111,10 +130,19 @@ export interface ChatDeps {
 export interface ChatState {
   /** Every conversation the backend knows about, newest first. */
   conversations: Conversation[];
-  /** The one on screen. */
+  /** The one on screen, or `null` while the screen holds a draft — a chat that
+   *  exists nowhere but here yet. A draft is the *absence* of a conversation,
+   *  never a placeholder row with an invented id. */
   conversationId: string | null;
+  /** Which profile a draft will speak to once it is created; `null` means the
+   *  Director. Says nothing while `conversationId` is set. */
+  draftProfile: string | null;
   chat: ChatMsg[];
   chatBusy: boolean;
+  /** A stored transcript is being read off disk. Distinct from `chatBusy`,
+   *  which is the model answering: an empty thread that is still loading and
+   *  an empty thread that has nothing in it are different screens. */
+  chatLoading: boolean;
   /** The Director's reasoning as it arrives; cleared when it answers. */
   chatThinking: string;
   /** A lista vem do backend, tanto pelo arranque como pelo evento. */
@@ -126,7 +154,8 @@ export interface ChatState {
   consume: (u: RunUpdate) => boolean;
 
   sendChat: (text: string, attachments?: string[]) => Promise<void>;
-  /** Start a fresh conversation, which means a fresh Claude session. */
+  /** Put the screen into a draft. Nothing is written until the first message:
+   *  the row, and the Claude session behind it, are born on send. */
   newConversation: (profileId?: string) => Promise<void>;
   /** Open the standing conversation with a profile, creating one only if there
    *  is none: clicking "chat" twice continues the same thread. */
@@ -141,8 +170,10 @@ export interface ChatState {
 export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [draftProfile, setDraftProfile] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const [chatThinking, setChatThinking] = useState("");
   // True while deltas are arriving for the current answer, so the final `text`
   // event is not appended on top of what was already streamed.
@@ -152,6 +183,18 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   // current one without re-subscribing on every switch.
   const chatRef = useRef<string | null>(null);
   chatRef.current = conversationId;
+  // The profile a draft is waiting on, read inside `sendChat` at the moment it
+  // creates the row — state would be a render behind.
+  const draftRef = useRef<string | null>(null);
+  draftRef.current = draftProfile;
+
+  /** Land on a real conversation: whatever was drafted is not pending any more. */
+  const settle = useCallback((id: string) => {
+    setConversationId(id);
+    chatRef.current = id;
+    setDraftProfile(null);
+    draftRef.current = null;
+  }, []);
 
   const hydrate = useCallback((list: Conversation[], lastConversation: string | null) => {
     setConversations(list);
@@ -201,7 +244,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
           tool_use_id?: string;
           parent_tool_use_id?: string | null;
         };
-        const tool = (u.tool ?? "tool").replace(/^(harness:|mcp__harness__)/, "");
+        const tool = toolName(u.tool);
         setChat((cs) => [
           ...cs,
           {
@@ -306,13 +349,22 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       setChatThinking("");
       streamedRef.current = false;
       try {
-        // The first message of a session with no conversation open gets one
-        // pinned to the project on screen, so it can read that code. After
-        // that the backend owns which conversation this belongs to.
+        // This is where a draft becomes a conversation: the row and the native
+        // session are minted by the first message, not by the click that
+        // opened the screen. Pinned to the project in focus so it can read
+        // that code, and to the profile the draft was opened for.
+        //
+        // `chat_send` does accept a null id, but what it does with one is
+        // `open_conversation`, which *resumes the last thread of that profile*
+        // — so a draft sent that way would land in the previous chat instead
+        // of a new one, and would lose both the project pin and the chosen
+        // profile. Hence the explicit create here.
         if (!chatRef.current) {
-          const started = await api.conversationNew(DIRECTOR, projectRef.current);
-          setConversationId(started.id);
-          chatRef.current = started.id;
+          const started = await api.conversationNew(
+            draftRef.current ?? DIRECTOR,
+            projectRef.current,
+          );
+          settle(started.id);
         }
         // The reply streams back on the run channel, keyed by the conversation
         // id; `chatBusy` clears when the done event arrives, not when this call
@@ -320,25 +372,24 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // hands it back, so the first message of a new chat lands in the right
         // thread.
         const conversation = await api.chatSend(clean, chatRef.current, attachments);
-        setConversationId(conversation.id);
-        chatRef.current = conversation.id;
+        settle(conversation.id);
         await refreshConversations();
       } catch (e) {
         setChatBusy(false);
         fail(e, "The message could not be sent");
       }
     },
-    [chatBusy, fail, projectRef, refreshConversations],
+    [chatBusy, fail, projectRef, refreshConversations, settle],
   );
 
   /** Load a conversation and its stored transcript. */
   const openConversation = useCallback(
     async (id: string) => {
+      setChatLoading(true);
       try {
         const conversation = await api.conversationSelect(id);
         const lines = await api.conversationTranscript(id);
-        setConversationId(conversation.id);
-        chatRef.current = conversation.id;
+        settle(conversation.id);
         setChat(foldToolResults(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null)));
         setChatThinking("");
         setChatBusy(false);
@@ -346,9 +397,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         await refreshConversations();
       } catch (e) {
         fail(e, "Could not open that conversation");
+      } finally {
+        setChatLoading(false);
       }
     },
-    [fail, refreshConversations],
+    [fail, refreshConversations, settle],
   );
 
   /** A direct, persistent conversation with one profile. Resumes the last one
@@ -365,28 +418,25 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     [fail, openConversation, projectRef],
   );
 
-  const newConversation = useCallback(
-    async (profileId?: string) => {
-      try {
-        // A new row is a new native session: nothing from the last chat is
-        // resumed, which is the whole point of New Chat.
-        const conversation = await api.conversationNew(
-          profileId ?? DIRECTOR,
-          projectRef.current,
-        );
-        setConversationId(conversation.id);
-        chatRef.current = conversation.id;
-        setChat([]);
-        setChatThinking("");
-        setChatBusy(false);
-        streamedRef.current = false;
-        await refreshConversations();
-      } catch (e) {
-        fail(e, "Could not start a new conversation");
-      }
-    },
-    [fail, projectRef, refreshConversations],
-  );
+  /** New Chat, which is a draft and nothing else.
+   *
+   *  Minting the row here is what put two empty threads on disk for an
+   *  operator who clicked `+` twice while thinking. Nothing is created — no
+   *  row, no native session — until there is something to put in it; the
+   *  create happens in `sendChat`, and a draft nobody types into leaves no
+   *  trace at all. A new row is still a new session, so New Chat still does
+   *  not continue the last one. */
+  const newConversation = useCallback(async (profileId?: string) => {
+    setConversationId(null);
+    chatRef.current = null;
+    setDraftProfile(profileId ?? null);
+    draftRef.current = profileId ?? null;
+    setChat([]);
+    setChatThinking("");
+    setChatBusy(false);
+    setChatLoading(false);
+    streamedRef.current = false;
+  }, []);
 
   const renameConversation = useCallback(
     async (id: string, title: string) => {
@@ -405,6 +455,8 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       try {
         await api.conversationArchive(id, archived);
         await refreshConversations();
+        // Archiving the open one leaves the screen on a draft: no id, no
+        // thread, and nothing written until the next message.
         if (archived && chatRef.current === id) {
           setConversationId(null);
           chatRef.current = null;
@@ -429,6 +481,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       if (!ok) return;
       try {
         await api.conversationDelete(id);
+        // Same as archiving: what is left on screen is a draft, not a hole.
         if (chatRef.current === id) {
           setConversationId(null);
           chatRef.current = null;
@@ -458,8 +511,10 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   return {
     conversations,
     conversationId,
+    draftProfile,
     chat,
     chatBusy,
+    chatLoading,
     chatThinking,
     setConversations,
     hydrate,

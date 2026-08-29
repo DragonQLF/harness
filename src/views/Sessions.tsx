@@ -1,418 +1,502 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { api, reason } from "../lib/ipc";
 import { cx } from "../lib/cx";
+import { clock, duration, money, num } from "../lib/format";
+import { api, reason } from "../lib/ipc";
 import { paneIn, rowIn } from "../lib/motion";
-import { duration, money, plural } from "../lib/format";
-import { MODELS, STATUS_NAME, STATUS_TONE, tone } from "../lib/types";
+import { MODELS, tone } from "../lib/types";
+import type { RunOutcome, ToolCount } from "../lib/types";
+import type { LogLine } from "../state/events";
 import { useStore } from "../state/store";
-import { Caret, Glyph, Loading, mono, truncate } from "../components/ui";
+import { Caret, mono, truncate } from "../components/ui";
 
-/** O ponto de cada estado. Não é o `STATUS_TONE`: aqui o backlog é `text4`,
- *  como o desenho o tem. */
-const STATUS_DOT: Record<string, string> = {
-  backlog: "bg-text4 dark:bg-text4-d",
-  ready: "bg-info dark:bg-info-d",
-  running: "bg-accent dark:bg-accent-d",
-  review: "bg-warn dark:bg-warn-d",
-  done: "bg-ok dark:bg-ok-d",
+/** The six tracks of the runs table. Written once so the header, the rows and
+ *  the skeleton cannot drift apart. */
+const COLS =
+  "grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_minmax(0,.6fr)] gap-x-3.5";
+
+/** How a run ended, as the log recorded it. `unknown` is a run whose start is
+ *  in the feed and whose ending is not, on a card the engine is not running:
+ *  naming that succeeded or failed would invent the one fact it is missing. */
+type Outcome = "running" | "succeeded" | "failed" | "stopped" | "unknown";
+
+const OUTCOME: Record<Outcome, { label: string; skin: string }> = {
+  running: { label: "RUNNING", skin: "bg-warnSoft text-warn dark:bg-warnSoft-d dark:text-warn-d" },
+  succeeded: {
+    label: "SUCCEEDED",
+    skin: "bg-primarySoft text-primary dark:bg-primarySoft-d dark:text-primary-d",
+  },
+  failed: { label: "FAILED", skin: "bg-badSoft text-bad dark:bg-badSoft-d dark:text-bad-d" },
+  // Cancelled is neither of the other two: the operator stopped it, and
+  // calling that a failure blames the agent for an order it obeyed.
+  stopped: { label: "STOPPED", skin: "bg-badSoft text-bad dark:bg-badSoft-d dark:text-bad-d" },
+  unknown: { label: "UNFINISHED", skin: "bg-active text-muted dark:bg-active-d dark:text-muted-d" },
 };
 
-/** Uma pastilha de contorno. */
-const CHIP =
-  "min-h-6 cursor-pointer rounded-full border border-line3 text-sm font-normal text-text2 transition-[border-color,background,color] duration-150 hover:border-line4 hover:bg-surface2 dark:border-line3-d dark:text-text2-d dark:hover:border-line4-d dark:hover:bg-surface2-d";
+/** How the engine names an ending, in the five words this table shows. A run
+ *  the operator stopped is not a run that failed. */
+const ENDED: Record<RunOutcome, Outcome> = {
+  completed: "succeeded",
+  cancelled: "stopped",
+  failed: "failed",
+};
 
-/** A goteira da transcrição: a palavra à esquerda, o texto encostado a uma
- *  linha vertical. */
-const GUTTER = "w-[74px] flex-none truncate text-right";
-const BODY = "flex-1 min-w-0 pl-3 border-l border-line dark:border-line-d";
+interface RunRow {
+  key: string;
+  runId: string;
+  cardId: string;
+  title: string;
+  agentId: string;
+  startedMs: number;
+  endedMs: number | null;
+  outcome: Outcome;
+  /** What this run called, counted by the projection from the transcript on
+   *  disk. Empty for a run whose log is gone. */
+  tools: ToolCount[];
+}
 
-/** Two panes: everything recorded, and the transcript of the one you picked. */
+/** `Read·Edit×6` from the calls the run actually made. Null when the
+ *  projection found no transcript — the cell then says so with an em-dash
+ *  rather than guessing at what the run touched. */
+function toolSummary(tools: ToolCount[]): string | null {
+  if (tools.length === 0) return null;
+  const parts = tools.slice(0, 3).map(({ tool, count }) => (count > 1 ? `${tool}×${count}` : tool));
+  if (tools.length > 3) parts.push("…");
+  return parts.join("·");
+}
+
+/** The transcript palette, keyed by what a line is rather than by its words. */
+function verbSkin(l: LogLine): string {
+  switch (l.kind) {
+    case "tool_use":
+    case "started":
+      return "text-primary dark:text-primary-d";
+    case "tool_result":
+      return l.ok === false ? "text-bad dark:text-bad-d" : "text-ok dark:text-ok-d";
+    case "done":
+      return "text-ok dark:text-ok-d";
+    case "failed":
+      return "text-bad dark:text-bad-d";
+    case "approval_requested":
+    case "approval_answered":
+    case "notice":
+      return "text-warn dark:text-warn-d";
+    default:
+      return "text-faint dark:text-faint-d";
+  }
+}
+
+/** A result, a failure and a permission carry their colour into the detail;
+ *  everything else is body text. */
+function detailSkin(l: LogLine): string {
+  switch (l.kind) {
+    case "tool_result":
+    case "failed":
+    case "done":
+    case "approval_requested":
+    case "approval_answered":
+    case "notice":
+      return verbSkin(l);
+    default:
+      return "text-muted dark:text-muted-d";
+  }
+}
+
+/** One line of plain copy where rows would otherwise be. */
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-t border-line2 px-4 py-4 text-body leading-relaxed text-muted dark:border-line2-d dark:text-muted-d">
+      {children}
+    </div>
+  );
+}
+
+/** The table's own skeleton, at the dimensions the rows will have, so nothing
+ *  moves when they arrive. */
+function Skeleton() {
+  const bar = "h-2.5 rounded-full bg-line3 dark:bg-line3-d";
+  return (
+    <>
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div
+          key={i}
+          aria-hidden
+          className={cx(COLS, "items-center border-t border-line2 px-4 py-2.75 dark:border-line2-d")}
+        >
+          <span className="flex items-center gap-2">
+            <span className="h-[22px] w-[22px] flex-none rounded-7px bg-line3 dark:bg-line3-d" />
+            <span className={cx(bar, "w-14")} />
+          </span>
+          <span className={cx(bar, "w-full")} />
+          <span className={cx(bar, "w-12")} />
+          <span className={cx(bar, "w-16")} />
+          <span className={cx(bar, "w-14")} />
+          <span className={cx(bar, "w-9")} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Every recorded run on the left, the transcript of the one you picked on the
+ *  right. Both are read back from the engine; nothing here is remembered. */
 export function Sessions({
   selected,
   select,
   openReview,
 }: {
   selected: string | null;
-  select: (cardId: string) => void;
+  select: (id: string | null) => void;
   openReview: (cardId: string) => void;
 }) {
-  const {
-    snapshot,
-    projectId,
-    agents,
-    outputs,
-    streams,
-    loadRunLog,
-    startRun,
-    cancelRun,
-    toast,
-  } = useStore();
-  const end = useRef<HTMLDivElement | null>(null);
-  const [openDetails, setOpenDetails] = useState<Set<number>>(new Set());
-  const toggleDetail = (i: number) =>
-    setOpenDetails((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
+  const { snapshot, projectId, fatal, agents, activity, outputs, runModels, streams, loadRunLog, refresh } =
+    useStore();
 
-  const recorded = useMemo(() => {
-    const cards = snapshot?.cards ?? [];
-    return cards.filter((c) => c.runs > 0 || c.status === "running" || outputs[c.id]?.length);
-  }, [outputs, snapshot]);
-
-  const card = recorded.find((c) => c.id === selected) ?? recorded[0] ?? null;
-  const session = snapshot?.sessions.find((s) => s.card_id === card?.id);
-  const lines = card ? (outputs[card.id] ?? []) : [];
-  const stream = card ? streams[card.id] : undefined;
-  const live = card?.status === "running";
-  // Elapsed timers breathe once a second while something runs; a frozen
-  // number is ambiguous between "thinking" and "frozen".
+  // Elapsed times breathe once a second while something runs; a frozen number
+  // is ambiguous between "thinking" and "stuck".
+  const anyLive = !!snapshot?.sessions.some((s) => s.live);
   const [, tick] = useState(0);
   useEffect(() => {
-    if (!live) return;
+    if (!anyLive) return;
     const t = window.setInterval(() => tick((x) => x + 1), 1000);
     return () => window.clearInterval(t);
-  }, [live]);
+  }, [anyLive]);
 
-  useEffect(() => {
-    if (!card || !session?.run_id) return;
-    if ((outputs[card.id] ?? []).length > 0) return;
-    loadRunLog(session.run_id, card.id);
-  }, [card, session?.run_id, outputs, loadRunLog]);
+  // Rows and the total below them come out of one read: `refresh` fetches the
+  // snapshot and the activity feed together, so the footer describes the same
+  // moment as the rows above it.
+  const rows = useMemo<RunRow[]>(() => {
+    if (!snapshot) return [];
+    const cards = new Map(snapshot.cards.map((c) => [c.id, c]));
+    const live = new Set(
+      snapshot.sessions.filter((s) => s.live && s.run_id).map((s) => s.run_id as string),
+    );
+    const open = new Map<string, RunRow>();
+    const out: RunRow[] = [];
+    // The feed arrives newest first; runs are paired by walking it forward in
+    // time. The id does the pairing, so two runs of one card cannot be crossed
+    // and no line of this depends on how a label happens to be worded.
+    for (let i = activity.length - 1; i >= 0; i--) {
+      const a = activity[i]!;
+      // A run row without a run is bookkeeping about one — "Work reported" —
+      // not a session that can be listed or replayed.
+      if (a.kind !== "run" || !a.run_id) continue;
+      const card = cards.get(a.card_id);
+      // A discarded card takes its runs with it: the feed still has the
+      // events, but there is no card left for the row to be about.
+      if (!card) continue;
+      if (!a.outcome) {
+        const row: RunRow = {
+          key: String(a.seq),
+          runId: a.run_id,
+          cardId: a.card_id,
+          title: card.title,
+          agentId: card.agent_id,
+          startedMs: a.ts_ms,
+          endedMs: null,
+          outcome: live.has(a.run_id) ? "running" : "unknown",
+          tools: a.tools,
+        };
+        open.set(a.run_id, row);
+        out.push(row);
+        continue;
+      }
+      // An ending whose start has scrolled out of the feed's window: there is
+      // no start time to subtract from, so it is not a row this table can
+      // state. It still counts in the total below, which comes off the cards.
+      const started = open.get(a.run_id);
+      if (!started) continue;
+      started.outcome = ENDED[a.outcome];
+      started.endedMs = a.ts_ms;
+      open.delete(a.run_id);
+    }
+    out.reverse();
+    return out;
+  }, [activity, snapshot]);
 
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
-  }, [lines.length, stream?.text, stream?.thinking]);
+  /** Every run the board has had, from the snapshot read alongside the feed.
+   *  The feed is a window, so this is larger than the rows whenever the older
+   *  runs have scrolled out of it. */
+  const total = useMemo(
+    () => (snapshot?.cards ?? []).reduce((n, c) => n + c.runs, 0),
+    [snapshot],
+  );
 
-  if (!snapshot) return <Loading what="Reading sessions" />;
-
+  // Which run the operator clicked, now that a row names one. Without it the
+  // panel could only ever show a card's newest run, whichever row was picked.
+  // The card is kept beside it: selection also moves from elsewhere in the
+  // app, and a run id held over from the last card belongs to no row here.
+  const [picked, setPicked] = useState<{ card: string; run: string } | null>(null);
+  const pickedRun = picked && picked.card === selected ? picked.run : null;
+  const card = snapshot?.cards.find((c) => c.id === selected) ?? null;
+  const session = snapshot?.sessions.find((s) => s.card_id === card?.id);
+  // A live run is writing into this card's lines as we watch, so that is the
+  // one on screen; anything finished is read back by the id on its row.
+  const runId = session?.live
+    ? (session.run_id ?? null)
+    : (pickedRun ?? session?.run_id ?? card?.current_run ?? null);
   const agent = agents.find((a) => a.id === card?.agent_id);
-  const at = tone(agent?.tone);
-  const status = card ? STATUS_TONE[card.status] : STATUS_TONE.backlog;
+  const lines = card ? (outputs[card.id] ?? []) : [];
+  const stream = card ? streams[card.id] : undefined;
+
+  const shown = useRef<string | null>(null);
+  useEffect(() => {
+    if (!card || !runId) return;
+    const want = `${card.id}:${runId}`;
+    if (shown.current === want) return;
+    // Re-reading the file behind a live run would replace what is arriving
+    // with a snapshot of it, mid-sentence.
+    if (session?.live && (outputs[card.id] ?? []).length > 0) {
+      shown.current = want;
+      return;
+    }
+    shown.current = want;
+    void loadRunLog(runId, card.id);
+  }, [card, runId, session?.live, outputs, loadRunLog]);
+
+  // Exporting is the operator picking a folder in their own file manager, so
+  // the screen reports where the copy landed and nothing else.
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState<string | null>(null);
+  const exportAll = async () => {
+    if (!projectId) return;
+    setExporting(true);
+    setExportFailed(null);
+    try {
+      const done = await api.exportTranscripts(projectId);
+      // A dismissed picker is an answer, not a failure.
+      if (done) await api.reveal(done.dir);
+    } catch (e) {
+      setExportFailed(reason(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const end = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!session?.live) return;
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [session?.live, lines.length, stream?.text, stream?.thinking]);
+
+  const pill = "rounded-full px-2.25 py-0.5 text-10 font-bold";
+  const foot =
+    "cursor-pointer rounded-full border border-line px-3.5 py-1.5 text-sm font-medium text-ink2 transition-colors duration-150 hover:bg-hovered disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-d dark:text-ink2-d dark:hover:bg-hovered-d";
 
   return (
     <motion.div
       variants={paneIn}
       initial="hidden"
       animate="shown"
-      className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] overflow-hidden"
+      className="min-h-0 flex-1 overflow-auto px-5.5 py-5"
     >
-      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-line dark:border-line-d">
-        {/* A lista chega linha a linha — o `.stagger` do desenho. */}
-        <motion.div
-          initial="hidden"
-          animate="shown"
-          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2.5 py-3"
-        >
-          {recorded.map((c, i) => {
-            const on = c.id === card?.id;
-            const who = agents.find((a) => a.id === c.agent_id);
-            const wt = tone(who?.tone);
-            const s = snapshot.sessions.find((x) => x.card_id === c.id);
-            const right =
-              c.status === "running" && s
-                ? duration(Date.now() - s.started_ms)
-                : c.cost_usd > 0
-                  ? money(c.cost_usd, 3)
-                  : plural(c.turns, "turn");
-            return (
-              <motion.button
-                key={c.id}
-                custom={i}
-                variants={rowIn}
-                type="button"
-                aria-pressed={on}
-                onClick={() => select(c.id)}
-                className={cx(
-                  "w-full cursor-pointer rounded-md border px-3 py-2.5 text-left transition-colors duration-150",
-                  on
-                    ? "border-accentLine bg-accentSoft dark:border-accentLine-d dark:bg-accentSoft-d"
-                    : "border-transparent bg-transparent hover:bg-hovered dark:hover:bg-hovered-d",
-                )}
-              >
-                <div className="mb-1.5 flex items-center gap-2">
-                  <span
-                    className={cx(
-                      "h-1.5 w-1.5 flex-none rounded-full",
-                      STATUS_DOT[c.status],
-                      c.status === "running" && "animate-pulse",
-                    )}
-                  />
-                  <span
-                    className={cx(truncate, "flex-1 text-md font-medium text-text dark:text-text-d")}
-                  >
-                    {c.title}
-                  </span>
-                  <Glyph tone={wt} size={16} font={8}>
-                    {who?.initial ?? "?"}
-                  </Glyph>
-                </div>
-                <div
-                  className={cx(
-                    mono,
-                    "flex items-center justify-between gap-2.5 text-xs text-text3 dark:text-text3-d",
-                  )}
-                >
-                  <span>
-                    {c.id}
-                    {c.status === "running" ? " · live" : ""}
-                  </span>
-                  <span>{right}</span>
-                </div>
-              </motion.button>
-            );
-          })}
-          {recorded.length === 0 && (
-            <div className="mx-0.5 my-1.5 rounded-md border border-dashed border-line2 px-3.5 py-4 text-sm font-normal leading-relaxed text-text4 dark:border-line2-d dark:text-text4-d">
-              No session in this project yet. Start a card on the board and its transcript arrives
-              here.
+      <div className="flex min-w-[900px] flex-row items-start gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-3.5">
+          <div>
+            <div className="text-title font-bold text-ink dark:text-ink-d">Sessions</div>
+            <div className="mt-0.75 text-body text-faint dark:text-faint-d">
+              Every recorded run, replayed from disk
             </div>
-          )}
-        </motion.div>
-      </div>
-
-      <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-        {!card ? (
-          <div className="max-w-[460px] p-6.5 text-md font-normal leading-[1.7] text-text4 dark:text-text4-d">
-            Nothing recorded yet. Every run writes its transcript to disk as it goes, so
-            once an agent has worked a card you can open it here and read it back turn by
-            turn — including the runs that failed.
           </div>
-        ) : (
-          <>
-            <div className="border-b border-line px-5.5 pb-3 pt-3.5 dark:border-line-d">
-              <div className="mb-2.5 flex items-center gap-2.5">
-                <Glyph tone={at} size={26} radius="50%" font={10}>
-                  {agent?.initial ?? "?"}
-                </Glyph>
-                <span
-                  className={cx(
-                    truncate,
-                    "text-lg font-semibold tracking-[-.01em] text-text dark:text-text-d",
-                  )}
-                >
-                  {card.title}
-                </span>
-                <span
-                  className={cx(
-                    "flex-none rounded-full px-2.5 py-1 text-sm font-semibold",
-                    status.soft,
-                    status.fg,
-                  )}
-                >
-                  {STATUS_NAME[card.status]}
-                </span>
-                <div className="flex-1" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!projectId) return;
-                    api
-                      .openAgentTerminal(projectId, card.id)
-                      .then(() => toast("info", "Terminal opened", "Resumed the session"))
-                      .catch((e) => toast("bad", "Could not open a terminal", reason(e)));
-                  }}
-                  className={cx(
-                    CHIP,
-                    "px-3.5 py-2",
-                    card.session_id ? "opacity-100" : "opacity-50",
-                  )}
-                >
-                  Attach terminal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!session?.worktree) {
-                      toast("warn", "No worktree", "This card has not written anything yet.");
-                      return;
-                    }
-                    api.reveal(session.worktree).catch((e) =>
-                      toast("bad", "Could not open that folder", reason(e)),
-                    );
-                  }}
-                  className={cx(CHIP, "px-3.5 py-2")}
-                >
-                  Reveal worktree
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    card.status === "running"
-                      ? cancelRun(card.id)
-                      : card.status === "review"
-                        ? openReview(card.id)
-                        : startRun(card.id)
-                  }
-                  className={cx(
-                    "min-h-6 cursor-pointer rounded-full border-none px-3.5 py-2 text-sm font-semibold transition-[filter,transform] duration-150 hover:-translate-y-px hover:brightness-[1.08] active:translate-y-px",
-                    card.status === "running"
-                      ? "bg-badSoft text-bad dark:bg-badSoft-d dark:text-bad-d"
-                      : card.status === "review"
-                        ? "bg-okSoft text-ok dark:bg-okSoft-d dark:text-ok-d"
-                        : "bg-infoSoft text-info dark:bg-infoSoft-d dark:text-info-d",
-                  )}
-                >
-                  {card.status === "running"
-                    ? "Stop"
-                    : card.status === "review"
-                      ? "Read the diff"
-                      : card.runs > 0
-                        ? "Run again"
-                        : "Start"}
-                </button>
-              </div>
-              <div
-                className={cx(
-                  mono,
-                  "flex flex-wrap items-center gap-3.5 text-sm text-text3 dark:text-text3-d",
-                )}
-              >
-                <span className="text-text2 dark:text-text2-d">{card.id}</span>
-                {session?.run_id && (
-                  <span>
-                    {session.run_id.slice(0, 8)} · {plural(card.runs, "run")}
-                  </span>
-                )}
-                <span className="h-[3px] w-[3px] rounded-full bg-line3 dark:bg-line3-d" />
-                <span>{session?.branch ?? card.branch ?? "no worktree"}</span>
-                <span>{plural(card.turns, "turn")}</span>
-                <span>{money(card.cost_usd, 4)}</span>
-                <span className="h-[3px] w-[3px] rounded-full bg-line3 dark:bg-line3-d" />
-                <span>
-                  {agent?.name ?? card.agent_id} ·{" "}
-                  {MODELS.find((m) => m.id === agent?.model)?.name ?? "auto"}
-                </span>
-                {card.session_id && <span>{card.session_id.slice(0, 12)}</span>}
-                {card.runs > 1 && card.session_id && (
-                  <span className="text-ok dark:text-ok-d">resumed from the last run</span>
-                )}
-              </div>
+
+          <motion.div
+            initial="hidden"
+            animate="shown"
+            className="overflow-hidden rounded-lg border border-line bg-surface dark:border-line-d dark:bg-surface-d"
+          >
+            <div className={cx(COLS, "px-4 py-2.5 text-sm font-semibold text-muted dark:text-muted-d")}>
+              <span>Agent</span>
+              <span>Card</span>
+              <span>Started</span>
+              <span>Tools</span>
+              <span>Status</span>
+              <span>Time</span>
             </div>
 
-            <div className="min-h-0 overflow-y-auto px-5.5 pb-5 pt-3.5 [scrollbar-gutter:stable]">
-              {lines.length === 0 && (
-                <div className={cx(mono, "text-md text-text4 dark:text-text4-d")}>
-                  no transcript for this card yet
+            {fatal ? (
+              <div className="border-t border-line2 px-4 py-4 dark:border-line2-d">
+                <div className={cx(mono, "text-11 leading-relaxed text-bad dark:text-bad-d")}>
+                  {fatal}
                 </div>
-              )}
-              {(() => {
-                // Nesting: each call's depth is one past its parent's, so a
-                // subagent's calls sit inside the Task that spawned them.
-                const depthsBy = new Map<string, number>();
-                const depthOf = (l: (typeof lines)[number]) => {
-                  if (!l.toolUseId) return 0;
-                  if (!depthsBy.has(l.toolUseId)) {
-                    const parent = l.parentToolUseId;
-                    depthsBy.set(l.toolUseId, parent ? (depthsBy.get(parent) ?? 0) + 1 : 0);
-                  }
-                  return depthsBy.get(l.toolUseId) ?? 0;
-                };
-                return lines.map((l, i) => {
-                  const depth = depthOf(l);
-                  const expandable = l.kind === "tool_result" && !!l.detail;
-                  const open = expandable && openDetails.has(i);
-                  const row = (
-                    <>
-                      <span className={cx(GUTTER, l.labelColor)}>{l.label}</span>
+                <button type="button" onClick={() => void refresh()} className={cx(foot, "mt-3")}>
+                  Retry
+                </button>
+              </div>
+            ) : !projectId ? (
+              <Note>
+                No project selected. Pick one in the sidebar and its runs appear here.
+              </Note>
+            ) : !snapshot ? (
+              <Skeleton />
+            ) : rows.length === 0 ? (
+              <Note>
+                No run recorded in this project yet. Start a card on the board and the run it
+                opens is listed here, transcript and all.
+              </Note>
+            ) : (
+              rows.map((r, i) => {
+                const who = agents.find((a) => a.id === r.agentId);
+                const t = tone(who?.tone);
+                const o = OUTCOME[r.outcome];
+                const tools = toolSummary(r.tools);
+                const elapsed =
+                  r.endedMs != null
+                    ? duration(r.endedMs - r.startedMs)
+                    : r.outcome === "running"
+                      ? duration(Date.now() - r.startedMs)
+                      : "—";
+                return (
+                  <motion.button
+                    key={r.key}
+                    type="button"
+                    custom={i}
+                    variants={rowIn}
+                    aria-pressed={r.cardId === selected && r.runId === runId}
+                    onClick={() => {
+                      select(r.cardId);
+                      setPicked({ card: r.cardId, run: r.runId });
+                    }}
+                    className={cx(
+                      COLS,
+                      "w-full cursor-pointer items-center border-t border-line2 px-4 py-2.75 text-left text-body text-ink transition-colors duration-150 hover:bg-hovered dark:border-line2-d dark:text-ink-d dark:hover:bg-hovered-d",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
                       <span
                         className={cx(
-                          BODY,
-                          l.color,
-                          "whitespace-pre-wrap break-words",
-                          l.italic && "italic",
+                          "grid h-[22px] w-[22px] flex-none place-items-center rounded-7px font-mono text-[9px] font-semibold leading-none",
+                          t.soft,
+                          t.fg,
                         )}
                       >
-                        {l.text}
+                        {who?.initial ?? "?"}
                       </span>
-                    </>
-                  );
-                  const skin = cx(mono, "flex gap-3 text-md leading-[1.9]");
-                  return (
-                    <div key={i}>
-                      {expandable ? (
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => toggleDetail(i)}
-                          className={cx(
-                            skin,
-                            "w-full cursor-pointer text-left transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d",
-                          )}
-                          style={{ paddingLeft: depth * 16 }}
-                        >
-                          {row}
-                        </button>
-                      ) : (
-                        <div className={skin} style={{ paddingLeft: depth * 16 }}>
-                          {row}
-                        </div>
-                      )}
-                      {open && l.detail && (
-                        <div
-                          className={cx(
-                            mono,
-                            "mb-1.5 mt-1 overflow-x-auto whitespace-pre-wrap rounded-sm border border-line2 bg-surface px-2.5 py-2 text-sm leading-[1.7] text-text3 dark:border-line2-d dark:bg-surface-d dark:text-text3-d",
-                          )}
-                          style={{ marginLeft: depth * 16 + 86 }}
-                        >
-                          {l.detail}
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
+                      <span className={truncate}>{who?.name ?? r.agentId}</span>
+                    </span>
+                    <span className={cx(truncate, "text-ink2 dark:text-ink2-d")}>{r.title}</span>
+                    <span className="text-muted dark:text-muted-d">{clock(r.startedMs)}</span>
+                    <span className={cx(mono, truncate, "text-11 text-muted dark:text-muted-d")}>
+                      {tools ?? "—"}
+                    </span>
+                    <span>
+                      <span className={cx(mono, pill, o.skin)}>{o.label}</span>
+                    </span>
+                    <span className={cx(mono, "text-muted dark:text-muted-d")}>{elapsed}</span>
+                  </motion.button>
+                );
+              })
+            )}
 
-              {live && !!stream?.turns && (
-                <div className={cx(mono, "flex gap-3 text-md leading-[1.9]")}>
-                  <span className={cx(GUTTER, "text-text4 dark:text-text4-d")}>turns</span>
-                  <span className={cx(BODY, "text-text3 dark:text-text3-d")}>
-                    {stream.turns} so far
+            {snapshot && !fatal && rows.length > 0 && (
+              <div className="flex items-center gap-2 border-t border-line2 px-4 py-2.5 text-sm font-medium text-muted dark:border-line2-d dark:text-muted-d">
+                <span className="flex-none">
+                  Showing {num(rows.length)} of {num(total)} runs
+                </span>
+                {exportFailed && (
+                  <span className={cx(mono, truncate, "text-11 text-bad dark:text-bad-d")}>
+                    {exportFailed}
                   </span>
-                </div>
-              )}
+                )}
+                <button
+                  type="button"
+                  disabled={exporting}
+                  onClick={() => void exportAll()}
+                  className="ml-auto flex-none cursor-pointer font-semibold text-primary transition-opacity duration-150 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-d"
+                >
+                  {exporting ? "Exporting…" : "Export transcripts →"}
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </div>
 
-              {stream?.thinking && !stream.text && (
-                <div className={cx(mono, "flex gap-3 text-md leading-[1.9]")}>
-                  <span className={cx(GUTTER, "text-text4 dark:text-text4-d")}>thinking</span>
-                  <span
-                    className={cx(BODY, "whitespace-pre-wrap italic text-text3 dark:text-text3-d")}
-                  >
-                    {stream.thinking}
-                    <Caret />
-                  </span>
-                </div>
-              )}
-              {stream?.text && (
-                <div className={cx(mono, "flex gap-3 text-md leading-[1.9]")}>
-                  <span className={cx(GUTTER, "text-text4 dark:text-text4-d")}>text</span>
+        <div className="w-[340px] flex-none overflow-hidden rounded-lg border border-line bg-surface dark:border-line-d dark:bg-surface-d">
+          <div className="border-b border-line2 px-4 py-3.5 dark:border-line2-d">
+            <div className="text-md font-bold text-ink dark:text-ink-d">Transcript</div>
+            <div className={cx(mono, truncate, "mt-0.75 text-xs text-faint dark:text-faint-d")}>
+              {card
+                ? [
+                    agent?.name ?? card.agent_id,
+                    card.id,
+                    // What the run reported spending tokens on, not what the
+                    // profile is set to now — those differ the moment someone
+                    // edits the profile, and the transcript is the record.
+                    runModels[card.id] ??
+                      MODELS.find((m) => m.id === agent?.model)?.name ??
+                      "auto",
+                    money(card.cost_usd, 4),
+                  ].join(" · ")
+                : "nothing picked"}
+            </div>
+          </div>
+
+          <div className={cx(mono, "px-4 py-3 text-11 leading-[1.9] text-muted dark:text-muted-d")}>
+            {!card ? (
+              <span className="font-sans text-body text-muted dark:text-muted-d">
+                Pick a run on the left to read its transcript here.
+              </span>
+            ) : lines.length === 0 && !stream ? (
+              <span className="text-faint dark:text-faint-d">
+                {runId ? "reading the log…" : "this card has no recorded run yet"}
+              </span>
+            ) : (
+              lines.map((l, i) => (
+                <div key={i} className="flex gap-1.5">
+                  <span className="flex-none text-faint dark:text-faint-d">{clock(l.ts)}</span>
+                  <span className={cx("flex-none", verbSkin(l))}>{l.label}</span>
                   <span
                     className={cx(
-                      BODY,
-                      "whitespace-pre-wrap break-words text-text2 dark:text-text2-d",
+                      "min-w-0 flex-1 whitespace-pre-wrap break-words",
+                      detailSkin(l),
+                      l.italic && "italic",
                     )}
                   >
-                    {stream.text}
-                    <Caret />
+                    {l.text}
                   </span>
                 </div>
-              )}
-              {live && !stream?.text && !stream?.thinking && (
-                <div className={cx(mono, "flex gap-3 text-md leading-[1.9]")}>
-                  <span className={cx(GUTTER, "text-text4 dark:text-text4-d")}>live</span>
-                  <span className={BODY}>
-                    <Caret />
-                  </span>
-                </div>
-              )}
-              <div ref={end} />
-            </div>
-          </>
-        )}
+              ))
+            )}
+
+            {stream?.thinking && !stream.text && (
+              <div className="flex gap-1.5">
+                <span className="flex-none text-faint dark:text-faint-d">thinking</span>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap italic text-muted dark:text-muted-d">
+                  {stream.thinking}
+                  <Caret />
+                </span>
+              </div>
+            )}
+            {stream?.text && (
+              <div className="flex gap-1.5">
+                <span className="flex-none text-primary dark:text-primary-d">text</span>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-ink2 dark:text-ink2-d">
+                  {stream.text}
+                  <Caret />
+                </span>
+              </div>
+            )}
+            <div ref={end} />
+          </div>
+
+          <div className="flex gap-1.75 border-t border-line2 px-4 py-3 dark:border-line2-d">
+            <button
+              type="button"
+              disabled={!card}
+              onClick={() => card && openReview(card.id)}
+              className={foot}
+            >
+              Open diff
+            </button>
+            <button
+              type="button"
+              disabled={!card || !runId}
+              onClick={() => card && runId && void loadRunLog(runId, card.id)}
+              className={foot}
+            >
+              Replay
+            </button>
+          </div>
+        </div>
       </div>
     </motion.div>
   );

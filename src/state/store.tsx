@@ -33,6 +33,7 @@ import type {
   RunUpdate,
   Settings,
   Snapshot,
+  WorktreeRow,
   Status,
   SystemStatus,
 } from "../lib/types";
@@ -41,6 +42,7 @@ import type {
 // `./chat`; reexportam-se aqui para que quem importa do store continue a
 // importar do mesmo sítio.
 export { toLine } from "./events";
+export { toolName } from "./chat";
 export type { LiveStream, LogLine } from "./events";
 export type { ChatMsg } from "./chat";
 
@@ -92,7 +94,13 @@ interface Store {
   snapshot: Snapshot | null;
   stats: ProjectStats | null;
   activity: ActivityRow[];
+  /** One checkout per card, read with the board. The sidebar counts them and
+   *  Home lists them, so they travel with the snapshot rather than being
+   *  fetched twice. */
+  worktrees: WorktreeRow[];
   outputs: Record<string, LogLine[]>;
+  /** What a loaded run actually ran on, per card. See `useRunFeed`. */
+  runModels: Record<string, string>;
   /** Token-level stream per card, cleared when the final text arrives. */
   streams: Record<string, LiveStream>;
   approvals: PendingApproval[];
@@ -110,11 +118,16 @@ interface Store {
   loadCardDiff: (cardId: string) => Promise<void>;
   /** Every conversation the backend knows about, newest first. */
   conversations: Conversation[];
-  /** The one on screen. */
+  /** The one on screen, or `null` while this is a draft: a chat that has not
+   *  been created yet, because nothing has been sent in it. */
   conversationId: string | null;
+  /** Which profile a draft will speak to; `null` means the Director. */
+  draftProfile: string | null;
   conversation: Conversation | null;
   chat: ChatMsg[];
   chatBusy: boolean;
+  /** A stored transcript is being read off disk — not the model answering. */
+  chatLoading: boolean;
   /** The Director's reasoning as it arrives; cleared when it answers. */
   chatThinking: string;
   /** Set when the Director asks the window to go somewhere; clear it after. */
@@ -141,7 +154,8 @@ interface Store {
   loadRunLog: (runId: string, cardId: string) => Promise<void>;
 
   sendChat: (text: string, attachments?: string[]) => Promise<void>;
-  /** Start a fresh conversation, which means a fresh Claude session. */
+  /** Put the screen into a draft. The row and its Claude session are created
+   *  by the first message, so a draft nobody types into costs nothing. */
   newConversation: (profileId?: string) => Promise<void>;
   /** Open the standing conversation with a profile, creating one only if there
    *  is none: clicking "chat" twice continues the same thread. */
@@ -236,6 +250,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [worktrees, setWorktrees] = useState<WorktreeRow[]>([]);
   const feed = useRunFeed();
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -331,16 +346,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const id = projectRef.current;
     if (!id) return;
     try {
-      const [snap, st, acts] = await Promise.all([
+      const [snap, st, acts, trees] = await Promise.all([
         api.snapshot(id),
         api.projectStats(id),
         api.activity(id, 200),
+        // A repository that has gone missing still has a board; it just has
+        // no checkouts to report. That is an empty list, not a failed read.
+        api.worktrees(id).catch(() => [] as WorktreeRow[]),
       ]);
       if (projectRef.current !== id) return;
       setSnapshot(snap);
       lastSeqRef.current = snap.last_seq;
       setStats(st);
       setActivity(acts);
+      setWorktrees(trees);
     } catch (e) {
       fail(e, "Could not read the board");
     }
@@ -755,13 +774,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (proposalId: string) => {
       try {
         const accepted = await api.inboxAccept(proposalId);
+        // Accepting is permission, not work: nothing is created here.
         toast(
           "ok",
-          "Card created",
-          `${accepted.title} — born in the harness's own project as ${accepted.card_id}`,
+          "Accepted",
+          `${accepted.title} — the Director will pick it up on his next turn`,
         );
       } catch (e) {
-        fail(e, "Could not create the card");
+        fail(e, "Could not accept the proposal");
       }
     },
     [fail, toast],
@@ -941,16 +961,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     snapshot,
     stats,
     activity,
+    worktrees,
     outputs: feed.outputs,
+    runModels: feed.runModels,
     streams: feed.streams,
     approvals,
     diffs,
     loadCardDiff,
     conversations: chat.conversations,
     conversationId: chat.conversationId,
+    draftProfile: chat.draftProfile,
     conversation: chat.conversations.find((c) => c.id === chat.conversationId) ?? null,
     chat: chat.chat,
     chatBusy: chat.chatBusy,
+    chatLoading: chat.chatLoading,
     chatThinking: chat.chatThinking,
     navigation,
     clearNavigation: () => setNavigation(null),

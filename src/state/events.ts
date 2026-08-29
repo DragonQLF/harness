@@ -144,6 +144,10 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
 /** O que os eventos de execução deixam no ecrã, por cartão. */
 export interface RunFeed {
   outputs: Record<string, LogLine[]>;
+  /** The model a card's loaded run actually ran on, off its own `usage` lines.
+   *  Not derivable from the agent profile: that says what the card would run on
+   *  *today*, and a profile edited since the run would rewrite history. */
+  runModels: Record<string, string>;
   /** Token-level stream per card, cleared when the final text arrives. */
   streams: Record<string, LiveStream>;
   /** Absorve um update já filtrado para o projecto em foco. */
@@ -158,6 +162,7 @@ export interface RunFeed {
 
 export function useRunFeed(): RunFeed {
   const [outputs, setOutputs] = useState<Record<string, LogLine[]>>({});
+  const [runModels, setRunModels] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
 
   const consume = useCallback((u: RunUpdate) => {
@@ -215,7 +220,15 @@ export function useRunFeed(): RunFeed {
   const setRunLog = useCallback((cardId: string, lines: RunLogLine[]) => {
     const mapped = lines.map(toLine).filter((l): l is LogLine => l != null);
     setOutputs((prev) => ({ ...prev, [cardId]: mapped.slice(-MAX_LINES) }));
+    // `toLine` drops usage lines — they are accounting, not transcript — so the
+    // model is read here, before that happens. The last one wins: a run that
+    // fell back to another model ran on the one it finished with.
+    const model = lines.reduce<string | null>(
+      (found, l) => (l.kind === "usage" && l.model ? l.model : found),
+      null,
+    );
+    if (model) setRunModels((prev) => ({ ...prev, [cardId]: model }));
   }, []);
 
-  return { outputs, streams, consume, reset, clear, setRunLog };
+  return { outputs, runModels, streams, consume, reset, clear, setRunLog };
 }

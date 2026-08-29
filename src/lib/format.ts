@@ -8,6 +8,11 @@ export const num = (n: number | null | undefined) => (n ?? 0).toLocaleString("en
 
 export const money = (n: number | null | undefined, digits = 2) => `$${(n ?? 0).toFixed(digits)}`;
 
+/** Download sizes, in the "38.4 MB" shape the update sheets use. Megabytes all
+ *  the way up: an update that reads 1.2 GB one release and 980 MB the next is
+ *  harder to compare than one that always counts in the same unit. */
+export const megabytes = (bytes: number) => `${(bytes / 1_048_576).toFixed(1)} MB`;
+
 /** Elapsed time in the "4m 08s" shape the design uses. */
 export function duration(ms: number): string {
   const secs = Math.max(0, Math.floor(ms / 1000));
@@ -73,6 +78,14 @@ export function today(): string {
 }
 
 export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** A file size a person reads at a glance: "312 KB", "1.4 MB". Whole numbers
+ *  below a megabyte — nobody needs a tenth of a kilobyte. */
+export function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;

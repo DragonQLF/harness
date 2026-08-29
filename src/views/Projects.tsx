@@ -211,7 +211,7 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
               <span className="flex-1" />
               {project.mirror ? (
                 <span
-                  title="Relay's own source: accepted proposals are born here and read_docs reads this repository's docs/"
+                  title="Relay's own source: cards for the app live here, including the ones the Director makes from accepted proposals, and read_docs reads this repository's docs/"
                   className="rounded-full border border-ok bg-okSoft px-2.5 py-1 text-sm font-bold text-ok dark:border-ok-d dark:bg-okSoft-d dark:text-ok-d"
                 >
                   mirror mode
