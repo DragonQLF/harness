@@ -1,13 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api } from "../lib/ipc";
+import { GitBranch, Minus, Search, SlidersHorizontal, Square, X } from "lucide-react";
 import { cx } from "../lib/cx";
-import { popover } from "../lib/motion";
-import { money } from "../lib/format";
-import { useStore } from "../state/store";
-import { Icon, mono } from "./ui";
-import type { View } from "../views/views";
+import { NAV_VIEWS, VIEW_TITLES, type View } from "../views/views";
 
 const appWindow = getCurrentWindow();
 
@@ -17,135 +12,34 @@ const appWindow = getCurrentWindow();
 const IS_MAC = navigator.userAgent.includes("Macintosh");
 
 /** How much room the system's three buttons take, with the margin it leaves
- *  around them, measured from the window edge. */
-const TRAFFIC_LIGHTS = 78;
+ *  around them, measured from the window edge.
+ *
+ *  In CSS pixels, not screen ones. macOS draws those buttons itself, at the
+ *  window's own scale, but everything in here is inside the `zoom: .86` root —
+ *  so a literal 78 arrives as 67 and the wordmark sits on top of the green
+ *  one. The reserved gap has to be divided back out by the same factor that
+ *  will shrink it. */
+const TRAFFIC_LIGHTS = Math.round(78 / 0.86);
 
-/** One entry in a title-bar menu: a word and what it does. */
-interface MenuItem {
-  label: string;
-  hint?: string;
-  run?: () => void;
-}
+/** The three icons on the right, at the design's 15px and stroke 2.4. */
+const ACTION = { size: 15, strokeWidth: 2.4, "aria-hidden": true } as const;
 
-function Menu({ name, items }: { name: string; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLSpanElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", away);
-    return () => window.removeEventListener("mousedown", away);
-  }, [open]);
-
-  return (
-    <span ref={box} className="relative flex items-stretch">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cx(
-          "grid cursor-pointer place-items-center border-none px-2.5 text-sm font-normal transition-colors duration-150",
-          open
-            ? "bg-active text-text dark:bg-active-d dark:text-text-d"
-            : "bg-transparent text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d",
-        )}
-      >
-        {name}
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            variants={popover}
-            initial="hidden"
-            animate="shown"
-            exit="gone"
-            className="absolute left-0 top-full z-[200] min-w-[208px] rounded-md border border-line3 bg-elev p-1.5 shadow-soft dark:border-line3-d dark:bg-elev-d dark:shadow-soft-d"
-          >
-            {items.map((item) =>
-              item.run ? (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    item.run?.();
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-1.5 text-left text-md font-normal text-text1 transition-colors duration-150 hover:bg-hovered dark:text-text1-d dark:hover:bg-hovered-d"
-                >
-                  <span className="flex-1">{item.label}</span>
-                  {item.hint && (
-                    <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
-                      {item.hint}
-                    </span>
-                  )}
-                </button>
-              ) : (
-                <div
-                  key={item.label}
-                  className="flex cursor-default items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-md font-normal text-text4 dark:text-text4-d"
-                >
-                  <span className="flex-1">{item.label}</span>
-                  {item.hint && (
-                    <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>
-                      {item.hint}
-                    </span>
-                  )}
-                </div>
-              ),
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </span>
-  );
-}
-
-/** The 30px window chrome from the design: sidebar toggle, history arrows, the
- *  three menus, one line saying where you are and what is happening, and the
- *  window buttons. */
+/** The 52px title bar: the wordmark, the five screens, and three ways out.
+ *
+ *  The wordmark is the whole identity here — `docs/design/README.md` settled
+ *  that the tile mark belongs to the installer and the dock, and that the
+ *  letter beside the word was the redundancy that went. The shadow is a flat
+ *  offset, not a blur: it is the same extrusion the tile mark has, written in
+ *  type. */
 export function TitleBar({
+  view,
   go,
-  back,
-  forward,
-  canBack,
-  canForward,
-  toggleSidebar,
-  toggleRail,
   onPalette,
-  onNewChat,
 }: {
+  view: View;
   go: (v: View) => void;
-  back: () => void;
-  forward: () => void;
-  canBack: boolean;
-  canForward: boolean;
-  toggleSidebar: () => void;
-  toggleRail: () => void;
   onPalette: () => void;
-  onNewChat: () => void;
 }) {
-  const { project, snapshot, status, settings, stats, saveSettings, addProject } = useStore();
-  const running = (snapshot?.cards ?? []).filter((c) => c.status === "running").length;
-  const sidecar = status?.sidecar.ready
-    ? "sidecar ready"
-    : status?.sidecar.node_found
-      ? "sidecar not installed"
-      : "no node";
-
-  // The one line that says where you are: project, branch, what is running, and
-  // whether anything can run at all.
-  const line = [
-    project?.name ?? "no project",
-    project?.base_branch,
-    running > 0 ? `${running} ${running === 1 ? "run" : "runs"} live` : "nothing running",
-    sidecar,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   // Fullscreen takes the traffic lights away, so the gap we hold open for them
   // has to go with it, or the row starts with 78px of nothing.
   const [fullscreen, setFullscreen] = useState(false);
@@ -161,127 +55,87 @@ export function TitleBar({
     };
   }, []);
 
-  const chrome = (
-    label: string,
-    icon: React.ReactNode,
-    run: () => void,
-    width: string,
-    dim = false,
-  ) => (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      disabled={dim}
-      onClick={run}
-      className={cx(
-        "grid h-6 place-items-center rounded-sm border-none bg-transparent transition-colors duration-150",
-        width,
-        dim
-          ? "cursor-default text-line4 dark:text-line4-d"
-          : "cursor-pointer text-text4 hover:bg-hovered hover:text-text dark:text-text4-d dark:hover:bg-hovered-d dark:hover:text-text-d",
-      )}
-    >
-      {icon}
-    </button>
-  );
-
   return (
     <div
       data-tauri-drag-region
-      className="z-[100] flex h-[30px] flex-none select-none items-stretch border-b border-line bg-recess dark:border-line-d dark:bg-recess-d"
+      className="z-[100] flex h-[52px] flex-none select-none items-center gap-3 border-b border-line bg-surface pr-4.5 dark:border-line-d dark:bg-surface-d"
+      style={{ paddingLeft: IS_MAC && !fullscreen ? TRAFFIC_LIGHTS : 18 }}
     >
-      <div
-        className="flex items-center gap-px"
-        style={{ paddingLeft: IS_MAC && !fullscreen ? TRAFFIC_LIGHTS : 8 }}
+      <button
+        type="button"
+        onClick={() => go("home")}
+        title="Home"
+        className="flex-none cursor-pointer border-none bg-transparent font-display text-15 font-bold tracking-[.075em] text-ink [text-shadow:1.6px_1.6px_0_theme(colors.wordmarkShadow.DEFAULT)] dark:text-ink-d dark:[text-shadow:1.6px_1.6px_0_theme(colors.wordmarkShadow.d)]"
       >
-        {chrome("Sidebar", <Icon.sidebar />, toggleSidebar, "w-6")}
-        {chrome("Back", <Icon.back />, back, "w-[22px]", !canBack)}
-        {chrome("Forward", <Icon.forward />, forward, "w-[22px]", !canForward)}
-        {!IS_MAC && (
-          <>
-            <Menu
-              name="File"
-              items={[
-                { label: "New chat", hint: "⌘N", run: onNewChat },
-                { label: "Add a project…", run: addProject },
-                { label: "Projects", run: () => go("projects") },
-                { label: "Settings", hint: "⌘,", run: () => go("settings") },
-              ]}
-            />
-            <Menu
-              name="View"
-              items={[
-                { label: "Command palette", hint: "⌘K", run: onPalette },
-                { label: "Toggle the sidebar", run: toggleSidebar },
-                { label: "Toggle Right now", run: toggleRail },
-                {
-                  label: settings?.theme === "light" ? "Dark theme" : "Light theme",
-                  run: () => saveSettings({ theme: settings?.theme === "light" ? "dark" : "light" }),
-                },
-                { label: "Worktrees", run: () => go("trees") },
-                { label: "Activity", run: () => go("activity") },
-              ]}
-            />
-            <Menu
-              name="Help"
-              items={[
-                {
-                  label: status?.claude.logged_in ? "Claude is signed in" : "Sign in to Claude…",
-                  run: () => api.openClaudeTerminal().catch(() => {}),
-                },
-                {
-                  label: status?.claude.cli_version
-                    ? `Claude CLI ${status.claude.cli_version}`
-                    : "Claude CLI not found",
-                },
-                { label: settings ? `Daily budget ${money(settings.daily_budget_usd)}` : "No settings" },
-              ]}
-            />
-          </>
-        )}
-      </div>
+        RELAY
+      </button>
 
-      <div
-        data-tauri-drag-region
-        className="flex flex-1 items-center justify-center gap-2"
-      >
-        <span className={cx(mono, "text-sm font-medium text-text3 dark:text-text3-d")}>{line}</span>
-        {stats != null && settings != null && stats.spend_today > settings.daily_budget_usd && (
-          <span
-            className={cx(
-              mono,
-              "rounded-sm bg-badSoft px-1.5 py-px text-xs text-bad2 dark:bg-badSoft-d dark:text-bad2-d",
-            )}
+      <nav className="mx-auto flex gap-0.5" aria-label="Screens">
+        {NAV_VIEWS.map((v) => {
+          const on = view === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              aria-current={on ? "page" : undefined}
+              onClick={() => go(v)}
+              className={cx(
+                "cursor-pointer rounded-sm border-none px-3.25 py-1.75 text-md transition-colors duration-150",
+                on
+                  ? "bg-active font-semibold text-ink dark:bg-active-d dark:text-ink-d"
+                  : "bg-transparent font-medium text-muted hover:text-ink dark:text-muted-d dark:hover:text-ink-d",
+              )}
+            >
+              {VIEW_TITLES[v]}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="flex flex-none items-center gap-4 text-muted dark:text-muted-d">
+        {[
+          { label: "Search everything  ⌘K", icon: <Search {...ACTION} />, run: onPalette },
+          { label: "Worktrees", icon: <GitBranch {...ACTION} />, run: () => go("trees") },
+          { label: "Settings", icon: <SlidersHorizontal {...ACTION} />, run: () => go("settings") },
+        ].map((b) => (
+          <button
+            key={b.label}
+            type="button"
+            title={b.label}
+            aria-label={b.label}
+            onClick={b.run}
+            className="grid cursor-pointer place-items-center border-none bg-transparent text-current transition-colors duration-150 hover:text-ink dark:hover:text-ink-d"
           >
-            over budget
-          </span>
-        )}
+            {b.icon}
+          </button>
+        ))}
       </div>
 
+      {/* The window's own buttons, where the platform does not draw them. The
+          design does not show these — it does not have to; a window that
+          cannot be closed is not a design decision. */}
       {!IS_MAC && (
-        <div className="flex items-stretch">
+        <div className="-mr-4.5 flex items-stretch self-stretch">
           {[
             {
               label: "minimize",
-              icon: <Icon.minimize />,
+              icon: <Minus size={10} strokeWidth={2.88} aria-hidden />,
               run: () => appWindow.minimize(),
-              w: "w-[42px]",
               close: false,
             },
             {
               label: "maximize",
-              icon: <Icon.maximize />,
+              icon: <Square size={10} strokeWidth={2.88} aria-hidden />,
               run: () =>
-                appWindow.isMaximized().then((m) => (m ? appWindow.unmaximize() : appWindow.maximize())),
-              w: "w-[42px]",
+                appWindow
+                  .isMaximized()
+                  .then((m) => (m ? appWindow.unmaximize() : appWindow.maximize())),
               close: false,
             },
             {
               label: "close",
-              icon: <Icon.close />,
+              icon: <X size={10} strokeWidth={3.12} aria-hidden />,
               run: () => appWindow.close(),
-              w: "w-11",
               close: true,
             },
           ].map((b) => (
@@ -291,15 +145,10 @@ export function TitleBar({
               aria-label={b.label}
               onClick={b.run}
               className={cx(
-                "grid cursor-pointer place-items-center border-none bg-transparent text-text4 transition-colors duration-150 dark:text-text4-d",
-                b.w,
+                "grid w-[42px] cursor-pointer place-items-center border-none bg-transparent text-faint transition-colors duration-150 dark:text-faint-d",
                 b.close
-                  ? "hover:bg-bad hover:text-onAccent dark:hover:bg-bad-d dark:hover:text-onAccent-d"
-                  : // Os controlos da janela assentam no `recess`, onde o `hover`
-                    // é um degrau tão pequeno que num alvo de 42px não se lê. A
-                    // convenção da plataforma é um fundo simples e o glifo a
-                    // subir à força toda.
-                    "hover:bg-surface2 hover:text-text active:bg-active dark:hover:bg-surface2-d dark:hover:text-text-d dark:active:bg-active-d",
+                  ? "hover:bg-bad hover:text-white"
+                  : "hover:bg-active hover:text-ink dark:hover:bg-active-d dark:hover:text-ink-d",
               )}
             >
               {b.icon}

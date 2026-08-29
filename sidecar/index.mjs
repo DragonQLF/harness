@@ -85,6 +85,13 @@ function harnessTools(runId) {
             .string()
             .optional()
             .describe("Which project board. Defaults to the one this conversation is pinned to."),
+          proposal_id: z
+            .string()
+            .optional()
+            .describe(
+              "The accepted proposal this card carries out, for example prp_7b30. Pass it and " +
+                "the acceptance stops being raised at you every turn.",
+            ),
         },
         call("create_card"),
       ),
@@ -374,7 +381,8 @@ function harnessTools(runId) {
           "and waiting for it to happen again only means it goes unrecorded. Counts from " +
           "self_report strengthen a proposal; they are not a requirement for opening one. " +
           "A proposal is not a card: they decide whether it becomes work, so NEVER create the " +
-          "card yourself and never act on your own suggestion.",
+          "card yourself and never act on it while it is still open. Once the operator accepts " +
+          "it you are told so, and carrying it out is then exactly what you should do.",
         {
           title: z.string().describe("One line naming the problem"),
           observation: z
@@ -396,18 +404,23 @@ function harnessTools(runId) {
         {
           screen: z
             .enum([
+              // The five in the title bar first, in nav order, then everything
+              // reachable from the sidebar. "director" and "work" are older
+              // names for chat and board; the window still answers to them.
               "home",
-              "work",
+              "chat",
               "board",
-              "sessions",
-              "runs",
               "code",
-              "worktrees",
-              "activity",
+              "sessions",
+              "review",
               "agents",
+              "activity",
+              "worktrees",
               "projects",
               "settings",
               "director",
+              "work",
+              "runs",
             ])
             .describe("Which screen to open"),
           card_id: z.string().optional().describe("A card to select, for board or runs"),
@@ -679,6 +692,24 @@ async function handleRun({ id, spec }) {
           // card shows progress toward the ceiling before the result lands.
           turnCount++;
           send({ type: "event", run_id: id, event: { kind: "turns", count: turnCount } });
+          // Per-turn usage. The result message only totals the query, so it
+          // cannot say how full the context is; the last assistant turn's
+          // input side can, which is why this rides here and not on `done`.
+          const usage = message.message?.usage;
+          if (usage) {
+            send({
+              type: "event",
+              run_id: id,
+              event: {
+                kind: "usage",
+                input_tokens: usage.input_tokens ?? 0,
+                output_tokens: usage.output_tokens ?? 0,
+                cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+                cache_creation_tokens: usage.cache_creation_input_tokens ?? 0,
+                model: message.message?.model ?? null,
+              },
+            });
+          }
           const parent = message.parent_tool_use_id ?? null;
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) {
