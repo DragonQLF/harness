@@ -235,6 +235,12 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   draftRef.current = draftProfile;
   /** Numbers the pending bubbles until the backend hands each one its real id. */
   const pendingSeq = useRef(0);
+  /** One send at a time, and a ref rather than state because state is a render
+   *  behind: two submits inside one render both read the same `false`. This
+   *  guards the call, not the turn — the turn is the backend's to guard, and
+   *  it does. What it stops here is the one thing the backend cannot see as a
+   *  repeat: a draft sent twice, which is two `conversation_new` rows. */
+  const sending = useRef(false);
   /** Queued messages the run said it had read before the call that queued them
    *  came back. Without this the late reply would re-mark a message pending
    *  that the model already has. */
@@ -403,63 +409,25 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     async (text: string, attachments: string[] = []) => {
       const clean = text.trim();
       if (!clean && attachments.length === 0) return;
+      if (sending.current) return;
+      sending.current = true;
       // What goes on screen is what the backend will fold into the turn: the
       // message, then the files by name. No hidden context.
       const shown = attachments.length
         ? [clean, attachments.map((f) => `- ${f}`).join("\n")].filter(Boolean).join("\n\n")
         : clean;
 
-      // A turn is already running, so this does not start a second one: it
-      // joins the one in flight and the model reads it while it works. The
-      // bubble appears now — the message has left the composer, and hiding it
-      // until the model gets round to it is the worse lie — but it is marked
-      // as not read until the backend says it was.
-      if (chatBusy && chatRef.current) {
-        const conversationId = chatRef.current;
-        // A local handle only, so the reply can find the bubble it belongs to.
-        // The real id is the backend's, and replaces this the moment it lands.
-        const mark = `pending-${++pendingSeq.current}`;
-        setChat((cs) => [
-          ...cs,
-          { role: "user", text: shown, ts: Date.now(), queueId: mark, pending: true },
-        ]);
-        try {
-          const queued = await api.chatQueue(clean, conversationId, attachments);
-          setChat((cs) =>
-            cs.map((m) =>
-              m.queueId === mark
-                ? {
-                    ...m,
-                    queueId: queued.queue_id,
-                    // The run may already have said it read this, before the
-                    // call answering with its id came back.
-                    pending:
-                      queued.queue_id != null && !readAlready.current.has(queued.queue_id),
-                  }
-                : m,
-            ),
-          );
-          // No turn to join after all: the backend started one, which is an
-          // ordinary send, and the screen has to catch up with it.
-          if (!queued.queue_id) {
-            setChatBusy(true);
-            setChatThinking("");
-            streamedRef.current = false;
-          }
-          await refreshConversations();
-        } catch (e) {
-          // Refused by the backend, so it is nowhere: not on disk, not in a
-          // queue. Nothing to leave on screen.
-          setChat((cs) => cs.filter((m) => m.queueId !== mark));
-          fail(e, "The message could not be queued");
-        }
-        return;
-      }
+      // A local handle only, so the reply can find the bubble it belongs to.
+      // The real id is the backend's, and replaces this the moment it lands.
+      const mark = `pending-${++pendingSeq.current}`;
+      // The bubble appears now — the message has left the composer, and hiding
+      // it until the model gets round to it is the worse lie. Marked as unread
+      // only where that is plausibly true; the answer below decides for real.
+      setChat((cs) => [
+        ...cs,
+        { role: "user", text: shown, ts: Date.now(), queueId: mark, pending: chatBusy },
+      ]);
 
-      setChat((cs) => [...cs, { role: "user", text: shown, ts: Date.now() }]);
-      setChatBusy(true);
-      setChatThinking("");
-      streamedRef.current = false;
       try {
         // This is where a draft becomes a conversation: the row and the native
         // session are minted by the first message, not by the click that
@@ -471,24 +439,53 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // — so a draft sent that way would land in the previous chat instead
         // of a new one, and would lose both the project pin and the chosen
         // profile. Hence the explicit create here.
-        if (!chatRef.current) {
+        let conversationId = chatRef.current;
+        if (!conversationId) {
           const started = await api.conversationNew(
             draftRef.current ?? DIRECTOR,
             projectRef.current,
           );
           settle(started.id);
+          conversationId = started.id;
         }
-        // The reply streams back on the run channel, keyed by the conversation
-        // id; `chatBusy` clears when the done event arrives, not when this call
-        // returns. The backend decides which conversation this belongs to and
-        // hands it back, so the first message of a new chat lands in the right
-        // thread.
-        const conversation = await api.chatSend(clean, chatRef.current, attachments);
-        settle(conversation.id);
+
+        // One command for both cases, because only the backend knows which
+        // this is. It joins the turn in flight if there is one and starts an
+        // ordinary turn if there is not — and it is the only thing that can
+        // tell them apart without racing, since a turn can end between the
+        // screen believing it runs and this call arriving.
+        const queued = await api.chatQueue(clean, conversationId, attachments);
+        settle(queued.conversation.id);
+        setChat((cs) =>
+          cs.map((m) =>
+            m.queueId === mark
+              ? {
+                  ...m,
+                  queueId: queued.queue_id,
+                  // The run may already have said it read this, before the
+                  // call answering with its id came back.
+                  pending:
+                    queued.queue_id != null && !readAlready.current.has(queued.queue_id),
+                }
+              : m,
+          ),
+        );
+        // No turn to join: the backend started one, and the screen has to
+        // catch up with it.
+        if (!queued.queue_id) {
+          setChatBusy(true);
+          setChatThinking("");
+          streamedRef.current = false;
+        }
         await refreshConversations();
       } catch (e) {
+        // Refused by the backend, so it is nowhere: not on disk, not in a
+        // queue. Nothing to leave on screen.
+        setChat((cs) => cs.filter((m) => m.queueId !== mark));
         setChatBusy(false);
         fail(e, "The message could not be sent");
+      } finally {
+        sending.current = false;
       }
     },
     [chatBusy, fail, projectRef, refreshConversations, settle],

@@ -734,7 +734,11 @@ impl Workspace {
 
     /// A conversation has a turn in flight: remember how to stop it, and where
     /// anything typed while it runs should land.
-    pub async fn register_chat_turn(&self, conversation_id: &str, turn: crate::conversations::Turn) {
+    pub async fn register_chat_turn(
+        &self,
+        conversation_id: &str,
+        turn: crate::conversations::Turn,
+    ) -> Result<(), String> {
         self.chats.register_turn(conversation_id, turn).await
     }
 
@@ -749,8 +753,9 @@ impl Workspace {
     pub async fn finish_chat_turn(
         &self,
         conversation_id: &str,
+        only: Option<u64>,
     ) -> Option<crate::conversations::Turn> {
-        self.chats.finish_turn(conversation_id).await
+        self.chats.finish_turn(conversation_id, only).await
     }
 
     pub async fn update_project(&self, project: Project) -> Result<Project, String> {

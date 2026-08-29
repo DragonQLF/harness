@@ -238,18 +238,11 @@ export const api = {
    *  over whatever the screen has loaded. */
   conversationTotals: (conversationId: string) =>
     invoke<ConversationTotals>("conversation_totals", { conversationId }),
-  /** Send a message. The answer streams back on the run channel, keyed by the
-   *  conversation id. */
-  chatSend: (text: string, conversationId?: string | null, attachments: string[] = []) =>
-    invoke<Conversation>("chat_send", {
-      text,
-      conversationId: conversationId ?? null,
-      attachments,
-    }),
-  /** Say something to the turn already running. It does not interrupt and
-   *  does not start a second turn: the message goes into the run's inbox and
-   *  the model reads it at its next read. With no turn in flight it becomes an
-   *  ordinary one, and says so by answering with a null `queue_id`. */
+  /** Say something to a conversation — the one way in. It does not interrupt
+   *  and never starts a second turn: with a turn in flight the message goes
+   *  into that run's inbox and the model reads it at its next read; with none
+   *  it becomes an ordinary turn, and says so by answering with a null
+   *  `queue_id`. The screen never has to know which. */
   chatQueue: (text: string, conversationId: string, attachments: string[] = []) =>
     invoke<Queued>("chat_queue", { text, conversationId, attachments }),
   /** Native picker for files to attach to the next message. */

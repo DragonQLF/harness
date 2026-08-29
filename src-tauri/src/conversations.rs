@@ -105,7 +105,7 @@ enum Msg {
     RegisterTurn {
         conversation_id: String,
         turn: Turn,
-        reply: oneshot::Sender<()>,
+        reply: oneshot::Sender<Result<(), String>>,
     },
     /// Espreitar sem tirar: quem escreve a meio de um turno quer falar com ele,
     /// não acabá-lo.
@@ -115,6 +115,9 @@ enum Msg {
     },
     FinishTurn {
         conversation_id: String,
+        /// `None` acaba o que lá estiver — é o que o operador pede quando
+        /// carrega em parar. Um turno a acabar-se a si próprio diz qual é.
+        only: Option<u64>,
         reply: oneshot::Sender<Option<Turn>>,
     },
 }
@@ -127,8 +130,60 @@ enum Msg {
 /// já vivia aqui e não ao lado.
 #[derive(Clone)]
 pub struct Turn {
+    /// Quem este turno é, e não apenas de que conversa. Sem isto, acabar um
+    /// turno é acabar "o turno desta conversa" — que pode já ser outro.
+    pub id: u64,
     pub token: CancellationToken,
     pub queue: Arc<harness_app::chatqueue::Queue>,
+}
+
+impl Turn {
+    pub fn new(token: CancellationToken, queue: Arc<harness_app::chatqueue::Queue>) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self {
+            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            token,
+            queue,
+        }
+    }
+}
+
+/// Que turno está no ar, por conversa. As duas regras que impedem dois turnos
+/// na mesma conversa vivem aqui, e não dentro do laço do actor, porque são a
+/// parte que se pode pôr à prova.
+#[derive(Default)]
+struct Turns(HashMap<String, Turn>);
+
+impl Turns {
+    /// Recusado, não substituído. Um `insert` por cima deixava o turno
+    /// anterior a correr sem ninguém a segurar-lhe o token: vivo, invisível e
+    /// impossível de parar — e a segunda sessão que o operador julga estar a
+    /// ver é essa.
+    fn register(&mut self, conversation_id: String, turn: Turn) -> Result<(), String> {
+        match self.0.get(&conversation_id) {
+            Some(live) if !live.token.is_cancelled() => {
+                Err("this conversation already has a turn in flight".to_string())
+            }
+            _ => {
+                self.0.insert(conversation_id, turn);
+                Ok(())
+            }
+        }
+    }
+
+    fn live(&self, conversation_id: &str) -> Option<Turn> {
+        self.0.get(conversation_id).cloned()
+    }
+
+    /// Um turno que acabou só se tira a si próprio (`only`). Tirar "o turno
+    /// desta conversa" tirava o seguinte, e era assim que um turno vivo ficava
+    /// órfão. O stop do operador não nomeia nenhum: leva o que lá estiver.
+    fn finish(&mut self, conversation_id: &str, only: Option<u64>) -> Option<Turn> {
+        match only {
+            Some(id) if self.0.get(conversation_id).map(|t| t.id) != Some(id) => None,
+            _ => self.0.remove(conversation_id),
+        }
+    }
 }
 
 struct Conversations {
@@ -138,7 +193,7 @@ struct Conversations {
     /// O turno que cada conversa tem no ar. Sem isto, um turno que nunca emite
     /// `done` deixa o operador sem saída — e não haveria onde pousar uma
     /// mensagem escrita a meio dele.
-    turns: HashMap<String, Turn>,
+    turns: Turns,
 }
 
 impl Conversations {
@@ -286,20 +341,20 @@ impl Conversations {
                     turn,
                     reply,
                 } => {
-                    self.turns.insert(conversation_id, turn);
-                    let _ = reply.send(());
+                    let _ = reply.send(self.turns.register(conversation_id, turn));
                 }
                 Msg::LiveTurn {
                     conversation_id,
                     reply,
                 } => {
-                    let _ = reply.send(self.turns.get(&conversation_id).cloned());
+                    let _ = reply.send(self.turns.live(&conversation_id));
                 }
                 Msg::FinishTurn {
                     conversation_id,
+                    only,
                     reply,
                 } => {
-                    let _ = reply.send(self.turns.remove(&conversation_id));
+                    let _ = reply.send(self.turns.finish(&conversation_id, only));
                 }
             }
         }
@@ -319,7 +374,7 @@ impl ConversationsHandle {
             app,
             paths,
             index,
-            turns: HashMap::new(),
+            turns: Turns::default(),
         };
         tauri::async_runtime::spawn(state.run(rx));
         Self { tx }
@@ -481,14 +536,15 @@ impl ConversationsHandle {
     }
 
     /// Uma conversa tem um turno no ar: guarda como o parar e onde lhe falar.
-    pub async fn register_turn(&self, conversation_id: &str, turn: Turn) {
-        let _ = self
-            .ask(|reply| Msg::RegisterTurn {
-                conversation_id: conversation_id.to_string(),
-                turn,
-                reply,
-            })
-            .await;
+    /// `Err` quando já lá estava um — e aí o turno novo não deve arrancar.
+    pub async fn register_turn(&self, conversation_id: &str, turn: Turn) -> Result<(), String> {
+        self.ask(|reply| Msg::RegisterTurn {
+            conversation_id: conversation_id.to_string(),
+            turn,
+            reply,
+        })
+        .await
+        .unwrap_or_else(|_| Err("the conversation store is gone".to_string()))
     }
 
     /// O turno em curso, sem lhe mexer.
@@ -503,14 +559,82 @@ impl ConversationsHandle {
     }
 
     /// Tira o turno (None se a conversa não tinha nenhum). Tirá-lo é ao mesmo
-    /// tempo como o stop o encontra e como o fim do turno o limpa.
-    pub async fn finish_turn(&self, conversation_id: &str) -> Option<Turn> {
+    /// tempo como o stop o encontra e como o fim do turno o limpa. `only` diz
+    /// qual: um turno a limpar-se a si próprio nomeia-se, o stop leva o que
+    /// estiver lá.
+    pub async fn finish_turn(&self, conversation_id: &str, only: Option<u64>) -> Option<Turn> {
         self.ask(|reply| Msg::FinishTurn {
             conversation_id: conversation_id.to_string(),
+            only,
             reply,
         })
         .await
         .ok()
         .flatten()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn turn() -> Turn {
+        Turn::new(
+            CancellationToken::new(),
+            harness_app::chatqueue::Queue::new("c"),
+        )
+    }
+
+    /// O bug: `chat_send` chamado com um turno ainda a correr punha um segundo
+    /// processo a retomar a mesma sessão do Claude. Os dois escreviam para o
+    /// mesmo transcript, o segundo refazia trabalho que o primeiro já tinha
+    /// feito, e o modelo — a ler uma árvore que se mexeu debaixo dele —
+    /// relatava uma sessão que não existe.
+    #[test]
+    fn a_second_turn_is_refused_while_the_first_is_alive() {
+        let mut turns = Turns::default();
+        let first = turn();
+        assert!(turns.register("c1".into(), first.clone()).is_ok());
+        assert!(turns.register("c1".into(), turn()).is_err());
+        // E o primeiro continua a ser o que lá está: recusar não é substituir.
+        assert_eq!(turns.live("c1").map(|t| t.id), Some(first.id));
+    }
+
+    #[test]
+    fn a_cancelled_turn_does_not_hold_the_conversation() {
+        let mut turns = Turns::default();
+        let stopped = turn();
+        turns.register("c1".into(), stopped.clone()).unwrap();
+        stopped.token.cancel();
+        let next = turn();
+        assert!(turns.register("c1".into(), next.clone()).is_ok());
+        assert_eq!(turns.live("c1").map(|t| t.id), Some(next.id));
+    }
+
+    /// A outra metade: acabar o turno tirava "o turno desta conversa", que a
+    /// meio de uma troca já podia ser o seguinte — e deixava esse vivo e sem
+    /// registo, que é como um turno órfão nasce.
+    #[test]
+    fn a_finished_turn_only_takes_itself() {
+        let mut turns = Turns::default();
+        let old = turn();
+        turns.register("c1".into(), old.clone()).unwrap();
+        old.token.cancel();
+        let current = turn();
+        turns.register("c1".into(), current.clone()).unwrap();
+
+        assert!(turns.finish("c1", Some(old.id)).is_none());
+        assert_eq!(turns.live("c1").map(|t| t.id), Some(current.id));
+        assert_eq!(turns.finish("c1", Some(current.id)).map(|t| t.id), Some(current.id));
+    }
+
+    /// O stop do operador não nomeia nenhum: quer acabar o que estiver no ar.
+    #[test]
+    fn the_stop_takes_whatever_is_there() {
+        let mut turns = Turns::default();
+        let live = turn();
+        turns.register("c1".into(), live.clone()).unwrap();
+        assert_eq!(turns.finish("c1", None).map(|t| t.id), Some(live.id));
+        assert!(turns.live("c1").is_none());
     }
 }

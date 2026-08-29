@@ -383,14 +383,24 @@ async fn send_message(
     // never emits `done` must not leave them without an exit — and, since the
     // composer stays live, somewhere for what they type meanwhile to land.
     let token = CancellationToken::new();
-    ws.register_chat_turn(
-        &conversation.id,
-        crate::conversations::Turn {
-            token: token.clone(),
-            queue: Arc::clone(&inbox),
-        },
-    )
-    .await;
+    let turn = crate::conversations::Turn::new(token.clone(), Arc::clone(&inbox));
+    let turn_id = turn.id;
+    // Refused rather than stacked. Two turns on one conversation are two
+    // processes resuming the same Claude session, both writing to the same
+    // transcript: the second redoes work the first already did, and the model
+    // — reading a tree that moved under it — reports a second session that
+    // does not exist.
+    //
+    // The words are already in the thread by now, so a refusal here cannot end
+    // in an error: it ends where a message written mid-turn was always meant
+    // to go, which is into the turn that is running. Nothing of this run has
+    // started, so there is nothing to unwind.
+    if ws.register_chat_turn(&conversation.id, turn).await.is_err() {
+        if let Some(live) = ws.live_chat_turn(&conversation.id).await {
+            let _ = live.queue.push(&message);
+        }
+        return Ok(conversation);
+    }
     let fut = agent.run(spec, ev_tx, token);
 
     let app = ws.app_handle();
@@ -534,7 +544,7 @@ async fn send_message(
         // comes back is everything the run never read. Empty when the operator
         // stopped it, because `stop_turn` took it first and dropped the queue
         // on purpose.
-        let undelivered = match ws.finish_chat_turn(&conversation_id).await {
+        let undelivered = match ws.finish_chat_turn(&conversation_id, Some(turn_id)).await {
             Some(turn) => turn.queue.close(),
             None => Vec::new(),
         };
@@ -594,7 +604,7 @@ async fn send_message(
 /// exactly as they were written down, still saying the model never read them,
 /// and sending one again is one click.
 pub async fn stop_turn(ws: &Workspace, conversation_id: &str) {
-    let Some(turn) = ws.finish_chat_turn(conversation_id).await else {
+    let Some(turn) = ws.finish_chat_turn(conversation_id, None).await else {
         return;
     };
     let dropped = turn.queue.close();

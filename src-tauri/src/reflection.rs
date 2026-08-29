@@ -141,14 +141,14 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
 
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);
     let token = CancellationToken::new();
-    ws.register_chat_turn(
-        &conversation.id,
-        crate::conversations::Turn {
-            token: token.clone(),
-            queue: Arc::clone(&inbox),
-        },
-    )
-    .await;
+    let turn = crate::conversations::Turn::new(token.clone(), Arc::clone(&inbox));
+    let turn_id = turn.id;
+    // The look reuses an unanswered conversation, which the operator may have
+    // open and be typing into. If it already has a turn, that one is the real
+    // one — the look is what gives way.
+    if ws.register_chat_turn(&conversation.id, turn).await.is_err() {
+        return None;
+    }
     let run = ws.agent_port().run(spec, ev_tx, token.clone());
     tokio::pin!(run);
 
@@ -260,7 +260,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         );
     }
 
-    ws.finish_chat_turn(&conversation.id).await;
+    ws.finish_chat_turn(&conversation.id, Some(turn_id)).await;
     // A look that found nothing is still a look, and a cut one retries tomorrow
     // rather than tonight. One that never ran at all is not: marking it would
     // buy a day of silence for a failure nobody saw.

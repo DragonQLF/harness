@@ -130,25 +130,16 @@ pub async fn conversation_totals(
     .map_err(|e| e.to_string())?
 }
 
-/// Send a message. The answer streams back on the run channel, keyed by the
-/// conversation id.
-#[tauri::command]
-pub async fn chat_send(
-    text: String,
-    conversation_id: Option<String>,
-    attachments: Option<Vec<String>>,
-    ws: Shared<'_>,
-) -> Result<Conversation, String> {
-    let ws = Arc::clone(&ws);
-    crate::chat::send(&ws, conversation_id, text, attachments.unwrap_or_default()).await
-}
-
-/// Say something to the turn that is already running.
+/// Say something to a conversation. The one way in.
 ///
-/// The sibling of `chat_send`, and the difference is the whole feature: this
-/// one does not start a turn. It hands the message to the run in flight, which
-/// reads it while it works — and falls back to an ordinary turn when there is
-/// none, so the composer never has to know which it is.
+/// It hands the message to the run in flight, which reads it while it works,
+/// and starts an ordinary turn when there is none — answering with a null
+/// `queue_id` to say which it did. There was a `chat_send` beside this once,
+/// and the composer chose between them from its own idea of whether a turn was
+/// running. That idea is a render behind and clears on an event that can
+/// arrive early, so the choice was made on a guess about state only the
+/// backend holds. Deciding it here is not a convenience: it is the only place
+/// the answer cannot already be stale.
 #[tauri::command]
 pub async fn chat_queue(
     text: String,
