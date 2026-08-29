@@ -31,6 +31,10 @@ pub struct Settings {
     /// scoped: see `crate::allow`. Older files held bare strings and still
     /// load, but an unscoped shell entry no longer authorises anything.
     pub always_allow: Vec<AllowRule>,
+    /// Download a published release as soon as one appears, instead of asking
+    /// first. It never shortens a run: the swap still waits for the window to
+    /// close, which is the whole point of "install on quit".
+    pub auto_install_updates: bool,
     /// Project shown when the app opens.
     pub last_project: Option<String>,
     pub user_name: String,
@@ -50,6 +54,9 @@ impl Default for Settings {
             permission_mode: "acceptEdits".to_string(),
             daily_budget_usd: 5.0,
             always_allow: Vec::new(),
+            // Off: an update the operator did not ask for should not be
+            // fetched over whatever connection they happen to be on.
+            auto_install_updates: false,
             last_project: None,
             user_name: "Operator".to_string(),
             providers: Vec::new(),

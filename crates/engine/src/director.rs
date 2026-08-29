@@ -188,6 +188,7 @@ impl Engine {
                         card_id: card_id.clone(),
                         by: Actor::Director,
                         reason: reason.clone(),
+                        hunks: Vec::new(),
                     },
                     format!("director approved: {reason}"),
                 )
@@ -203,6 +204,7 @@ impl Engine {
                         card_id: card_id.clone(),
                         reason: reason.clone(),
                         by: Actor::Director,
+                        hunks: Vec::new(),
                     },
                     format!("director sent it back: {reason}"),
                 )

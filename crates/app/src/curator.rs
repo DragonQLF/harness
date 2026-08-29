@@ -100,12 +100,14 @@ mod tests {
             cost_usd: 0.0,
             turns: 0,
             runs: 1,
-            last_review: Some(Review { by: Actor::Human, approved: true, reason: String::new() }),
+            last_review: Some(Review { by: Actor::Human, approved: true, reason: String::new(), hunks: Vec::new() }),
+            hunk_verdicts: Vec::new(),
             session_id: None,
             worktree: None,
             branch: None,
             depends_on: Vec::new(),
             budget_paused: false,
+            finished_ms: None,
         }
     }
 

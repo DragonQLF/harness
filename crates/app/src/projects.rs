@@ -15,6 +15,7 @@ pub struct Project {
     /// `accent`, `info`, `ok` or `warn`.
     pub tone: String,
     pub base_branch: String,
+    #[ts(type = "number")]
     pub added_ms: u64,
     /// A paused project starts no new runs.
     pub paused: bool,

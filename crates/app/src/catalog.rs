@@ -30,6 +30,7 @@ pub struct CatalogModel {
     pub id: String,
     pub name: String,
     /// Tokens of context. Zero when the catalogue does not say.
+    #[ts(type = "number")]
     pub context: u64,
     /// Can it call tools? An agent that cannot is not an agent.
     pub tool_call: bool,

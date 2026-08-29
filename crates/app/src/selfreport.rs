@@ -24,6 +24,7 @@ const DAY_MS: u64 = 86_400_000;
 /// restart instead of being indistinguishable from a deliberate no.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct ExpiredApproval {
+    #[ts(type = "number")]
     pub ts_ms: u64,
     pub project_id: String,
     pub tool: String,
@@ -391,6 +392,7 @@ mod tests {
                     card_id: CardId::new("c_2"),
                     reason: "wrong shape".into(),
                     by: harness_domain::Actor::Director,
+                    hunks: Vec::new(),
                 },
             ),
             stored(
@@ -429,6 +431,7 @@ mod tests {
                 card_id: CardId::new("old"),
                 reason: "ancient".into(),
                 by: harness_domain::Actor::Human,
+                hunks: Vec::new(),
             },
         )];
         let expired = vec![ExpiredApproval {

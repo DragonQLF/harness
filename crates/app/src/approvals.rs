@@ -38,6 +38,7 @@ pub struct PendingApproval {
     /// scoped to *this* call rather than to the bare tool name.
     #[ts(type = "unknown")]
     pub input: JsonValue,
+    #[ts(type = "number")]
     pub asked_ms: u64,
 }
 
