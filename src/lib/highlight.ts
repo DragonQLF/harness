@@ -22,7 +22,12 @@
  *  ones are the Asphalt dark counterparts of the same four roles.
  */
 
-import type { ThemedToken } from "@shikijs/types";
+// Through `shiki`'s own entry point, not `@shikijs/types` directly. That
+// package is a transitive dependency: npm hoists it into a flat node_modules
+// so it resolves locally, and pnpm — which CI installs with — does not. An
+// import that only works under one package manager is a phantom dependency,
+// and it broke the v0.3.5 build on both platforms.
+import type { ThemedToken } from "shiki/types";
 import type { HighlighterCore } from "shiki/core";
 
 /** One run of characters that shares a colour. */
