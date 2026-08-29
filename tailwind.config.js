@@ -23,7 +23,11 @@
  *  @type {import('tailwindcss').Config}
  */
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // O último caminho é o do `streamdown`: as classes dele vivem no JS já
+  // compilado do pacote, não no nosso código-fonte, por isso o Tailwind não
+  // as gera a menos que o conteúdo aponte para lá. Sem esta linha o pacote
+  // renderiza sem estilo nenhum e parece partido.
+  content: ["./index.html", "./src/**/*.{ts,tsx}", "./node_modules/streamdown/dist/*.js"],
 
   darkMode: ["selector", '[data-theme="dark"]'],
 

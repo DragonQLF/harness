@@ -23,7 +23,8 @@
     "motion": "^13.1.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "shiki": "^4.4.3"
+    "shiki": "^4.4.3",
+    "streamdown": "^2.6.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
