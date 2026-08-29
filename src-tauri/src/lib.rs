@@ -178,6 +178,7 @@ pub fn run() {
             commands::chat::conversation_pin,
             commands::chat::conversation_transcript,
             commands::chat::chat_send,
+            commands::chat::chat_queue,
             commands::chat::conversation_totals,
             commands::chat::chat_pick_files,
             commands::chat::chat_save_attachment,

@@ -3,7 +3,8 @@ use std::pin::Pin;
 use std::process::Stdio;
 
 use harness_ports::{
-    ApprovalRequest, Grants, McpTransport, RunEvent, RunOutcome, RunSpec, ToolCall,
+    ApprovalRequest, Grants, Inbox, McpTransport, QueuedMessage, RunEvent, RunOutcome, RunSpec,
+    ToolCall,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -94,6 +95,15 @@ fn summarize(input: &serde_json::Value) -> String {
     }
 }
 
+/// The next thing the operator said, or never — so the run's select loop can
+/// carry a branch for an inbox it may not have.
+async fn next_queued(inbox: Option<Inbox>) -> Option<QueuedMessage> {
+    match inbox {
+        Some(inbox) => inbox.next().await,
+        None => std::future::pending().await,
+    }
+}
+
 struct LineSink<'a> {
     stdin: &'a mut tokio::process::ChildStdin,
 }
@@ -158,6 +168,11 @@ async fn drive(
     let mut cost_usd: Option<f64> = None;
     let mut turns: Option<u32> = None;
     let mut saw_done = false;
+    // Two handles on the same inbox on purpose. `reading` is emptied once the
+    // inbox says it has closed, so the select loop stops asking; `inbox` stays
+    // whole, because an acknowledgement can still arrive after the last read.
+    let inbox = spec.inbox.clone();
+    let mut reading = inbox.clone();
 
     let outcome = loop {
         tokio::select! {
@@ -167,6 +182,27 @@ async fn drive(
                     .await;
                 let _ = child.kill().await;
                 break Ok(RunOutcome::Cancelled);
+            }
+            queued = next_queued(reading.clone()), if reading.is_some() => {
+                match queued {
+                    Some(message) => {
+                        // Straight down the same pipe the run travels on. The
+                        // sidecar hands it to the SDK's input stream, and the
+                        // model reads it without the turn having to end.
+                        let line = serde_json::json!({
+                            "type": "message",
+                            "id": id,
+                            "message_id": message.id,
+                            "text": message.text,
+                        });
+                        if (LineSink { stdin: &mut stdin }).send(line).await.is_err() {
+                            break Err("sidecar stdin closed while queueing a message".to_string());
+                        }
+                    }
+                    // The inbox shut before the run did. Stop asking, rather
+                    // than spinning on a branch that answers instantly.
+                    None => reading = None,
+                }
             }
             line = lines.next_line() => {
                 let line = match line {
@@ -231,6 +267,23 @@ async fn drive(
                             "turns" => {
                                 let count = ev.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
                                 let _ = tx.send(RunEvent::Turns { count }).await;
+                            }
+                            "message_read" => {
+                                // The one thing that can honestly retire a
+                                // "not read yet" mark: the sidecar wrote it to
+                                // the SDK, so the run has it.
+                                if let Some(queue_id) =
+                                    ev.get("message_id").and_then(|m| m.as_str())
+                                {
+                                    if let Some(inbox) = &inbox {
+                                        inbox.mark_read(queue_id);
+                                    }
+                                    let _ = tx
+                                        .send(RunEvent::UserRead {
+                                            queue_id: queue_id.to_string(),
+                                        })
+                                        .await;
+                                }
                             }
                             "usage" => {
                                 let tokens = |name: &str| {

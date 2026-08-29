@@ -82,6 +82,9 @@ impl Engine {
                 approver: None,
                 resume_session: None,
                 tools: None,
+                // Nobody is typing at a review; only a conversation has an
+                // operator mid-run.
+                inbox: None,
                 thinking_tokens: None,
                 // A review reads one diff; no fan-out, and no report — the
                 // commit it reviews was already written by the worker's run.

@@ -508,8 +508,11 @@ export function Chat() {
     if (el && stuck.current) el.scrollTop = el.scrollHeight;
   }, [chat, chatBusy, chatThinking]);
 
+  /** The composer stays live for the whole turn. `sendChat` decides what that
+   *  means — a message typed while the agent is working joins the run instead
+   *  of starting a second one — so there is nothing to refuse here. */
   const send = (body: string = text) => {
-    if ((!body.trim() && attached.length === 0) || chatBusy) return;
+    if (!body.trim() && attached.length === 0) return;
     sendChat(body, attached);
     setText("");
     setAttached([]);
@@ -771,11 +774,27 @@ export function Chat() {
                 variants={rowIn}
                 className="flex flex-none flex-col gap-3"
               >
-                {block.kind === "user" && (
-                  <div className="max-w-[62%] self-end whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] bg-ink px-3.75 py-2.75 text-base leading-[1.55] text-white dark:bg-ink-d dark:text-canvas-d">
-                    {block.msg!.text}
-                  </div>
-                )}
+                {/* A queued message is drawn as what it is: said, written
+                    down, and not yet read. The filled bubble is reserved for
+                    messages the run actually has — drawing this one the same
+                    way would claim the model had seen it, which is the one
+                    thing the screen must never claim on its own. It settles
+                    into an ordinary bubble on the backend's `user_read`. */}
+                {block.kind === "user" &&
+                  (block.msg!.pending ? (
+                    <div className="flex max-w-[62%] flex-col items-end gap-1 self-end">
+                      <div className="w-full whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] border border-dashed border-line2 bg-surface px-3.75 py-2.75 text-base leading-[1.55] text-ink2 dark:border-line2-d dark:bg-surface-d dark:text-ink2-d">
+                        {block.msg!.text}
+                      </div>
+                      <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
+                        queued · not read yet
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="max-w-[62%] self-end whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] bg-ink px-3.75 py-2.75 text-base leading-[1.55] text-white dark:bg-ink-d dark:text-canvas-d">
+                      {block.msg!.text}
+                    </div>
+                  ))}
 
                 {block.kind === "notice" && (
                   <div className="flex max-w-[82%] flex-col items-start gap-2">
@@ -898,7 +917,11 @@ export function Chat() {
               onPaste={onPaste}
               aria-label={`Tell ${speaker?.name ?? "the Director"} what happens next`}
               placeholder={
-                taking ? "Saving that attachment…" : "Tell the crew what happens next…"
+                taking
+                  ? "Saving that attachment…"
+                  : chatBusy
+                    ? "Say something while it works — it reads this at its next turn…"
+                    : "Tell the crew what happens next…"
               }
               className="w-full resize-none border-none bg-transparent text-md leading-[1.6] text-ink outline-none placeholder:text-faint dark:text-ink-d dark:placeholder:text-faint-d"
             />
@@ -978,27 +1001,36 @@ export function Chat() {
                 Voice · soon
               </span>
 
-              {chatBusy ? (
+              {/* Both, while a turn runs. Stop used to replace Send, which is
+                  what made the composer dead for the length of a turn: there
+                  was no way to say anything short of ending the work. */}
+              <span className="ml-auto flex flex-none items-center gap-1.75">
+                {chatBusy && (
+                  <button
+                    type="button"
+                    aria-label="Stop this turn"
+                    title="Stop this turn — anything you have queued is dropped, and stays above unsent"
+                    onClick={stop}
+                    className="grid h-6.5 w-6.5 flex-none cursor-pointer place-items-center rounded-full border border-line bg-surface text-muted hover:bg-hovered dark:border-line-d dark:bg-surface-d dark:text-muted-d dark:hover:bg-hovered-d"
+                  >
+                    <Square size={9} strokeWidth={3} fill="currentColor" aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  aria-label="Stop this turn"
-                  title="Stop this turn"
-                  onClick={stop}
-                  className="ml-auto grid h-6.5 w-6.5 flex-none cursor-pointer place-items-center rounded-full border-none bg-primary text-white dark:bg-primary-d dark:text-canvas-d"
-                >
-                  <Square size={9} strokeWidth={3} fill="currentColor" aria-hidden="true" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  aria-label="Send"
+                  aria-label={chatBusy ? "Queue this for the running turn" : "Send"}
+                  title={
+                    chatBusy
+                      ? "It joins the turn already running — the agent reads it while it works"
+                      : undefined
+                  }
                   onClick={() => send()}
                   disabled={!text.trim() && attached.length === 0}
-                  className="ml-auto grid h-6.5 w-6.5 flex-none cursor-pointer place-items-center rounded-full border-none bg-primary text-white disabled:cursor-default disabled:opacity-50 dark:bg-primary-d dark:text-canvas-d"
+                  className="grid h-6.5 w-6.5 flex-none cursor-pointer place-items-center rounded-full border-none bg-primary text-white disabled:cursor-default disabled:opacity-50 dark:bg-primary-d dark:text-canvas-d"
                 >
                   <ArrowUp size={13} strokeWidth={2.7} aria-hidden="true" />
                 </button>
-              )}
+              </span>
             </div>
           </div>
         </div>

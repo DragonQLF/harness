@@ -29,6 +29,12 @@ export interface ChatMsg {
   detail?: string | null;
   toolUseId?: string | null;
   parentToolUseId?: string | null;
+  /** User bubble only: this was said while a turn was already running, and the
+   *  backend has not yet said the model read it. Never a guess — it is set from
+   *  the id `chat_queue` answered with, and cleared by the `user_read` that
+   *  names the same id. */
+  queueId?: string | null;
+  pending?: boolean;
 }
 
 /** One stored transcript line as a chat bubble. Deltas never reach here: the
@@ -38,6 +44,23 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
   switch (line.kind) {
     case "user_message":
       return line.text?.trim() ? { role: "user", text: line.text, ts } : null;
+    case "user_queued":
+      // Written down when it was accepted and nothing more. A transcript that
+      // stops here is one where the message never reached the model, and the
+      // bubble goes on saying so.
+      return line.text?.trim()
+        ? {
+            role: "user",
+            text: line.text,
+            ts,
+            queueId: line.queue_id ?? null,
+            pending: true,
+          }
+        : null;
+    case "user_read":
+      // Carries no words: it only settles the queued line above it, which the
+      // fold does by id.
+      return { role: "user", text: "", ts, queueId: line.queue_id ?? null, pending: false };
     case "text":
       return line.text?.trim() ? { role: "agent", text: line.text, ts } : null;
     case "notice":
@@ -97,9 +120,12 @@ export function toolName(raw: string | undefined | null): string {
     .trim() || "tool";
 }
 
-/** Stored logs list call and result as separate lines; the transcript wants
- *  one bubble that opens and closes. Results with no open call stay alone. */
-function foldToolResults(msgs: ChatMsg[]): ChatMsg[] {
+/** Stored logs record a thing and then what became of it on two lines; the
+ *  transcript wants one bubble that opens and closes. Two pairs fold that way:
+ *  a tool call and its result, and a queued message and the moment the run
+ *  read it. A closing line with nothing open stays alone rather than being
+ *  dropped — a transcript joined mid-run is missing the opening, not lying. */
+function fold(msgs: ChatMsg[]): ChatMsg[] {
   const out: ChatMsg[] = [];
   for (const m of msgs) {
     if (m.role === "tool" && m.ok != null && m.toolUseId) {
@@ -114,9 +140,26 @@ function foldToolResults(msgs: ChatMsg[]): ChatMsg[] {
       }
       if (matched) continue;
     }
+    if (m.role === "user" && m.pending === false && m.queueId) {
+      for (let i = out.length - 1; i >= 0; i--) {
+        const p = out[i];
+        if (p.role === "user" && p.pending && p.queueId === m.queueId) {
+          out[i] = { ...p, pending: false };
+          break;
+        }
+      }
+      // A `user_read` whose queued line is not on screen has no words of its
+      // own, so there is nothing honest to draw for it.
+      continue;
+    }
     out.push(m);
   }
   return out;
+}
+
+/** One stored transcript, as bubbles. */
+function toChat(lines: RunLogLine[]): ChatMsg[] {
+  return fold(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null));
 }
 
 /** O que o chat precisa do resto do store: avisar o operador, e saber que
@@ -153,6 +196,9 @@ export interface ChatState {
    *  aí o feed de execução não o vê. */
   consume: (u: RunUpdate) => boolean;
 
+  /** Say something. While a turn is running this queues rather than refusing:
+   *  the message joins the run in flight and the model reads it at its next
+   *  read, so a correction lands during the work instead of after it. */
   sendChat: (text: string, attachments?: string[]) => Promise<void>;
   /** Put the screen into a draft. Nothing is written until the first message:
    *  the row, and the Claude session behind it, are born on send. */
@@ -187,6 +233,12 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   // creates the row — state would be a render behind.
   const draftRef = useRef<string | null>(null);
   draftRef.current = draftProfile;
+  /** Numbers the pending bubbles until the backend hands each one its real id. */
+  const pendingSeq = useRef(0);
+  /** Queued messages the run said it had read before the call that queued them
+   *  came back. Without this the late reply would re-mark a message pending
+   *  that the model already has. */
+  const readAlready = useRef<Set<string>>(new Set());
 
   /** Land on a real conversation: whatever was drafted is not pending any more. */
   const settle = useCallback((id: string) => {
@@ -206,7 +258,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       chatRef.current = lastConversation;
       api
         .conversationTranscript(lastConversation)
-        .then((lines) => setChat(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null)))
+        .then((lines) => setChat(toChat(lines)))
         .catch(() => {});
     }
   }, []);
@@ -305,6 +357,18 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         if (u.text && !streamedRef.current) appendToDirector(u.text);
         streamedRef.current = false;
         break;
+      case "user_read": {
+        // The run has it. This is the only thing that retires the "not read
+        // yet" mark — the screen never decides that for itself.
+        const id = u.queue_id;
+        if (id) {
+          readAlready.current.add(id);
+          setChat((cs) =>
+            cs.map((m) => (m.queueId === id && m.pending ? { ...m, pending: false } : m)),
+          );
+        }
+        break;
+      }
       case "notice":
         // Relay itself talking — a resume that could not be honoured.
         if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text!, ts: u.ts_ms }]);
@@ -338,12 +402,60 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   const sendChat = useCallback(
     async (text: string, attachments: string[] = []) => {
       const clean = text.trim();
-      if ((!clean && attachments.length === 0) || chatBusy) return;
+      if (!clean && attachments.length === 0) return;
       // What goes on screen is what the backend will fold into the turn: the
       // message, then the files by name. No hidden context.
       const shown = attachments.length
         ? [clean, attachments.map((f) => `- ${f}`).join("\n")].filter(Boolean).join("\n\n")
         : clean;
+
+      // A turn is already running, so this does not start a second one: it
+      // joins the one in flight and the model reads it while it works. The
+      // bubble appears now — the message has left the composer, and hiding it
+      // until the model gets round to it is the worse lie — but it is marked
+      // as not read until the backend says it was.
+      if (chatBusy && chatRef.current) {
+        const conversationId = chatRef.current;
+        // A local handle only, so the reply can find the bubble it belongs to.
+        // The real id is the backend's, and replaces this the moment it lands.
+        const mark = `pending-${++pendingSeq.current}`;
+        setChat((cs) => [
+          ...cs,
+          { role: "user", text: shown, ts: Date.now(), queueId: mark, pending: true },
+        ]);
+        try {
+          const queued = await api.chatQueue(clean, conversationId, attachments);
+          setChat((cs) =>
+            cs.map((m) =>
+              m.queueId === mark
+                ? {
+                    ...m,
+                    queueId: queued.queue_id,
+                    // The run may already have said it read this, before the
+                    // call answering with its id came back.
+                    pending:
+                      queued.queue_id != null && !readAlready.current.has(queued.queue_id),
+                  }
+                : m,
+            ),
+          );
+          // No turn to join after all: the backend started one, which is an
+          // ordinary send, and the screen has to catch up with it.
+          if (!queued.queue_id) {
+            setChatBusy(true);
+            setChatThinking("");
+            streamedRef.current = false;
+          }
+          await refreshConversations();
+        } catch (e) {
+          // Refused by the backend, so it is nowhere: not on disk, not in a
+          // queue. Nothing to leave on screen.
+          setChat((cs) => cs.filter((m) => m.queueId !== mark));
+          fail(e, "The message could not be queued");
+        }
+        return;
+      }
+
       setChat((cs) => [...cs, { role: "user", text: shown, ts: Date.now() }]);
       setChatBusy(true);
       setChatThinking("");
@@ -390,7 +502,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         const conversation = await api.conversationSelect(id);
         const lines = await api.conversationTranscript(id);
         settle(conversation.id);
-        setChat(foldToolResults(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null)));
+        setChat(toChat(lines));
         setChatThinking("");
         setChatBusy(false);
         streamedRef.current = false;

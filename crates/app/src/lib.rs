@@ -8,6 +8,7 @@ pub mod agents;
 pub mod allow;
 pub mod approvals;
 pub mod attachments;
+pub mod chatqueue;
 pub mod conversations;
 pub mod checks;
 pub mod code;

@@ -153,6 +153,9 @@ interface Store {
   discard: (cardId: string) => Promise<void>;
   loadRunLog: (runId: string, cardId: string) => Promise<void>;
 
+  /** Say something. Never refused while the agent is working: the message is
+   *  queued into the turn in flight, shown as not yet read, and settles into
+   *  an ordinary one when the backend says the model has it. */
   sendChat: (text: string, attachments?: string[]) => Promise<void>;
   /** Put the screen into a draft. The row and its Claude session are created
    *  by the first message, so a draft nobody types into costs nothing. */

@@ -732,14 +732,24 @@ impl Workspace {
 
     // ---- chat turns ----
 
-    /// A conversation has a turn in flight: remember its cancellation token.
-    pub async fn register_chat_turn(&self, conversation_id: &str, token: CancellationToken) {
-        self.chats.register_turn(conversation_id, token).await
+    /// A conversation has a turn in flight: remember how to stop it, and where
+    /// anything typed while it runs should land.
+    pub async fn register_chat_turn(&self, conversation_id: &str, turn: crate::conversations::Turn) {
+        self.chats.register_turn(conversation_id, turn).await
     }
 
-    /// Take the turn's token out (None if the conversation had none). Taking
-    /// it is both how stop finds it and how completion cleans up.
-    pub async fn finish_chat_turn(&self, conversation_id: &str) -> Option<CancellationToken> {
+    /// The turn in flight, left where it is. This is what a message written
+    /// mid-turn asks for: it wants to speak to the turn, not to end it.
+    pub async fn live_chat_turn(&self, conversation_id: &str) -> Option<crate::conversations::Turn> {
+        self.chats.live_turn(conversation_id).await
+    }
+
+    /// Take the turn out (None if the conversation had none). Taking it is
+    /// both how stop finds it and how completion cleans up.
+    pub async fn finish_chat_turn(
+        &self,
+        conversation_id: &str,
+    ) -> Option<crate::conversations::Turn> {
         self.chats.finish_turn(conversation_id).await
     }
 

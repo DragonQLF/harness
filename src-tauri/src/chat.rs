@@ -55,6 +55,111 @@ pub(crate) const READ_ONLY_TOOLS: [&str; 7] = [
     "mcp__harness__propose_improvement",
 ];
 
+/// What `chat_queue` did with a message.
+///
+/// One shape for two outcomes on purpose: the composer does not know whether
+/// a turn is still running by the time the call lands, and the answer to that
+/// is the backend's. `queue_id` set means it went into a turn already in
+/// flight and the model has not read it yet; `None` means there was no turn,
+/// so it became one — an ordinary message, drawn as one.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Queued {
+    pub queue_id: Option<String>,
+    pub conversation: Conversation,
+}
+
+/// Publish an event under a conversation's id, in the same shape any run uses
+/// — which is what lets the UI keep one typed listener for both.
+fn publish_chat(ws: &Workspace, conversation_id: &str, project_id: &str, event: RunEvent) {
+    let _ = ws.app_handle().emit(
+        "engine://run",
+        RunUpdate {
+            project_id: project_id.to_string(),
+            card_id: CardId::new(conversation_id.to_string()),
+            run_id: RunId(conversation_id.to_string()),
+            ts_ms: SystemClock.now_millis(),
+            event,
+        },
+    );
+}
+
+/// Write an event into the transcript and put it on screen. The two always go
+/// together for anything that is not ephemeral, and doing one without the
+/// other is how a thread ends up disagreeing with itself after a reload.
+fn note_chat(ws: &Workspace, conversation_id: &str, project_id: &str, event: RunEvent) {
+    ws.append_chat_line(
+        conversation_id,
+        RunLogLine {
+            ts_ms: SystemClock.now_millis(),
+            event: event.clone(),
+        },
+    );
+    publish_chat(ws, conversation_id, project_id, event);
+}
+
+/// Say something to a turn that is already running.
+///
+/// This does not interrupt and does not start a second turn: the message goes
+/// into the run's inbox, the sidecar hands it to the SDK's input stream, and
+/// the model reads it at its next natural read — so a correction lands *during*
+/// the work instead of after it.
+///
+/// Two paths end in an ordinary turn instead. There may be no turn in flight
+/// at all — the composer asked a moment too late — or the turn may end between
+/// the look-up and the push. Neither is an error worth showing: the message
+/// simply becomes the next turn, which is what the operator meant either way.
+pub async fn queue(
+    ws: &Arc<Workspace>,
+    conversation_id: String,
+    text: String,
+    attachments: Vec<String>,
+) -> Result<Queued, String> {
+    for file in &attachments {
+        if !PathBuf::from(file).is_file() {
+            return Err(format!("{file} is not a file on this machine"));
+        }
+    }
+    let message = director::with_attachments(&text, &attachments);
+    if message.is_empty() {
+        return Err("nothing to send".to_string());
+    }
+
+    let queued = match ws.live_chat_turn(&conversation_id).await {
+        Some(turn) => turn.queue.push(&message).ok(),
+        None => None,
+    };
+    let Some(queued) = queued else {
+        let conversation = send(ws, Some(conversation_id), text, attachments).await?;
+        return Ok(Queued {
+            queue_id: None,
+            conversation,
+        });
+    };
+
+    // Written down before it is delivered, and marked as exactly that. If
+    // Relay dies now, the thread reopens with the message still there and
+    // still saying the model never saw it — see the queueing notes in
+    // `harness_app::chatqueue`.
+    let conversation = ws
+        .conversation(&conversation_id)
+        .await
+        .ok_or_else(|| format!("no conversation {conversation_id}"))?;
+    note_chat(
+        ws,
+        &conversation_id,
+        conversation.project_id.as_deref().unwrap_or_default(),
+        RunEvent::UserQueued {
+            queue_id: queued.id.clone(),
+            text: message.clone(),
+        },
+    );
+    let conversation = ws.record_chat_message(&conversation_id, &message).await?;
+    Ok(Queued {
+        queue_id: Some(queued.id),
+        conversation,
+    })
+}
+
 /// Send one message. Returns as soon as the run is under way: the answer
 /// arrives on the `engine://run` channel, keyed by the conversation id.
 pub async fn send(
@@ -62,6 +167,33 @@ pub async fn send(
     conversation_id: Option<String>,
     text: String,
     attachments: Vec<String>,
+) -> Result<Conversation, String> {
+    send_message(ws, conversation_id, text, attachments, true).await
+}
+
+/// The next turn, started from inside the one that just ended, carrying what
+/// that one never read. Boxed rather than `async`: the recursion is what makes
+/// the guarantee — a message never vanishes because a run finished first — and
+/// a boxed future is what makes the recursion finite.
+fn carried_turn(
+    ws: Arc<Workspace>,
+    conversation_id: String,
+    text: String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Conversation, String>> + Send>> {
+    Box::pin(async move {
+        send_message(&ws, Some(conversation_id), text, Vec::new(), false).await
+    })
+}
+
+/// `record` is false for a turn carrying messages that were queued against the
+/// run before it: their words are already in the transcript, and writing them
+/// again would say them twice.
+async fn send_message(
+    ws: &Arc<Workspace>,
+    conversation_id: Option<String>,
+    text: String,
+    attachments: Vec<String>,
+    record: bool,
 ) -> Result<Conversation, String> {
     // A file that is not there is worse than no file: the model would go
     // looking and report a failure the operator caused. Refuse now, by name.
@@ -170,17 +302,21 @@ pub async fn send(
 
     // The operator's own turn goes into the transcript first, so a conversation
     // reads as a conversation rather than as a list of answers.
-    let now = SystemClock.now_millis();
-    ws.append_chat_line(
-        &conversation.id,
-        RunLogLine {
-            ts_ms: now,
-            event: RunEvent::UserMessage {
-                text: message.clone(),
+    let conversation = if record {
+        let now = SystemClock.now_millis();
+        ws.append_chat_line(
+            &conversation.id,
+            RunLogLine {
+                ts_ms: now,
+                event: RunEvent::UserMessage {
+                    text: message.clone(),
+                },
             },
-        },
-    );
-    let conversation = ws.record_chat_message(&conversation.id, &message).await?;
+        );
+        ws.record_chat_message(&conversation.id, &message).await?
+    } else {
+        conversation
+    };
 
     // Relay's own tools. The mutating ones are not in `allowed_tools`, so the
     // SDK sends each call through the approver first: the operator sees "the
@@ -197,6 +333,11 @@ pub async fn send(
     allowed_tools.extend(READ_ONLY_TOOLS.iter().map(|t| t.to_string()));
     allowed_tools.sort();
     allowed_tools.dedup();
+
+    // Where anything said while this turn runs lands. Built per turn: a queue
+    // that outlived its run would hold messages for a model that is no longer
+    // listening.
+    let inbox = harness_app::chatqueue::Queue::new(&conversation.id);
 
     let spec = RunSpec {
         provider: harness_app::providers::find(&settings.providers, &profile.provider)
@@ -215,6 +356,9 @@ pub async fn send(
         )),
         resume_session: resume_session.clone(),
         tools: Some(tools),
+        // The whole point of the queue: this run can be spoken to while it
+        // works. Only a conversation carries one — nobody is typing at a card.
+        inbox: Some(Arc::clone(&inbox) as harness_ports::Inbox),
         // The operator watches it think while it works, so give it room to.
         thinking_tokens: Some(4000),
         // A conversation acts through Relay's own tools; no fan-out, and
@@ -236,9 +380,17 @@ pub async fn send(
     );
     let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
     // Registered by conversation id so the operator has a stop: a turn that
-    // never emits `done` must not leave them without an exit.
+    // never emits `done` must not leave them without an exit — and, since the
+    // composer stays live, somewhere for what they type meanwhile to land.
     let token = CancellationToken::new();
-    ws.register_chat_turn(&conversation.id, token.clone()).await;
+    ws.register_chat_turn(
+        &conversation.id,
+        crate::conversations::Turn {
+            token: token.clone(),
+            queue: Arc::clone(&inbox),
+        },
+    )
+    .await;
     let fut = agent.run(spec, ev_tx, token);
 
     let app = ws.app_handle();
@@ -372,18 +524,100 @@ pub async fn send(
                 publish(event);
             }
         }
+
         // The turn is over, however it ended: done, failed or cancelled.
-        ws.finish_chat_turn(&conversation_id).await;
+        // Deregistered only now, after its last event has gone out — a turn
+        // taken off the list earlier would leave a window in which a message
+        // finds no turn to join and none of its events have arrived either, so
+        // the screen would start a fresh turn while still believing the old
+        // one was running. Taking it is also what shuts the inbox, and what
+        // comes back is everything the run never read. Empty when the operator
+        // stopped it, because `stop_turn` took it first and dropped the queue
+        // on purpose.
+        let undelivered = match ws.finish_chat_turn(&conversation_id).await {
+            Some(turn) => turn.queue.close(),
+            None => Vec::new(),
+        };
+
+        // A message typed while the turn was ending must not vanish because it
+        // lost the race. Its words are already in the transcript, so all that
+        // changes here is the mark — from queued to read — and then it becomes
+        // the next turn, in the order it was typed.
+        if !undelivered.is_empty() {
+            for message in &undelivered {
+                let event = RunEvent::UserRead {
+                    queue_id: message.id.clone(),
+                };
+                ws.append_chat_line(
+                    &conversation_id,
+                    RunLogLine {
+                        ts_ms: SystemClock.now_millis(),
+                        event: event.clone(),
+                    },
+                );
+                publish(event);
+            }
+            let carried = undelivered
+                .iter()
+                .map(|m| m.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if let Err(e) =
+                carried_turn(Arc::clone(&ws), conversation_id.clone(), carried).await
+            {
+                let notice = RunEvent::Notice {
+                    text: format!(
+                        "what you sent while that turn was running could not be started as \
+                         a turn of its own ({e}). It is still above — send it again."
+                    ),
+                };
+                ws.append_chat_line(
+                    &conversation_id,
+                    RunLogLine {
+                        ts_ms: SystemClock.now_millis(),
+                        event: notice.clone(),
+                    },
+                );
+                publish(notice);
+            }
+        }
     });
 
     Ok(conversation)
 }
 
 /// Stop the turn a conversation has in flight. No-op when there is none.
+///
+/// Stop means stop, and that includes the queue: anything the operator typed
+/// while the turn ran is dropped rather than delivered into a turn they have
+/// just asked to end. Nothing is thrown away — the messages stay in the thread
+/// exactly as they were written down, still saying the model never read them,
+/// and sending one again is one click.
 pub async fn stop_turn(ws: &Workspace, conversation_id: &str) {
-    if let Some(token) = ws.finish_chat_turn(conversation_id).await {
-        token.cancel();
+    let Some(turn) = ws.finish_chat_turn(conversation_id).await else {
+        return;
+    };
+    let dropped = turn.queue.close();
+    turn.token.cancel();
+    if dropped.is_empty() {
+        return;
     }
+    let project_id = ws
+        .conversation(conversation_id)
+        .await
+        .and_then(|c| c.project_id)
+        .unwrap_or_default();
+    let notice = RunEvent::Notice {
+        text: if dropped.len() == 1 {
+            "stopped before the message you queued was read — it is above, unsent.".to_string()
+        } else {
+            format!(
+                "stopped before the {} messages you queued were read — they are above, unsent.",
+                dropped.len()
+            )
+        },
+    };
+    note_chat(ws, conversation_id, &project_id, notice);
 }
 
 /// The agent used for conversations: the sidecar or the command line, decided

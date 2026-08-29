@@ -143,6 +143,29 @@ pub async fn chat_send(
     crate::chat::send(&ws, conversation_id, text, attachments.unwrap_or_default()).await
 }
 
+/// Say something to the turn that is already running.
+///
+/// The sibling of `chat_send`, and the difference is the whole feature: this
+/// one does not start a turn. It hands the message to the run in flight, which
+/// reads it while it works — and falls back to an ordinary turn when there is
+/// none, so the composer never has to know which it is.
+#[tauri::command]
+pub async fn chat_queue(
+    text: String,
+    conversation_id: String,
+    attachments: Option<Vec<String>>,
+    ws: Shared<'_>,
+) -> Result<crate::chat::Queued, String> {
+    let ws = Arc::clone(&ws);
+    crate::chat::queue(
+        &ws,
+        conversation_id,
+        text,
+        attachments.unwrap_or_default(),
+    )
+    .await
+}
+
 /// Files to attach to the next message. The picker is native, so the operator
 /// chooses with the same dialog they know; Relay only learns the paths.
 #[tauri::command]

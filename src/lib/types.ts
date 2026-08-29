@@ -147,6 +147,10 @@ export interface Envelope {
 export type RunEventKind =
   | "started"
   | "user_message"
+  /** Said while a turn was already running, and not yet read by the model. */
+  | "user_queued"
+  /** The same message, once the run has it. The two fold into one bubble. */
+  | "user_read"
   | "text"
   | "delta"
   | "thinking"
@@ -176,6 +180,20 @@ export interface RunUpdate {
   turns?: number | null;
   result?: string | null;
   allow?: boolean;
+  /** On `user_queued` and `user_read`: which queued message this is about. */
+  queue_id?: string;
+}
+
+/** What `chat_queue` did.
+ *
+ *  Handwritten for the same reason as `Bootstrap`: it is a shell response, not
+ *  a domain type. `queue_id` set means the message went into a turn that was
+ *  already running and the model has not read it yet — the screen marks it so,
+ *  and settles it on the `user_read` that names the same id. `null` means
+ *  there was no turn to join, so it started one and is an ordinary message. */
+export interface Queued {
+  queue_id: string | null;
+  conversation: Conversation;
 }
 
 /** What an attachment looks like, for the chip that stands for it. Written by
@@ -204,6 +222,8 @@ export interface RunLogLine {
   turns?: number | null;
   request_id?: string;
   allow?: boolean;
+  /** On `user_queued` and `user_read`: which queued message this is about. */
+  queue_id?: string;
   /** On a `usage` line: the model that spent those tokens. It is the only
    *  record of what a run actually ran on — the agent profile says what it
    *  would run on *today*, which is a different question once the profile has

@@ -391,6 +391,9 @@ impl Engine {
             // write to Relay, not to the repository, so it rides in
             // allowed_tools instead of the approval queue.
             tools,
+            // A card run is nobody's conversation: there is no composer
+            // pointed at it, so there is nothing to queue.
+            inbox: None,
             thinking_tokens: None,
             // A worker may fan out one level; its children never may.
             subagents: true,

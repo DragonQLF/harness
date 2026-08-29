@@ -18,6 +18,7 @@
 //! ficheiro tem o texto.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, oneshot};
@@ -103,22 +104,41 @@ enum Msg {
     },
     RegisterTurn {
         conversation_id: String,
-        token: CancellationToken,
+        turn: Turn,
         reply: oneshot::Sender<()>,
+    },
+    /// Espreitar sem tirar: quem escreve a meio de um turno quer falar com ele,
+    /// não acabá-lo.
+    LiveTurn {
+        conversation_id: String,
+        reply: oneshot::Sender<Option<Turn>>,
     },
     FinishTurn {
         conversation_id: String,
-        reply: oneshot::Sender<Option<CancellationToken>>,
+        reply: oneshot::Sender<Option<Turn>>,
     },
+}
+
+/// O turno que uma conversa tem no ar: como o parar, e onde aterra o que o
+/// operador escrever enquanto ele corre.
+///
+/// As duas coisas nascem e morrem juntas — a fila só existe enquanto houver um
+/// turno que a leia — portanto têm o mesmo dono, pela mesma razão que o token
+/// já vivia aqui e não ao lado.
+#[derive(Clone)]
+pub struct Turn {
+    pub token: CancellationToken,
+    pub queue: Arc<harness_app::chatqueue::Queue>,
 }
 
 struct Conversations {
     app: AppHandle,
     paths: AppPaths,
     index: ConversationIndex,
-    /// O token do turno que cada conversa tem no ar. Sem isto, um turno que
-    /// nunca emite `done` deixa o operador sem saída.
-    turns: HashMap<String, CancellationToken>,
+    /// O turno que cada conversa tem no ar. Sem isto, um turno que nunca emite
+    /// `done` deixa o operador sem saída — e não haveria onde pousar uma
+    /// mensagem escrita a meio dele.
+    turns: HashMap<String, Turn>,
 }
 
 impl Conversations {
@@ -263,11 +283,17 @@ impl Conversations {
                 }
                 Msg::RegisterTurn {
                     conversation_id,
-                    token,
+                    turn,
                     reply,
                 } => {
-                    self.turns.insert(conversation_id, token);
+                    self.turns.insert(conversation_id, turn);
                     let _ = reply.send(());
+                }
+                Msg::LiveTurn {
+                    conversation_id,
+                    reply,
+                } => {
+                    let _ = reply.send(self.turns.get(&conversation_id).cloned());
                 }
                 Msg::FinishTurn {
                     conversation_id,
@@ -454,20 +480,31 @@ impl ConversationsHandle {
             .await;
     }
 
-    /// Uma conversa tem um turno no ar: guarda o token que o cancela.
-    pub async fn register_turn(&self, conversation_id: &str, token: CancellationToken) {
+    /// Uma conversa tem um turno no ar: guarda como o parar e onde lhe falar.
+    pub async fn register_turn(&self, conversation_id: &str, turn: Turn) {
         let _ = self
             .ask(|reply| Msg::RegisterTurn {
                 conversation_id: conversation_id.to_string(),
-                token,
+                turn,
                 reply,
             })
             .await;
     }
 
-    /// Tira o token do turno (None se a conversa não tinha nenhum). Tirá-lo é
-    /// ao mesmo tempo como o stop o encontra e como o fim do turno o limpa.
-    pub async fn finish_turn(&self, conversation_id: &str) -> Option<CancellationToken> {
+    /// O turno em curso, sem lhe mexer.
+    pub async fn live_turn(&self, conversation_id: &str) -> Option<Turn> {
+        self.ask(|reply| Msg::LiveTurn {
+            conversation_id: conversation_id.to_string(),
+            reply,
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// Tira o turno (None se a conversa não tinha nenhum). Tirá-lo é ao mesmo
+    /// tempo como o stop o encontra e como o fim do turno o limpa.
+    pub async fn finish_turn(&self, conversation_id: &str) -> Option<Turn> {
         self.ask(|reply| Msg::FinishTurn {
             conversation_id: conversation_id.to_string(),
             reply,

@@ -9,9 +9,99 @@ const controllers = new Map();
 const approvals = new Map();
 /** Harness tool calls waiting on an answer from the Rust side. */
 const toolCalls = new Map();
+/** Live runs that can still be spoken to, by run id. See `Inbox`. */
+const inboxes = new Map();
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
+}
+
+/** One user message, in exactly the shape the SDK writes for a string prompt.
+ *
+ *  Copied from the SDK's own one-shot path rather than invented: `streamInput`
+ *  does no validation and no filling-in — it stringifies whatever the iterable
+ *  yields straight onto the CLI's stdin — so a field guessed wrong here would
+ *  be a field wrong on the wire. */
+function userMessage(text) {
+  return {
+    type: "user",
+    session_id: "",
+    message: { role: "user", content: [{ type: "text", text }] },
+    parent_tool_use_id: null,
+  };
+}
+
+/** What the operator says while the turn is already running.
+ *
+ *  A string prompt is the SDK's one-shot form: one message in, and no way back
+ *  in until the turn is over. An async iterable is *streaming input* — the SDK
+ *  reads from it for as long as the run lives, so a message pushed here is
+ *  written to the CLI's stdin immediately and the model picks it up at its
+ *  next read, during the work rather than after it.
+ *
+ *  Nothing is acknowledged on `push`. The ack goes out when the `yield`
+ *  returns, because that is the moment the SDK has actually written the
+ *  message — until then the only honest thing to say is that Relay is still
+ *  holding it.
+ *
+ *  `sent` is the count the run ends by. Every user message written to the CLI
+ *  produces exactly one `result`, so the run is over when the results have
+ *  caught up with the messages — and not on the first one, which is where the
+ *  answer to a queued message would have been cut off. Measured, not assumed:
+ *  a message handed over mid-turn came back as a second `init`, a second
+ *  assistant message and a second `result` of its own, each with its own cost.
+ *
+ *  `close` discards rather than draining. A run that is over is over: a message
+ *  yielded past that point would be written to a CLI nobody is reading any
+ *  more, and reported as read while nothing ever answered it. Discarded, it
+ *  goes back to the Rust side unacknowledged and becomes a turn of its own. */
+class Inbox {
+  constructor() {
+    this.pending = [];
+    this.wake = null;
+    this.closed = false;
+    this.sent = 1;
+  }
+
+  push(message) {
+    if (this.closed) return false;
+    this.pending.push(message);
+    this.wake?.();
+    return true;
+  }
+
+  /** Is the run still owed something — a message written and unanswered, or
+   *  one about to be written? */
+  owed(results) {
+    return results < this.sent || this.pending.length > 0;
+  }
+
+  close() {
+    this.closed = true;
+    this.pending = [];
+    this.wake?.();
+  }
+
+  async *stream(first, runId) {
+    yield userMessage(first);
+    while (!this.closed) {
+      if (this.pending.length === 0) {
+        await new Promise((resolve) => {
+          this.wake = resolve;
+        });
+        this.wake = null;
+        continue;
+      }
+      const next = this.pending.shift();
+      this.sent++;
+      yield userMessage(next.text);
+      send({
+        type: "event",
+        run_id: runId,
+        event: { kind: "message_read", message_id: next.id },
+      });
+    }
+  }
 }
 
 function summarize(input) {
@@ -510,11 +600,23 @@ function skillsFor(spec) {
 async function handleRun({ id, spec }) {
   const ac = new AbortController();
   controllers.set(id, ac);
+  const inbox = new Inbox();
+  inboxes.set(id, inbox);
 
   // tool_use_id → tool name: the result block only knows the id, and the
   // summary needs the name to be worth reading.
   const toolNames = new Map();
   let turnCount = 0;
+  // A run answers one `result` per user message it was given, and a run that
+  // was spoken to mid-turn was given more than one. These carry the totals
+  // across all of them: reporting the last result's own numbers would lose
+  // whatever the first turn spent.
+  let resultCount = 0;
+  let costTotal = 0;
+  let costSeen = false;
+  let turnsTotal = 0;
+  let lastResult = null;
+  let lastSession = null;
 
   // Fan-out cap: a run may spawn subagents only when its spec allows it, and
   // a subagent may never spawn one — depth is capped at one level. The
@@ -655,7 +757,7 @@ async function handleRun({ id, spec }) {
   if (spec.resume_session) options.resume = spec.resume_session;
 
   try {
-    const q = query({ prompt: spec.prompt, options });
+    const q = query({ prompt: inbox.stream(spec.prompt, id), options });
     for await (const message of q) {
       if (ac.signal.aborted) break;
       switch (message.type) {
@@ -759,13 +861,31 @@ async function handleRun({ id, spec }) {
           break;
         }
         case "result": {
-          controllers.delete(id);
+          resultCount++;
+          // Every result is charged separately — the second turn of a run that
+          // read a queued message came back with a cost of its own — so the
+          // totals are summed rather than taken off the last one.
+          if (typeof message.total_cost_usd === "number") {
+            costTotal += message.total_cost_usd;
+            costSeen = true;
+          }
+          if (typeof message.num_turns === "number") turnsTotal += message.num_turns;
+          if (typeof message.result === "string") lastResult = message.result;
+          if (message.session_id) lastSession = message.session_id;
+
           // An error result looks like a normal one from the outside: same
           // `result` message, cost 0, no text. A resume of a session that no
           // longer exists arrives exactly this way, and the SDK only throws
           // afterwards — by which time we have already returned. So the
           // failure has to be read off this message, or it passes for success.
           const failed = message.is_error === true || message.subtype !== "success";
+          // The turn is answered, but the operator said something else while
+          // it ran and the CLI has not answered *that* yet. Returning here is
+          // what used to make queueing impossible: the answer to the queued
+          // message is the next turn, and it has not happened.
+          if (!failed && inbox.owed(resultCount)) break;
+
+          controllers.delete(id);
           const errors = Array.isArray(message.errors)
             ? message.errors.map((e) => String(e).trim()).filter(Boolean).join("; ")
             : "";
@@ -774,15 +894,18 @@ async function handleRun({ id, spec }) {
             (typeof message.result === "string" && message.result.trim()) ||
             message.subtype ||
             "the run ended with an error";
+          // Shut before declaring it over, so nothing can be handed to a CLI
+          // that is about to be killed.
+          inbox.close();
           send({
             type: "event",
             run_id: id,
             event: {
               kind: "done",
-              session_id: message.session_id ?? null,
-              cost_usd: message.total_cost_usd ?? null,
-              turns: typeof message.num_turns === "number" ? message.num_turns : null,
-              result: typeof message.result === "string" ? message.result : null,
+              session_id: lastSession ?? null,
+              cost_usd: costSeen ? costTotal : null,
+              turns: turnsTotal || null,
+              result: lastResult,
               error: failed ? detail : null,
             },
           });
@@ -806,6 +929,12 @@ async function handleRun({ id, spec }) {
         ? { kind: "done", session_id: null, cost_usd: null, result: null }
         : { kind: "failed", message: String(err?.message ?? err) },
     });
+  } finally {
+    // However the run ended, nothing more can be said to it. A message that
+    // arrives after this is never acknowledged, and the Rust side — which is
+    // the one keeping count — starts a turn of its own for it.
+    inboxes.delete(id);
+    inbox.close();
   }
 }
 
@@ -824,7 +953,17 @@ rl.on("line", (line) => {
       );
       break;
     case "cancel": {
+      // The inbox first: a stop must not deliver one last correction on its
+      // way out.
+      inboxes.get(msg.id)?.close();
       controllers.get(msg.id)?.abort();
+      break;
+    }
+    case "message": {
+      // Typed while the turn was running. A run that has already ended has no
+      // inbox, so this falls on the floor here on purpose — the Rust side sees
+      // no `message_read` and gives it a turn of its own.
+      inboxes.get(msg.id)?.push({ id: msg.message_id, text: msg.text ?? "" });
       break;
     }
     case "approval_response": {

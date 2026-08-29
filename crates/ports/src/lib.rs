@@ -161,6 +161,38 @@ impl ToolReply {
 pub type ToolRunner =
     Arc<dyn Fn(ToolCall) -> Pin<Box<dyn Future<Output = ToolReply> + Send>> + Send + Sync>;
 
+/// Something the operator said while a turn was already running.
+///
+/// The id is minted when it is accepted and comes back when the model has it.
+/// Without it the screen would have to guess which of two queued lines the run
+/// just took, and a guess is exactly what a "not read yet" mark cannot be.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedMessage {
+    pub id: String,
+    pub text: String,
+}
+
+/// Where a live turn goes looking for what was typed while it worked.
+///
+/// A port and not a channel because the queue has to answer two questions the
+/// adapter cannot: what is still undelivered when the run ends, and whether a
+/// message arrived too late to be delivered at all. The implementation is
+/// `harness_app::chatqueue`, where cargo can test the ordering.
+pub trait InboxPort: Send + Sync {
+    /// The next message for the run. Resolves to `None` once the inbox is
+    /// closed, and must be cancel-safe: the adapter races it against the
+    /// sidecar's own output, so a dropped future may not swallow a message.
+    ///
+    /// Takes the `Arc` so the future can own it. Borrowing would need a
+    /// lifetime on `RunSpec`, and the alternative — handing out a `'static`
+    /// reference — is a transmute nobody should have to trust.
+    fn next(self: Arc<Self>) -> BoxFut<Option<QueuedMessage>>;
+    /// The run says the model has this one now.
+    fn mark_read(&self, id: &str);
+}
+
+pub type Inbox = Arc<dyn InboxPort>;
+
 /// A skill granted to one agent: the markdown that enters its prompt, kept
 /// whole so the operator can read exactly what they are approving.
 ///
@@ -386,6 +418,9 @@ pub struct RunSpec {
     pub resume_session: Option<String>,
     /// Relay's own tools, when this run is allowed to act on the app.
     pub tools: Option<ToolRunner>,
+    /// What the operator says *during* this run. Absent for a card run: only a
+    /// conversation has somebody typing at it while it works.
+    pub inbox: Option<Inbox>,
     /// Room for the model to reason before answering. Without it there is no
     /// thinking to stream.
     pub thinking_tokens: Option<u32>,
@@ -417,6 +452,7 @@ impl RunSpec {
             approver: None,
             resume_session: None,
             tools: None,
+            inbox: None,
             thinking_tokens: None,
             subagents: false,
             report_work: false,
@@ -436,6 +472,20 @@ pub enum RunEvent {
     /// the other half of the exchange.
     UserMessage {
         text: String,
+    },
+    /// The operator said something while the turn was still running. Written
+    /// the moment it is accepted, and *only* that: it says the message exists
+    /// and is waiting, never that the model has seen it. A transcript that
+    /// stops here is one where it never arrived — which is what an operator
+    /// who closed Relay mid-turn needs to be able to read.
+    UserQueued {
+        queue_id: String,
+        text: String,
+    },
+    /// The same message, handed to the run. From here it is an ordinary thing
+    /// the operator said, and the two lines fold into one bubble.
+    UserRead {
+        queue_id: String,
     },
     Text {
         text: String,

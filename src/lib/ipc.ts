@@ -33,6 +33,7 @@ import type {
   ProjectDetail,
   ProjectStats,
   ProjectView,
+  Queued,
   QueueRow,
   ActorFilter,
   RunLogLine,
@@ -245,6 +246,12 @@ export const api = {
       conversationId: conversationId ?? null,
       attachments,
     }),
+  /** Say something to the turn already running. It does not interrupt and
+   *  does not start a second turn: the message goes into the run's inbox and
+   *  the model reads it at its next read. With no turn in flight it becomes an
+   *  ordinary one, and says so by answering with a null `queue_id`. */
+  chatQueue: (text: string, conversationId: string, attachments: string[] = []) =>
+    invoke<Queued>("chat_queue", { text, conversationId, attachments }),
   /** Native picker for files to attach to the next message. */
   pickFiles: () => invoke<string[]>("chat_pick_files"),
   /** Write a pasted or dropped attachment to disk and answer with its path.

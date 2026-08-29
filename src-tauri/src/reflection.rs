@@ -107,6 +107,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         },
     );
 
+    let inbox = harness_app::chatqueue::Queue::new(&conversation.id);
     let spec = RunSpec {
         provider: harness_app::providers::find(&ws.settings().providers, &profile.provider)
             .and_then(|p| p.resolve()),
@@ -127,6 +128,10 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
             profile.id.clone(),
         )),
         thinking_tokens: Some(2000),
+        // The look runs while Relay closes, but the window is still up and
+        // the composer with it — so it gets an inbox like any other turn
+        // rather than being the one conversation that refuses to be answered.
+        inbox: Some(Arc::clone(&inbox) as harness_ports::Inbox),
         subagents: false,
         report_work: false,
         // O porto desta conversa já foi construído por perfil, com as
@@ -136,7 +141,14 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
 
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);
     let token = CancellationToken::new();
-    ws.register_chat_turn(&conversation.id, token.clone()).await;
+    ws.register_chat_turn(
+        &conversation.id,
+        crate::conversations::Turn {
+            token: token.clone(),
+            queue: Arc::clone(&inbox),
+        },
+    )
+    .await;
     let run = ws.agent_port().run(spec, ev_tx, token.clone());
     tokio::pin!(run);
 
