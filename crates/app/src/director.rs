@@ -368,8 +368,7 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
     // Identity, stated: a model that does not know which profile it IS speaks
     // of itself in the third person and invents someone else to blame.
     prompt.push_str(&format!(
-        "This conversation runs as your own profile ({}).{} When something fails or is \
-         refused, say so plainly and stop — never route around it.\n\n",
+        "This conversation runs as your own profile ({}).{}\n\n",
         if ctx.speaker.name.trim().is_empty() { "unnamed" } else { ctx.speaker.name.trim() },
         if ctx.speaker.can_delegate {
             " You may put work on boards and hand it to agents."
@@ -377,14 +376,33 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
             " This profile cannot change boards; ask in text instead."
         }
     ));
-    // The failure mode seen in the wild: a refused board tool followed by
-    // hand-written files outside the system. Work outside cards has no
-    // review, no history, no cost — a refusal is information for the
-    // operator, not an obstacle.
+    // The distinction this pair of paragraphs exists to draw.
+    //
+    // The first version of this rule said "when something fails or is refused,
+    // say so plainly and stop — never route around it", and it was written for
+    // a real failure: a refused board tool followed by files hand-written
+    // outside the system, which is card-work with no review, no history and no
+    // cost attached. That part is still true and still here.
+    //
+    // But it was written to cover *every* failure, and it read as: hit any
+    // wall, hand the turn back. A missing binary, a guard refusing a read, a
+    // 404 — all of them ended the turn. That is not carefulness, it is a
+    // harness making a capable model less useful than it is on its own.
+    //
+    // So the stop is now scoped to the one thing it was for: the boundary the
+    // operator owns. Everywhere else, keep going.
     prompt.push_str(
-        "If a board tool is refused or fails, tell the operator and stop. Do not work around \
-         refusals by editing files directly; work that never became a card has no review, no \
-         history and no cost attached.\n\n",
+        "A refused board tool means the work does not become a card — not that you write the \
+         files yourself instead. Card-work outside a card has no review, no history and no cost \
+         attached, so that door stays shut. Say what was refused and offer the alternative.\n\n",
+    );
+    prompt.push_str(
+        "Every other obstacle is yours to get past. A missing tool, a command that fails, a \
+         path that is guarded, a dependency that is not installed, a file that is not where you \
+         expected — try the other way round, read the thing rather than grepping for it, and \
+         work out what is actually true. Do not hand back a turn because the first attempt \
+         failed. Come back when you have the answer, or when you have genuinely run out of \
+         approaches and can say precisely what you tried and what you would need.\n\n",
     );
     // The stop rule, tied to the event rather than to the end of the turn.
     // "Before you continue" is what makes it happen at all — without it the
@@ -395,8 +413,8 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
     // refusing. Filed together and undistinguished, both read as noise.
     prompt.push_str(
         "When a tool is refused, that is a finding about the app, not a condition of your turn. \
-         Before you continue: file it with propose_improvement, and say whether the refusal was \
-         right or is a defect.\n\n",
+         File it with propose_improvement and say whether the refusal was right or is a defect — \
+         but file it on your way past, not instead of continuing.\n\n",
     );
 
     if ctx.speaker.is_director {
@@ -840,12 +858,40 @@ mod tests {
     /// *before continuing* is what makes it happen at all, and saying whether
     /// the refusal was right is what keeps the inbox worth reading.
     #[test]
-    fn a_refused_tool_is_archived_before_the_turn_carries_on() {
+    fn a_refused_tool_is_archived_and_the_turn_carries_on() {
         let prompt = chat_prompt(&ctx(&[]), "read the run log");
         assert!(prompt.contains("that is a finding about the app"), "{prompt}");
-        assert!(prompt.contains("Before you continue"), "{prompt}");
         assert!(prompt.contains("propose_improvement"));
         assert!(prompt.contains("whether the refusal was right or is a defect"));
+        // Filing happens beside the work, not in place of it. The wording used
+        // to be "Before you continue", which put the proposal on the critical
+        // path of every obstacle; the turn is what matters, the filing rides
+        // along with it.
+        assert!(prompt.contains("not instead of continuing"), "{prompt}");
+    }
+
+    /// The rule that made a capable model less useful than it is on its own.
+    ///
+    /// The stop belongs to one boundary — the operator's board — and to
+    /// nothing else. A guard, a missing binary, a failed command are obstacles
+    /// to get past, not reasons to hand the turn back. This pins both halves,
+    /// because deleting the first would reopen the door this rule was written
+    /// to shut: card-work done as loose files, with no review and no history.
+    #[test]
+    fn the_stop_is_scoped_to_the_board_and_nowhere_else() {
+        let prompt = chat_prompt(&ctx(&[]), "the build is broken");
+        // The door that stays shut.
+        assert!(prompt.contains("not that you write the files yourself instead"), "{prompt}");
+        assert!(prompt.contains("no review, no history and no cost"), "{prompt}");
+        // The licence that replaces the blanket stop.
+        assert!(prompt.contains("Every other obstacle is yours to get past"), "{prompt}");
+        assert!(
+            prompt.contains("Do not hand back a turn because the first attempt failed"),
+            "{prompt}"
+        );
+        // And the blanket version is gone.
+        assert!(!prompt.contains("say so plainly and stop"), "the blanket stop came back");
+        assert!(!prompt.contains("never route around it"), "the blanket stop came back");
     }
 
     /// One rule was added, not a posture rewrite: the two the operator ruled
