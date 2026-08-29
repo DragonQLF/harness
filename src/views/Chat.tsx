@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Plus, Square } from "lucide-react";
+import { Streamdown } from "streamdown";
 import { ago, bytes, money, num } from "../lib/format";
 import { cx } from "../lib/cx";
 import { paneIn, popover, rowIn } from "../lib/motion";
@@ -69,24 +70,12 @@ function commandOf(request: PendingApproval): string {
 }
 
 /** Backticks in an answer are code, not punctuation. */
+/** Agent prose. Streamdown rather than a markdown renderer of the ordinary
+ *  kind: a streamed answer is always mid-token — an unclosed fence, half a
+ *  `**bold`, a table three rows in — and it completes those blocks for display
+ *  so the text settles instead of flickering as the rest arrives. */
 function Prose({ text }: { text: string }) {
-  const parts = text.split(/`([^`\n]+)`/g);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <code
-            key={i}
-            className="rounded-5px bg-active px-1.5 py-px font-mono text-body dark:bg-active-d"
-          >
-            {part}
-          </code>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
-    </>
-  );
+  return <Streamdown>{text}</Streamdown>;
 }
 
 const TICK = (
@@ -816,7 +805,7 @@ export function Chat() {
                 {block.kind === "agent" && (
                   <div className="flex max-w-[82%] flex-col gap-3">
                     {block.msg?.text && (
-                      <div className="whitespace-pre-wrap break-words text-base leading-[1.65] text-ink2 dark:text-ink2-d">
+                      <div className="break-words text-base leading-[1.65] text-ink2 dark:text-ink2-d">
                         <Prose text={block.msg.text} />
                         {streaming && i === blocks.length - 1 && (
                           <span
