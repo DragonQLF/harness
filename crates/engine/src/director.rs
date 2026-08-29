@@ -95,6 +95,11 @@ impl Engine {
                 // porto" — pôr as do worker daria ao revisor as ferramentas de
                 // quem ele está a rever.
                 grants: harness_ports::Grants::default(),
+                // A review is read by Relay, not by a person: its answer is
+                // parsed for a verdict. Whatever the operator likes to read
+                // has no say here.
+                output_style: None,
+                effort: None,
             };
 
             let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);

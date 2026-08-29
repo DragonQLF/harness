@@ -162,7 +162,12 @@ export type RunEventKind =
   | "failed"
   | "approval_requested"
   | "approval_answered"
-  | "notice";
+  | "notice"
+  /** What `/` can mean in this session. Live only — asked for again on the
+   *  next one, so it is never written to the transcript. */
+  | "commands"
+  /** A command the engine answered by itself, with no model turn behind it. */
+  | "local_output";
 
 export interface RunUpdate {
   project_id: string;
@@ -182,6 +187,20 @@ export interface RunUpdate {
   allow?: boolean;
   /** On `user_queued` and `user_read`: which queued message this is about. */
   queue_id?: string;
+  /** On a `commands` update: everything `/` can reach in this session. */
+  commands?: SlashCommand[];
+}
+
+/** One thing `/` can mean. Handwritten beside `RunUpdate` because it only ever
+ *  arrives on one, and the composer reads it straight off that. */
+export interface SlashCommand {
+  /** Without the leading slash. */
+  name: string;
+  description: string;
+  /** What comes after the name, when it takes anything. */
+  argument_hint: string | null;
+  /** Other names that land on this same command. */
+  aliases: string[];
 }
 
 /** What `chat_queue` did.

@@ -492,6 +492,7 @@ fn profile() -> RunProfile {
         reviewer: Reviewer::Director,
         max_concurrent: 1,
         grants: Grants::default(),
+        output_style: None,
     }
 }
 

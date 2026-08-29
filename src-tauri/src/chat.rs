@@ -113,6 +113,7 @@ pub async fn queue(
     conversation_id: String,
     text: String,
     attachments: Vec<String>,
+    effort: Option<String>,
 ) -> Result<Queued, String> {
     for file in &attachments {
         if !PathBuf::from(file).is_file() {
@@ -129,7 +130,7 @@ pub async fn queue(
         None => None,
     };
     let Some(queued) = queued else {
-        let conversation = send(ws, Some(conversation_id), text, attachments).await?;
+        let conversation = send(ws, Some(conversation_id), text, attachments, effort).await?;
         return Ok(Queued {
             queue_id: None,
             conversation,
@@ -167,8 +168,9 @@ pub async fn send(
     conversation_id: Option<String>,
     text: String,
     attachments: Vec<String>,
+    effort: Option<String>,
 ) -> Result<Conversation, String> {
-    send_message(ws, conversation_id, text, attachments, true).await
+    send_message(ws, conversation_id, text, attachments, true, effort).await
 }
 
 /// The next turn, started from inside the one that just ended, carrying what
@@ -181,7 +183,7 @@ fn carried_turn(
     text: String,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Conversation, String>> + Send>> {
     Box::pin(async move {
-        send_message(&ws, Some(conversation_id), text, Vec::new(), false).await
+        send_message(&ws, Some(conversation_id), text, Vec::new(), false, None).await
     })
 }
 
@@ -194,6 +196,7 @@ async fn send_message(
     text: String,
     attachments: Vec<String>,
     record: bool,
+    effort: Option<String>,
 ) -> Result<Conversation, String> {
     // A file that is not there is worse than no file: the model would go
     // looking and report a failure the operator caused. Refuse now, by name.
@@ -368,6 +371,14 @@ async fn send_message(
         // O porto desta conversa já foi construído por perfil, com as
         // concessões dentro; vazio aqui quer dizer "usa as dele".
         grants: harness_ports::Grants::default(),
+        // Como este perfil escreve. Só pega numa sessão nova: numa retomada
+        // o estilo é o que ela trouxe de origem, e é por isso que mudá-lo
+        // não mexe na conversa que está no ecrã.
+        output_style: profile.output_style.clone(),
+        // Quanto pensa, nesta mensagem e só nesta. Ao contrário do estilo,
+        // prende-se ao pedido — é o que permite escolhê-lo à mensagem, e é
+        // por isso que não vive no perfil.
+        effort,
     };
 
     // What this profile was granted, resolved now rather than held anywhere:

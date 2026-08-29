@@ -322,7 +322,40 @@ fn verdicts(list: &[crate::verdicts::Verdict]) -> String {
 
 /// The opening for a conversation. On a resumed native session this is only
 /// what changed since; on a fresh one it is the whole identity.
+/// Is this message a slash command rather than something to say?
+///
+/// The engine reads a command off the front of the prompt, so it only works if
+/// it *is* the front. Everything `chat_prompt` puts before a message — the
+/// boards, the identity, the version note — would bury it, and what reached
+/// the model would be a paragraph ending in `/usage`.
+///
+/// `//` is not a command: it is how a line that genuinely starts with a slash
+/// gets said. A path on its own line (`/etc/hosts`) is the case this must not
+/// eat, so a command is a single leading slash followed by a name and nothing
+/// else before the first space.
+pub fn slash_command(message: &str) -> Option<&str> {
+    let line = message.trim();
+    let rest = line.strip_prefix('/')?;
+    if rest.starts_with('/') {
+        return None;
+    }
+    let name = rest.split_whitespace().next()?;
+    if name.is_empty() || name.contains('/') {
+        return None;
+    }
+    let named = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':');
+    named.then_some(line)
+}
+
 pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
+    // A command goes as it was typed. Nothing is prepended, because anything
+    // prepended stops it being one.
+    if let Some(command) = slash_command(message) {
+        return command.to_string();
+    }
+
     let mut prompt = String::new();
 
     if ctx.resumed {
@@ -1239,6 +1272,44 @@ mod tests {
         assert_eq!(line.id, "c_7");
         assert_eq!(line.agent_id, "scout");
         assert_eq!(line.review, Some((true, "scoped".to_string())));
+    }
+
+    /// O motor lê o comando à cabeça do prompt. Tudo o que o `chat_prompt`
+    /// põe antes da mensagem — os quadros, a identidade, a nota de versão —
+    /// enterrava-o, e o que chegava ao modelo era um parágrafo a acabar em
+    /// `/usage`. Era por isto que escrever `/` no compositor não fazia nada.
+    #[test]
+    fn a_slash_command_goes_alone_and_nothing_is_put_before_it() {
+        let projects = [ProjectBrief {
+            id: "relay".into(),
+            name: "Relay".into(),
+            path: "/tmp/relay".into(),
+            active: true,
+            charter: None,
+            cards: vec![card("c_1", "alguma coisa", Status::Running)],
+        }];
+        let prompt = chat_prompt(&ctx(&projects), "/usage");
+        assert_eq!(prompt, "/usage");
+    }
+
+    #[test]
+    fn a_command_keeps_its_arguments() {
+        assert_eq!(slash_command("/model opus"), Some("/model opus"));
+        assert_eq!(chat_prompt(&ctx(&[]), "  /compact tudo menos o diff  "), "/compact tudo menos o diff");
+    }
+
+    /// Uma barra dupla é como se diz uma linha que começa mesmo por barra, e
+    /// um caminho não é um comando. Comer qualquer um deles seria trocar uma
+    /// mensagem do operador por outra coisa.
+    #[test]
+    fn a_path_and_an_escaped_slash_are_not_commands() {
+        assert_eq!(slash_command("/etc/hosts está errado"), None);
+        assert_eq!(slash_command("//usage"), None);
+        assert_eq!(slash_command("o que faz o /usage?"), None);
+        assert_eq!(slash_command("/"), None);
+        let prompt = chat_prompt(&ctx(&[]), "/etc/hosts está errado");
+        assert!(prompt.contains("/etc/hosts"), "a mensagem tem de continuar a ser uma mensagem");
+        assert!(prompt.len() > "/etc/hosts está errado".len());
     }
 
     #[test]

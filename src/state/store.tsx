@@ -36,6 +36,7 @@ import type {
   WorktreeRow,
   Status,
   SystemStatus,
+  SlashCommand,
 } from "../lib/types";
 
 // O redutor de eventos mudou-se para `./events` e o estado de chat para
@@ -153,10 +154,16 @@ interface Store {
   discard: (cardId: string) => Promise<void>;
   loadRunLog: (runId: string, cardId: string) => Promise<void>;
 
+  /** What `/` can reach in this session — the engine's own commands and what
+   *  the granted skills brought. Published by the engine; never assembled
+   *  here, so a granted skill shows up without Relay knowing its name. */
+  commands: SlashCommand[];
   /** Say something. Never refused while the agent is working: the message is
    *  queued into the turn in flight, shown as not yet read, and settles into
-   *  an ordinary one when the backend says the model has it. */
-  sendChat: (text: string, attachments?: string[]) => Promise<void>;
+   *  an ordinary one when the backend says the model has it.
+   *
+   *  `effort` binds this message only. */
+  sendChat: (text: string, attachments?: string[], effort?: string | null) => Promise<void>;
   /** Put the screen into a draft. The row and its Claude session are created
    *  by the first message, so a draft nobody types into costs nothing. */
   newConversation: (profileId?: string) => Promise<void>;
@@ -997,6 +1004,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reject,
     discard,
     loadRunLog,
+    commands: chat.commands,
     sendChat: chat.sendChat,
     newConversation: chat.newConversation,
     chatWithProfile: chat.chatWithProfile,

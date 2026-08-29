@@ -137,6 +137,9 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         // O porto desta conversa já foi construído por perfil, com as
         // concessões dentro; vazio aqui quer dizer "usa as dele".
         grants: harness_ports::Grants::default(),
+        output_style: profile.output_style.clone(),
+        // A olhada não é uma pergunta do operador: não há ninguém a escolher.
+        effort: None,
     };
 
     let (ev_tx, mut ev_rx) = tokio::sync::mpsc::channel::<RunEvent>(64);

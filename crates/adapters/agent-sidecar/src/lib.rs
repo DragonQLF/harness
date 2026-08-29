@@ -159,6 +159,14 @@ async fn drive(
             // every agent until an operator approves one.
             "skills_dir": grants.skills_dir.as_ref().map(|p| p.to_string_lossy()),
             "mcp_servers": mcp_json(&grants),
+            // One of the engine's own style names. Relay ships none, so this
+            // is passed through unchecked — an unknown name is the engine's to
+            // reject, and inventing a whitelist here would date the moment it
+            // adds one.
+            "output_style": spec.output_style,
+            // Chosen per message, so it rides on the run and never on the
+            // profile.
+            "effort": spec.effort,
         }
     });
     LineSink { stdin: &mut stdin }.send(run_msg).await?;
@@ -283,6 +291,30 @@ async fn drive(
                                             queue_id: queue_id.to_string(),
                                         })
                                         .await;
+                                }
+                            }
+                            "commands" => {
+                                // Shaped in the sidecar, where the SDK's own
+                                // field names are known; anything malformed is
+                                // dropped rather than turned into a command
+                                // the composer would offer and nothing serves.
+                                if let Some(list) = ev.get("commands") {
+                                    if let Ok(commands) = serde_json::from_value::<
+                                        Vec<harness_ports::SlashCommand>,
+                                    >(list.clone())
+                                    {
+                                        let _ = tx.send(RunEvent::Commands { commands }).await;
+                                    }
+                                }
+                            }
+                            "local_output" => {
+                                let text = ev
+                                    .get("text")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or_default()
+                                    .to_string();
+                                if !text.trim().is_empty() {
+                                    let _ = tx.send(RunEvent::LocalOutput { text }).await;
                                 }
                             }
                             "usage" => {

@@ -132,6 +132,7 @@ async fn main() {
                 worktree: harness_ports::WorktreeMode::PerCard,
                 reviewer: harness_ports::Reviewer::Human,
                 max_concurrent: 1,
+                output_style: None,
             },
         )
         .await

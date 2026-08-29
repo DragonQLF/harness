@@ -574,6 +574,23 @@ function mcpServersFor(id, spec, build = { harnessTools, reportWorkTool, callFor
   return servers;
 }
 
+/** The slash commands this session knows, on their way to the composer.
+ *
+ *  Normalised here rather than in Rust because this is where the SDK's shape
+ *  is known: `argumentHint` is always a string on the way in and an absent
+ *  hint is the empty one, which is a hint the UI would draw. */
+function sendCommands(id, commands) {
+  const list = (commands ?? [])
+    .filter((c) => c?.name)
+    .map((c) => ({
+      name: c.name,
+      description: c.description ?? "",
+      argument_hint: c.argumentHint?.trim() ? c.argumentHint : null,
+      aliases: Array.isArray(c.aliases) ? c.aliases : [],
+    }));
+  send({ type: "event", run_id: id, event: { kind: "commands", commands: list } });
+}
+
 /** The skills this run may load, as a plugin directory Relay owns.
  *
  *  Why a plugin and not `settingSources: ['project']`: that would bring the
@@ -751,6 +768,16 @@ async function handleRun({ id, spec }) {
     options.allowedTools = spec.allowed_tools;
   }
   if (spec.model) options.model = spec.model;
+  // `Concise`, `Explanatory`, … — built-ins, so nothing has to be shipped for
+  // them. It rides in the system prompt, which is read once when the session
+  // opens: a resumed session keeps the style it was born with, and no value
+  // passed here changes that. The name is not validated on this side; the
+  // engine answers `available_output_styles` and Relay picks from that.
+  if (spec.output_style) options.outputStyle = spec.output_style;
+  // Per turn, unlike the style: this one binds the request rather than the
+  // system prompt, which is what lets the composer offer it per message. A
+  // level the model does not have is downgraded by the engine, not here.
+  if (spec.effort) options.effort = spec.effort;
   if (spec.max_budget_usd != null) options.maxBudgetUsd = spec.max_budget_usd;
   // No room to reason means no thinking to stream.
   if (spec.thinking_tokens != null) options.maxThinkingTokens = spec.thinking_tokens;
@@ -786,6 +813,26 @@ async function handleRun({ id, spec }) {
               type: "event",
               run_id: id,
               event: { kind: "started", session_id: message.session_id },
+            });
+            // What `/` can mean in this session: the engine's own commands
+            // plus whatever the granted skills brought. Asked for rather than
+            // read off the init message, because that one carries names only
+            // and the composer has a description to show.
+            q.supportedCommands()
+              .then((commands) => sendCommands(id, commands))
+              .catch(() => {});
+          } else if (message.subtype === "commands_changed") {
+            // A skill discovered mid-run. Documented as replace-the-list, not
+            // merge, so it is passed on whole.
+            sendCommands(id, message.commands);
+          } else if (message.subtype === "local_command_output" && message.content?.trim()) {
+            // A command the engine answered by itself — `/usage`, `/context`.
+            // No model turn happened, so this is the only thing the operator
+            // gets, and it belongs in the transcript rather than in a toast.
+            send({
+              type: "event",
+              run_id: id,
+              event: { kind: "local_output", text: message.content },
             });
           }
           break;

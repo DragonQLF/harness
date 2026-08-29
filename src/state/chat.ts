@@ -10,7 +10,7 @@
 
 import { useCallback, useRef, useState, type RefObject } from "react";
 import { api } from "../lib/ipc";
-import type { Conversation, RunLogLine, RunUpdate } from "../lib/types";
+import type { Conversation, RunLogLine, RunUpdate, SlashCommand } from "../lib/types";
 
 const DIRECTOR = "director";
 
@@ -180,6 +180,10 @@ export interface ChatState {
   /** Which profile a draft will speak to once it is created; `null` means the
    *  Director. Says nothing while `conversationId` is set. */
   draftProfile: string | null;
+  /** What `/` can reach in this session: the engine's own commands plus what
+   *  the granted skills brought. Published by the engine, never assembled
+   *  here — a hardcoded list would be wrong the day a skill is granted. */
+  commands: SlashCommand[];
   chat: ChatMsg[];
   chatBusy: boolean;
   /** A stored transcript is being read off disk. Distinct from `chatBusy`,
@@ -198,8 +202,12 @@ export interface ChatState {
 
   /** Say something. While a turn is running this queues rather than refusing:
    *  the message joins the run in flight and the model reads it at its next
-   *  read, so a correction lands during the work instead of after it. */
-  sendChat: (text: string, attachments?: string[]) => Promise<void>;
+   *  read, so a correction lands during the work instead of after it.
+   *
+   *  `effort` is chosen per message and binds only that one — `low` through
+   *  `max`, or `null` for the model's own default. The engine downgrades a
+   *  level the model does not have. */
+  sendChat: (text: string, attachments?: string[], effort?: string | null) => Promise<void>;
   /** Put the screen into a draft. Nothing is written until the first message:
    *  the row, and the Claude session behind it, are born on send. */
   newConversation: (profileId?: string) => Promise<void>;
@@ -233,6 +241,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   // creates the row — state would be a render behind.
   const draftRef = useRef<string | null>(null);
   draftRef.current = draftProfile;
+  /** What `/` can reach. Published by the engine when a session opens, so it
+   *  is empty until the first turn of the app's life — and kept across
+   *  conversations afterwards, because the built-ins do not vary by thread and
+   *  an empty menu is worse than a slightly stale one. */
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
   /** Numbers the pending bubbles until the backend hands each one its real id. */
   const pendingSeq = useRef(0);
   /** One send at a time, and a ref rather than state because state is a render
@@ -379,6 +392,16 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // Relay itself talking — a resume that could not be honoured.
         if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text!, ts: u.ts_ms }]);
         break;
+      case "commands":
+        // Documented as replace, not merge: a skill that went away should stop
+        // being offered.
+        if (u.commands) setCommands(u.commands);
+        break;
+      case "local_output":
+        // The engine answered by itself — `/usage`, `/context`. No model turn
+        // is coming, so this is the whole reply and it lands as one.
+        if (u.text) setChat((cs) => [...cs, { role: "agent", text: u.text!, ts: u.ts_ms }]);
+        break;
       case "done":
         streamedRef.current = false;
         setChatThinking("");
@@ -406,7 +429,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   }, []);
 
   const sendChat = useCallback(
-    async (text: string, attachments: string[] = []) => {
+    async (text: string, attachments: string[] = [], effort: string | null = null) => {
       const clean = text.trim();
       if (!clean && attachments.length === 0) return;
       if (sending.current) return;
@@ -454,7 +477,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // ordinary turn if there is not — and it is the only thing that can
         // tell them apart without racing, since a turn can end between the
         // screen believing it runs and this call arriving.
-        const queued = await api.chatQueue(clean, conversationId, attachments);
+        const queued = await api.chatQueue(clean, conversationId, attachments, effort);
         settle(queued.conversation.id);
         setChat((cs) =>
           cs.map((m) =>
@@ -621,6 +644,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     conversations,
     conversationId,
     draftProfile,
+    commands,
     chat,
     chatBusy,
     chatLoading,

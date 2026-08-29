@@ -90,4 +90,14 @@ expected_output: string,
 /**
  * Where it sends anything it cannot resolve.
  */
-escalate_to: string | null, };
+escalate_to: string | null, 
+/**
+ * How it writes, not what it knows: one of the engine's output styles —
+ * `Concise`, `Explanatory`, `Proactive`, `Learning` — or `None` for the
+ * default. The names are the engine's; Relay ships none of its own.
+ *
+ * It rides in the system prompt, which is read once when a session opens,
+ * so changing it here reaches the *next* conversation rather than the one
+ * on screen. Anything else would be a setting that appears to do nothing.
+ */
+output_style: string | null, };

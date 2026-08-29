@@ -71,6 +71,14 @@ pub struct AgentProfile {
     pub expected_output: String,
     /// Where it sends anything it cannot resolve.
     pub escalate_to: Option<String>,
+    /// How it writes, not what it knows: one of the engine's output styles —
+    /// `Concise`, `Explanatory`, `Proactive`, `Learning` — or `None` for the
+    /// default. The names are the engine's; Relay ships none of its own.
+    ///
+    /// It rides in the system prompt, which is read once when a session opens,
+    /// so changing it here reaches the *next* conversation rather than the one
+    /// on screen. Anything else would be a setting that appears to do nothing.
+    pub output_style: Option<String>,
 }
 
 impl Default for AgentProfile {
@@ -105,6 +113,9 @@ impl Default for AgentProfile {
             can_delegate: false,
             expected_output: String::new(),
             escalate_to: None,
+            // The engine's default. A profile written before this field
+            // existed reads as one that never chose, which is what it is.
+            output_style: None,
         }
     }
 }
@@ -176,6 +187,7 @@ impl AgentProfile {
             },
             // A hand-edited profile with 0 would otherwise mean "runs nothing".
             max_concurrent: self.max_concurrent.max(1),
+            output_style: self.output_style.clone(),
         }
     }
 
@@ -275,6 +287,13 @@ pub fn defaults() -> Vec<AgentProfile> {
             // plans, delegates and reviews.
             tasks_enabled: false,
             expected_output: "A direct answer, or a plan with the work already on a board.".into(),
+            // The one profile the operator reads every word of. `Concise` puts
+            // the answer first and stops narrating the walk to it; it does not
+            // make the model do less, and it keeps errors and confirmations
+            // whole, which are the two things a shorter answer must never
+            // shorten. The workers get the default — nobody reads their prose,
+            // and their account of themselves is the commit body.
+            output_style: Some("Concise".into()),
             ..Default::default()
         },
         AgentProfile {
@@ -329,6 +348,7 @@ pub fn templates() -> Vec<AgentProfile> {
             brief: "Be useful about whatever I bring you. Answer directly when that is what is wanted; when I ask for something to be done, break it into cards small enough for one run each and hand them to the right agent.".into(),
             tone: "info".into(),
             model: Some("opus".into()),
+            output_style: Some("Concise".into()),
             budget_usd: Some(1.5),
             worktree: WorktreeMode::None,
             reviewer: Reviewer::Human,

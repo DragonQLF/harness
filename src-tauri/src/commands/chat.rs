@@ -145,6 +145,9 @@ pub async fn chat_queue(
     text: String,
     conversation_id: String,
     attachments: Option<Vec<String>>,
+    // Absent is the model's own default — what every message got before
+    // there was a choice.
+    effort: Option<String>,
     ws: Shared<'_>,
 ) -> Result<crate::chat::Queued, String> {
     let ws = Arc::clone(&ws);
@@ -153,6 +156,7 @@ pub async fn chat_queue(
         conversation_id,
         text,
         attachments.unwrap_or_default(),
+        effort,
     )
     .await
 }
@@ -256,6 +260,10 @@ pub async fn analyst_ask(
         Some(conversation.id.clone()),
         harness_app::director::analyst_prompt(&tables),
         Vec::new(),
+        // Nobody is at the composer choosing: the Analyst asks its own
+        // question, and the model's default is the right answer to how hard
+        // to think about it.
+        None,
     )
         .await?;
     Ok(conversation.id)

@@ -384,6 +384,9 @@ pub struct RunProfile {
     /// the engine holds one shared port for every run, so a port that carried
     /// them would hand the same ones to everybody.
     pub grants: Grants,
+    /// The engine output style this agent's runs answer in. See
+    /// `RunSpec::output_style` for why it only binds a fresh session.
+    pub output_style: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -437,6 +440,23 @@ pub struct RunSpec {
     /// means "whatever the port was built with" — which is how a conversation
     /// still works, since it builds a port per profile.
     pub grants: Grants,
+    /// Which of the engine's output styles this run answers in — `Concise`,
+    /// `Explanatory`, and the rest of what `available_output_styles` lists.
+    /// `None` is the engine's default.
+    ///
+    /// It is part of the system prompt, which is read once when the session
+    /// opens. A resumed run therefore answers in the style it was born with,
+    /// whatever is set here — so this only ever decides how a *new* session
+    /// sounds.
+    pub output_style: Option<String>,
+    /// How hard to think on this one turn: `low`, `medium`, `high`, `xhigh`,
+    /// `max`. Unlike the style, this binds per request, which is why it can be
+    /// chosen per message rather than per conversation.
+    ///
+    /// Not every model takes every level; the engine downgrades silently to
+    /// what the chosen model supports. Relay does not second-guess that — a
+    /// list narrowed here would go stale the moment a model gains a level.
+    pub effort: Option<String>,
 }
 
 impl RunSpec {
@@ -457,8 +477,27 @@ impl RunSpec {
             subagents: false,
             report_work: false,
             grants: Grants::default(),
+            output_style: None,
+            effort: None,
         }
     }
+}
+
+/// One thing `/` can mean in a session: the engine's own commands and whatever
+/// the granted skills brought with them. Relay never writes this list — it is
+/// asked for per session, because what a skill offers depends on what that
+/// agent was granted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct SlashCommand {
+    /// Without the leading slash.
+    pub name: String,
+    pub description: String,
+    /// What comes after the name, when the command takes anything.
+    #[serde(default)]
+    pub argument_hint: Option<String>,
+    /// Other names that land on this same command.
+    #[serde(default)]
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -573,6 +612,18 @@ pub enum RunEvent {
     Notice {
         text: String,
     },
+    /// What `/` can mean, for this session. Ephemeral: it belongs to the live
+    /// session and is asked for again on the next one, so writing it to the
+    /// transcript would only preserve an answer that has since expired.
+    Commands {
+        commands: Vec<SlashCommand>,
+    },
+    /// A command the engine answered by itself, with no model turn behind it —
+    /// `/usage`, `/context`. Kept, because for those it is the whole reply:
+    /// dropping it leaves a message in the thread that was never answered.
+    LocalOutput {
+        text: String,
+    },
 }
 
 impl RunEvent {
@@ -581,7 +632,10 @@ impl RunEvent {
     pub fn is_ephemeral(&self) -> bool {
         matches!(
             self,
-            RunEvent::Delta { .. } | RunEvent::Thinking { .. } | RunEvent::Turns { .. }
+            RunEvent::Delta { .. }
+                | RunEvent::Thinking { .. }
+                | RunEvent::Turns { .. }
+                | RunEvent::Commands { .. }
         )
     }
 }

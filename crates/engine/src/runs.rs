@@ -402,6 +402,10 @@ impl Engine {
             // porto só para todos os runs, portanto é aqui que um run deixa de
             // levar o mesmo que os outros.
             grants: profile.grants.clone(),
+            output_style: profile.output_style.clone(),
+            // Um cartão não tem ninguém a escolher à mensagem: corre com o
+            // que o modelo traz.
+            effort: None,
         };
         if let Some(allowed) = spec.allowed_tools.as_mut() {
             allowed.push("mcp__harness__report_work".to_string());

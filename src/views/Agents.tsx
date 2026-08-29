@@ -249,6 +249,9 @@ function Templates() {
         can_delegate: false,
         expected_output: "",
         escalate_to: null,
+        // The engine's default voice. Only the Director is opinionated about
+        // how it writes, because only the Director is read line by line.
+        output_style: null,
       },
     ]);
   };

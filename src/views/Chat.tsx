@@ -28,6 +28,20 @@ import { mono } from "../components/ui";
 const PILL =
   "rounded-full border border-line bg-surface px-3 py-1 text-sm font-medium text-ink2 dark:border-line-d dark:bg-surface-d dark:text-ink2-d";
 
+/** The levels the engine takes, and `null` for whatever the model does on its
+ *  own. Written out rather than read from the model's own list because that
+ *  list only exists once a session is open, and the choice is made before the
+ *  first message of one. A level the model does not have is downgraded by the
+ *  engine, so the worst case here is asking for more than exists. */
+const EFFORTS: { id: string | null; name: string }[] = [
+  { id: null, name: "Default" },
+  { id: "low", name: "Low" },
+  { id: "medium", name: "Medium" },
+  { id: "high", name: "High" },
+  { id: "xhigh", name: "Extra high" },
+  { id: "max", name: "Max" },
+];
+
 const POPOVER =
   "absolute z-40 min-w-[210px] rounded-md border border-line bg-surface p-1.5 shadow-soft dark:border-line-d dark:bg-surface-d dark:shadow-soft-d";
 
@@ -454,6 +468,7 @@ export function Chat() {
     renameConversation,
     archiveConversation,
     deleteConversation,
+    commands,
     toast,
   } = useStore();
 
@@ -463,6 +478,13 @@ export function Chat() {
   const [dragging, setDragging] = useState(false);
   const [pickProfile, setPickProfile] = useState(false);
   const [pickProject, setPickProject] = useState(false);
+  /** How hard to think about the message being written. Null is the model's
+   *  own default, and every message goes back to it once one is sent. */
+  const [effort, setEffort] = useState<string | null>(null);
+  const [pickEffort, setPickEffort] = useState(false);
+  /** Whether the slash menu is welcome. Typing `/` opens it; Escape and a
+   *  choice close it, and it stays closed until the next `/`. */
+  const [slashing, setSlashing] = useState(false);
   /** The title being typed, or `null` when nobody is renaming. */
   const [renaming, setRenaming] = useState<string | null>(null);
   const thread = useRef<HTMLDivElement | null>(null);
@@ -511,9 +533,44 @@ export function Chat() {
    *  of starting a second one — so there is nothing to refuse here. */
   const send = (body: string = text) => {
     if (!body.trim() && attached.length === 0) return;
-    sendChat(body, attached);
+    sendChat(body, attached, effort);
     setText("");
     setAttached([]);
+    // Chosen per message, so it does not survive one. Asking for more thinking
+    // about a hard question should not quietly bill every question after it.
+    setEffort(null);
+    setSlashing(false);
+  };
+
+  /** What the operator is reaching for when the line starts with a slash.
+   *
+   *  Only ever the *first* line and only while it is still one word: `/model
+   *  opus` has already chosen, and a menu over it would be in the way. */
+  const slashQuery = (() => {
+    const line = text.trimStart();
+    if (!line.startsWith("/") || line.startsWith("//")) return null;
+    const rest = line.slice(1);
+    if (/[\s\n]/.test(rest)) return null;
+    return rest.toLowerCase();
+  })();
+
+  const matches = useMemo(() => {
+    if (slashQuery === null) return [];
+    return commands
+      .filter((c) => {
+        const names = [c.name, ...(c.aliases ?? [])];
+        return names.some((n) => n.toLowerCase().startsWith(slashQuery));
+      })
+      .slice(0, 8);
+  }, [commands, slashQuery]);
+
+  const open = slashing && matches.length > 0;
+
+  /** Put the command in the box rather than sending it: most take arguments,
+   *  and the ones that do not are one keystroke from going anyway. */
+  const pick = (name: string) => {
+    setText(`/${name} `);
+    setSlashing(false);
   };
 
   const stop = () => {
@@ -902,11 +959,66 @@ export function Chat() {
               </div>
             )}
 
+            {/* The slash menu sits above the box, not over the thread: what
+                is being completed is the line being typed, and covering the
+                conversation to show it would hide the thing it is about. */}
+            <AnimatePresence>
+              {open && (
+                <motion.div
+                  variants={popover}
+                  initial="hidden"
+                  animate="shown"
+                  exit="gone"
+                  className="mb-2 max-h-[228px] overflow-y-auto rounded-10px border border-line bg-elev p-1 shadow-soft dark:border-line-d dark:bg-elev-d dark:shadow-soft-d"
+                >
+                  {matches.map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => pick(c.name)}
+                      className="flex w-full cursor-pointer items-baseline gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-1.75 text-left transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d"
+                    >
+                      <span className={cx(mono, "flex-none text-md text-ink2 dark:text-ink2-d")}>
+                        /{c.name}
+                      </span>
+                      {c.argument_hint && (
+                        <span className={cx(mono, "flex-none text-xs text-faint dark:text-faint-d")}>
+                          {c.argument_hint}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-sm text-muted dark:text-muted-d">
+                        {c.description}
+                      </span>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <textarea
               rows={2}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                // Opened by typing the slash, never by the menu deciding it
+                // knows better: an operator who dismissed it is not asked again
+                // until they start a new command.
+                if (e.target.value.trimStart() === "/") setSlashing(true);
+              }}
               onKeyDown={(e) => {
+                if (e.key === "Escape" && open) {
+                  e.preventDefault();
+                  setSlashing(false);
+                  return;
+                }
+                // Tab completes, Enter sends. A menu that swallowed Enter
+                // would make `/usage` — a whole command on its own — take two
+                // keystrokes to say.
+                if (e.key === "Tab" && open) {
+                  e.preventDefault();
+                  pick(matches[0].name);
+                  return;
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   send();
@@ -942,6 +1054,62 @@ export function Chat() {
 
               <span className={cx(PILL, "flex-none")} title="The model this profile runs on">
                 {speaker?.model ?? "model chosen by Claude"}
+              </span>
+
+              {/* Per message, and it says so. Effort binds the request rather
+                  than the session, which is the whole reason it can be chosen
+                  here at all — the output style cannot, and lives in the
+                  agent's settings instead. */}
+              <span className="relative flex-none">
+                <button
+                  type="button"
+                  aria-expanded={pickEffort}
+                  title="How hard to think about this one message. A model without the level you pick is downgraded by the engine."
+                  onClick={() => setPickEffort((v) => !v)}
+                  className={cx(
+                    PILL,
+                    "cursor-pointer",
+                    effort &&
+                      "border-primaryLine bg-primarySoft text-primary dark:border-primaryLine-d dark:bg-primarySoft-d dark:text-primary-d",
+                  )}
+                >
+                  {effort ? `thinking · ${effort}` : "thinking"}
+                </button>
+                <AnimatePresence>
+                  {pickEffort && (
+                    <motion.div
+                      variants={popover}
+                      initial="hidden"
+                      animate="shown"
+                      exit="gone"
+                      className={cx(POPOVER, "bottom-[calc(100%+6px)] left-0")}
+                    >
+                      {EFFORTS.map((level) => (
+                        <button
+                          key={level.id ?? "default"}
+                          type="button"
+                          onClick={() => {
+                            setEffort(level.id);
+                            setPickEffort(false);
+                          }}
+                          className="flex w-full cursor-pointer items-baseline gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-2 text-left transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-md font-medium text-ink2 dark:text-ink2-d">
+                            {level.name}
+                          </span>
+                          {level.id === effort && (
+                            <span className={cx(mono, "text-xs text-primary dark:text-primary-d")}>
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                      <div className="px-2.5 pb-1 pt-1.5 text-xs leading-normal text-faint dark:text-faint-d">
+                        This message only. The next one goes back to the model's own default.
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </span>
 
               <span className="relative flex-none">

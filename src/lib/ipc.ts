@@ -243,8 +243,12 @@ export const api = {
    *  into that run's inbox and the model reads it at its next read; with none
    *  it becomes an ordinary turn, and says so by answering with a null
    *  `queue_id`. The screen never has to know which. */
-  chatQueue: (text: string, conversationId: string, attachments: string[] = []) =>
-    invoke<Queued>("chat_queue", { text, conversationId, attachments }),
+  chatQueue: (
+    text: string,
+    conversationId: string,
+    attachments: string[] = [],
+    effort: string | null = null,
+  ) => invoke<Queued>("chat_queue", { text, conversationId, attachments, effort }),
   /** Native picker for files to attach to the next message. */
   pickFiles: () => invoke<string[]>("chat_pick_files"),
   /** Write a pasted or dropped attachment to disk and answer with its path.
