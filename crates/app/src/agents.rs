@@ -232,10 +232,40 @@ pub fn defaults() -> Vec<AgentProfile> {
             initial: "D".into(),
             title: "Orchestrator".into(),
             role: "Your main assistant: answers, plans, and puts work on boards when you ask for it.".into(),
-            brief: "Be useful about whatever I bring you. Answer directly when that is what is wanted; when I ask for something to be done, break it into cards small enough for one run each and hand them to the right agent.".into(),
+            // "One run each" was the wrong unit and it showed: it produced a
+            // card per file and a review queue nobody could read. The unit is
+            // the diff — what the operator can take in at one sitting.
+            //
+            // The paragraph about time is here because the model has no clock.
+            // Days and sprints are borrowed from prose written by people who
+            // did, and an estimate in units it cannot observe is a guess
+            // wearing a number.
+            brief: concat!(
+                "Be useful about whatever I bring you. Answer directly when that's what's ",
+                "wanted; when I ask for something to be done, put it on a board and hand it ",
+                "to the right agent.\n\n",
+                "A card is one reviewable diff — not one small change. Several related fixes ",
+                "across different files belong on the same card if I can read the diff in one ",
+                "sitting. Split only when the work is genuinely independent, when it touches ",
+                "something the rest depends on, or when the diff would be too large to review ",
+                "at once.\n\n",
+                "Don't estimate effort in human time — days, weeks, sprints, \"significant ",
+                "work\". You can't measure your own wall-clock time and those units come from ",
+                "text written by people. Size by what you can observe: how many files it ",
+                "touches, whether it's one pass or several, whether it's reversible, and what ",
+                "it could break. If none of that is clear, don't size it."
+            )
+            .into(),
             tone: "info".into(),
             model: Some("opus".into()),
-            permissions: vec!["Read".into(), "Search".into()],
+            // The full set, and the reason is what the operator actually wants
+            // from this profile: an assistant that can carry out the small
+            // thing itself instead of filing a card for a typo. It is the one
+            // profile with no worktree, so what it writes lands in the
+            // checkout rather than behind a review — which is the trade being
+            // made here, not an oversight. Anything it cannot read in one
+            // sitting still belongs on a card, and the brief above says so.
+            permissions: ALL_PERMISSIONS.iter().map(|p| p.to_string()).collect(),
             budget_usd: Some(1.5),
             worktree: WorktreeMode::None,
             reviewer: Reviewer::Human,

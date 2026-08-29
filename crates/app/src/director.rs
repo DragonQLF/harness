@@ -116,6 +116,18 @@ pub struct ChatContext<'a> {
     /// boards — not a rule. Absent on every project but the mirror, and absent
     /// whenever nothing came in outside the board, which is the normal case.
     pub outside_work: Option<&'a str>,
+    /// Proposals of his the operator accepted and he has not acted on yet.
+    /// Handed to him as a fact, exactly like `outside_work` above: an
+    /// acceptance is permission he cannot otherwise know he was given, and a
+    /// permission nobody tells him about is a permission that does nothing.
+    pub accepted_proposals: &'a [crate::inbox::Proposal],
+    /// Verdicts his own automatic reviewer reached while nobody was talking to
+    /// him. Same road as `outside_work` and the field above — a fact stored by
+    /// the shell and fetched here — because the engine that produces them has
+    /// no notion of conversation and must not be given one. Their shape is not
+    /// a proposal's, so they are a second field rather than a second
+    /// mechanism.
+    pub review_verdicts: &'a [crate::verdicts::Verdict],
     /// A versão que está a correr, **apenas quando mudou** desde o último turno
     /// desta conversa. Um facto, como os boards — e não uma regra.
     pub new_version: Option<&'a str>,
@@ -240,6 +252,74 @@ fn how_harness_works(ctx: &ChatContext) -> String {
     out
 }
 
+/// Proposals of his the operator accepted, worded for his prompt.
+///
+/// An acceptance happens *between* turns, on a screen he cannot see, so this
+/// has to reach the resumed branch as well — a live conversation is the most
+/// likely place for it to land, and a fact only written into the fresh opening
+/// would never arrive there at all.
+fn accepted(proposals: &[crate::inbox::Proposal]) -> String {
+    if proposals.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "The operator accepted these proposals of yours. Accepting is permission, not an order: \
+         no card was created and nothing was assigned. Carrying one out is now yours to do — a \
+         card on Relay's own board is the usual shape — and when you create it, pass the \
+         proposal id as `proposal_id` so it stops being raised at you every turn. If you are \
+         not going to act on one, say so plainly so they can settle it.\n\n",
+    );
+    for p in proposals {
+        out.push_str(&format!(
+            "- {} ({})\n",
+            harness_domain::one_line(&p.title),
+            p.id
+        ));
+        if !p.observation.trim().is_empty() {
+            out.push_str(&format!("  what was seen: {}\n", p.observation.trim()));
+        }
+        if !p.proposal.trim().is_empty() {
+            out.push_str(&format!("  what you proposed: {}\n", p.proposal.trim()));
+        }
+    }
+    out.push('\n');
+    out
+}
+
+/// What his own reviewer decided while nobody was talking to him.
+///
+/// He is told once, and the board he is handed carries the standing state
+/// afterwards. Same both-branches rule as `accepted` above, and for the same
+/// reason: a review finishes between turns, and a live conversation is the
+/// most likely place for the verdict to matter.
+fn verdicts(list: &[crate::verdicts::Verdict]) -> String {
+    if list.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "Your automatic review ran while you were not looking. These are its verdicts, not the \
+         operator's — the diff was read on your behalf and the card was moved. Say so rather \
+         than letting them find out from the board, and if one reads wrong to you, that is worth \
+         raising:\n",
+    );
+    for v in list {
+        out.push_str(&format!(
+            "- {} ({}) in {}: {} — {}\n",
+            harness_domain::one_line(&v.title),
+            v.card_id,
+            v.project_id,
+            if v.approved { "approved" } else { "sent back" },
+            if v.reason.is_empty() {
+                "no reason given"
+            } else {
+                &v.reason
+            }
+        ));
+    }
+    out.push('\n');
+    out
+}
+
 /// The opening for a conversation. On a resumed native session this is only
 /// what changed since; on a fresh one it is the whole identity.
 pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
@@ -263,6 +343,8 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
                  this build — check before you claim either way.)\n\n"
             ));
         }
+        prompt.push_str(&verdicts(ctx.review_verdicts));
+        prompt.push_str(&accepted(ctx.accepted_proposals));
         prompt.push_str(ctx.user_name.trim());
         prompt.push_str(": ");
         prompt.push_str(message.trim());
@@ -423,7 +505,8 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
              DECISIONS.md, so you can tell apart what the app does not do yet from what sits \
              in DEBT.md waiting to be done. When something repeats and has an obvious \
              correction, file it with propose_improvement — a proposal the operator decides \
-             on, never a card created on your own.\n\n",
+             on, never a card created on your own. Once they accept one, you are told so here, \
+             and then acting on it is exactly what you should do.\n\n",
         );
     }
 
@@ -435,6 +518,9 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         prompt.push_str(said);
         prompt.push_str("\n\n");
     }
+
+    prompt.push_str(&verdicts(ctx.review_verdicts));
+    prompt.push_str(&accepted(ctx.accepted_proposals));
 
     prompt.push_str(&how_harness_works(ctx));
 
@@ -614,7 +700,87 @@ mod tests {
             crew: &[],
             global_memory: "",
             outside_work: None,
+            accepted_proposals: &[],
+            review_verdicts: &[],
         }
+    }
+
+    /// O verdicto da revisão automática morria dentro do engine: o #12 tornou
+    /// `reviewer` política configurável, o #19 tirou ao engine a noção de
+    /// conversa — e o silêncio entre os dois não foi decidido por ninguém.
+    /// Chega-lhe agora pela mesma estrada do `outside_work`, e nos dois ramos,
+    /// porque uma revisão acaba **entre** turnos.
+    #[test]
+    fn his_own_reviewers_verdict_reaches_him_on_both_branches() {
+        let judged = [crate::verdicts::Verdict {
+            project_id: "_harness".into(),
+            card_id: "c_7b30".into(),
+            title: "widen the pathguard\n\nbody nobody needs here".into(),
+            approved: false,
+            reason: "it widens permissions the card never asked for".into(),
+        }];
+        for resumed in [false, true] {
+            let mut c = ctx(&[]);
+            c.resumed = resumed;
+            c.review_verdicts = &judged;
+            let prompt = chat_prompt(&c, "hey");
+            assert!(prompt.contains("c_7b30"), "resumed={resumed}: {prompt}");
+            assert!(prompt.contains("sent back"), "resumed={resumed}");
+            assert!(
+                prompt.contains("widens permissions the card never asked for"),
+                "resumed={resumed}: the reasoning travels with the verdict"
+            );
+            assert!(
+                !prompt.contains("body nobody needs here"),
+                "resumed={resumed}: one line per card, like the board"
+            );
+        }
+    }
+
+    /// Nada revisto, nada dito.
+    #[test]
+    fn no_verdict_says_nothing() {
+        let prompt = chat_prompt(&ctx(&[]), "hey");
+        assert!(!prompt.contains("automatic review ran"), "{prompt}");
+    }
+
+    /// Aceitar acontece entre turnos, num ecrã que ele não vê. Se a permissão
+    /// não lhe chegar ao prompt, aceitar não desbloqueia nada — e o ramo
+    /// retomado, que é o que corre numa conversa viva, **retorna** antes de
+    /// tudo o resto. Este teste prende as duas metades.
+    #[test]
+    fn an_accepted_proposal_reaches_him_on_both_branches() {
+        let mut inbox = crate::inbox::InboxState::default();
+        let p = inbox.propose(
+            "prp_7".into(),
+            1,
+            "widen the pathguard",
+            "12 refusals in a week",
+            "let writes reach the worktree root",
+        );
+        inbox.accept(&p.id);
+        let waiting: Vec<crate::inbox::Proposal> =
+            inbox.awaiting_action().into_iter().cloned().collect();
+
+        for resumed in [false, true] {
+            let mut c = ctx(&[]);
+            c.resumed = resumed;
+            c.accepted_proposals = &waiting;
+            let prompt = chat_prompt(&c, "hey");
+            assert!(prompt.contains("prp_7"), "resumed={resumed}: {prompt}");
+            assert!(prompt.contains("widen the pathguard"), "resumed={resumed}");
+            assert!(
+                prompt.contains("12 refusals in a week"),
+                "resumed={resumed}: the reasons travel with the permission"
+            );
+        }
+    }
+
+    /// Nada aceite, nada dito: um cabeçalho vazio todos os turnos seria ruído.
+    #[test]
+    fn nothing_accepted_says_nothing() {
+        let prompt = chat_prompt(&ctx(&[]), "hey");
+        assert!(!prompt.contains("Accepting is permission"), "{prompt}");
     }
 
     /// Uma sessão retomada não sabe que o binário mudou por baixo dela.
@@ -1013,12 +1179,15 @@ mod tests {
                 by: Actor::Director,
                 approved: true,
                 reason: "scoped".into(),
+                hunks: Vec::new(),
             }),
+            hunk_verdicts: Vec::new(),
             session_id: None,
             worktree: None,
             branch: None,
             depends_on: Vec::new(),
             budget_paused: false,
+            finished_ms: None,
         };
         let line = CardLine::from_card(&card);
         assert_eq!(line.id, "c_7");

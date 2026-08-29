@@ -5,8 +5,8 @@
 //! model asked to reflect constantly reflects about nothing. The app owns the
 //! timing (`inbox::look_due`); the model never has to know what time it is.
 //! What comes out lands as proposals in the inbox, never as cards: accepting
-//! one is the operator's decision, and an accepted card is born in the
-//! harness's own project (#72).
+//! one is the operator's decision, and it grants permission rather than
+//! creating work — the Director is told in his next turn and acts then.
 //!
 //! Bounded three ways, because it runs against someone trying to leave:
 //! a hard budget, a wall-clock timeout, and the once-a-day gate. Whatever was

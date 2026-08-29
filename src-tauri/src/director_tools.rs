@@ -293,8 +293,8 @@ pub async fn run(
     }
 
     // A proposal, not a card: it lands in the operator's inbox and dies there
-    // unless they accept it — and an accepted card is born in the harness
-    // repository's own project (#72), which this tool never touches.
+    // unless they accept it. Accepting mints nothing either — it is permission,
+    // handed back to him in his next turn to act on.
     if call.name == "propose_improvement" {
         let title = text(&call.input, "title").unwrap_or_default();
         let observation = text(&call.input, "observation").unwrap_or_default();
@@ -449,17 +449,34 @@ pub async fn run(
             )
             .await
             {
-                Ok(created) => ToolReply::ok(format!(
-                    "created {} for {agent}{where_}{}",
-                    created.card_id,
-                    if created.run_id.is_some() {
-                        " and started it"
-                    } else if ready {
-                        ", ready to start"
-                    } else {
-                        ", in later"
-                    }
-                )),
+                Ok(created) => {
+                    // Closing the loop on an accepted proposal: this is the
+                    // only place the card he was given permission to make can
+                    // be tied back to the permission, and without the tie the
+                    // acceptance would be raised at him for ever.
+                    let acted = text(&call.input, "proposal_id").and_then(|id| {
+                        ws.record_proposal_action(&id, &project_id, created.card_id.as_str())
+                    });
+                    ToolReply::ok(format!(
+                        "created {} for {agent}{where_}{}{}",
+                        created.card_id,
+                        if created.run_id.is_some() {
+                            " and started it"
+                        } else if ready {
+                            ", ready to start"
+                        } else {
+                            ", in later"
+                        },
+                        match acted {
+                            Some(p) => format!(
+                                " — the accepted proposal {} is now carried out and will stop \
+                                 being raised",
+                                p.id
+                            ),
+                            None => String::new(),
+                        }
+                    ))
+                }
                 Err(e) => ToolReply::refused(e),
             }
         }
@@ -540,12 +557,14 @@ pub async fn run(
                     card_id: CardId::new(card_id.clone()),
                     by: Actor::Director,
                     reason: reason.clone(),
+                    hunks: Vec::new(),
                 }
             } else {
                 Command::RejectCard {
                     card_id: CardId::new(card_id.clone()),
                     reason: reason.clone(),
                     by: Actor::Director,
+                    hunks: Vec::new(),
                 }
             };
             match runtime.engine.execute(cmd).await {
@@ -589,7 +608,7 @@ pub async fn run(
         "work_on_relay" => {
             match crate::commands::project::ensure_mirror(ws).await {
                 Ok(project) => ToolReply::ok(format!(
-                    "{} is now Relay's own source, at {}. Cards for the app go there,                      accepted proposals are born there, and read_docs reads its docs/.",
+                    "{} is now Relay's own source, at {}. Cards for the app go there,                      including the ones you make from accepted proposals, and read_docs reads its docs/.",
                     project.name, project.path
                 )),
                 Err(e) => ToolReply::refused(e),

@@ -3,9 +3,10 @@
 //!
 //! The chain is: he notices a pattern (self_report shows him his own week), he
 //! proposes with `propose_improvement`, and the proposal waits here. A
-//! proposal is never a card — accepting one is the operator's decision, and an
-//! accepted card is born in the harness's own project (`_harness`), never in
-//! whatever happens to be open (#72).
+//! proposal is never a card. Accepting one is the operator granting
+//! **permission**, not ordering work: nothing is minted, nothing is assigned —
+//! the accepted proposal is simply handed back to the Director as a fact in
+//! his next turn, and carrying it out is then his to do.
 //!
 //! Pure state and transitions; persistence is the shell's job.
 
@@ -24,6 +25,7 @@ pub enum ProposalStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct Proposal {
     pub id: String,
+    #[ts(type = "number")]
     pub created_ms: u64,
     pub title: String,
     /// What repeats — the evidence, in counts, not a transcript dump.
@@ -31,13 +33,21 @@ pub struct Proposal {
     /// What he suggests about it.
     pub proposal: String,
     pub status: ProposalStatus,
-    /// Set when the operator accepts: where the card was born.
+    /// What the Director *later* did about an accepted proposal, once he did
+    /// it. Empty at the moment of acceptance and for as long as it is still
+    /// only permission. `serde(default)` because these two are the oldest
+    /// fields in the file and an inbox.json written before, or after, this
+    /// shape must still load — a proposal on the operator's disk is not
+    /// something a format change gets to drop.
+    #[serde(default)]
     pub card_id: Option<String>,
+    #[serde(default)]
     pub project_id: Option<String>,
 }
 
 impl Proposal {
-    /// The card an accepted proposal becomes, as text.
+    /// The proposal as text: what he is handed back once it is accepted, and
+    /// what a card born from it should say.
     ///
     /// A card's title *is* the prompt the agent is given, and for a long time
     /// only the title survived acceptance: the observation and the reasoning —
@@ -124,17 +134,24 @@ impl InboxState {
         if self.proposals.len() <= KEPT {
             return;
         }
-        // Newest first; keep the open ones in preference to settled history.
+        // Newest first; keep the live ones in preference to settled history.
+        // Live now includes an acceptance nobody has acted on yet: that is a
+        // permission the operator granted, and pruning it would silently take
+        // it back.
+        let live = |p: &Proposal| {
+            p.status == ProposalStatus::Open
+                || (p.status == ProposalStatus::Accepted && p.card_id.is_none())
+        };
         let mut keep = vec![false; self.proposals.len()];
         let mut budget = KEPT;
         for (i, p) in self.proposals.iter().enumerate() {
-            if p.status == ProposalStatus::Open && budget > 0 {
+            if live(p) && budget > 0 {
                 keep[i] = true;
                 budget -= 1;
             }
         }
         for (i, p) in self.proposals.iter().enumerate() {
-            if p.status != ProposalStatus::Open && budget > 0 {
+            if !live(p) && budget > 0 {
                 keep[i] = true;
                 budget -= 1;
             }
@@ -149,22 +166,40 @@ impl InboxState {
         std::mem::swap(&mut self.proposals, &mut kept);
     }
 
-    /// Accept: records where the card was born. Creating the card is the
-    /// caller's job — this module knows nothing about boards.
-    pub fn accept(&mut self, id: &str, project_id: &str, card_id: &str) -> Option<Proposal> {
+    /// Accept: permission granted, and nothing else. No project, no card, no
+    /// board — accepting used to mint a card on the spot, which made the
+    /// operator's "yes" an order rather than a licence, and made acceptance
+    /// impossible at all on a machine with nowhere to put the card.
+    pub fn accept(&mut self, id: &str) -> Option<Proposal> {
         let slot = self.proposals.iter_mut().find(|p| p.id == id)?;
         if slot.status != ProposalStatus::Open {
             return None;
         }
         slot.status = ProposalStatus::Accepted;
+        Some(slot.clone())
+    }
+
+    /// The Director carried an accepted proposal out: record where, so it
+    /// stops being raised at him every turn.
+    pub fn record_action(&mut self, id: &str, project_id: &str, card_id: &str) -> Option<Proposal> {
+        let slot = self.proposals.iter_mut().find(|p| p.id == id)?;
+        if slot.status != ProposalStatus::Accepted || slot.card_id.is_some() {
+            return None;
+        }
         slot.project_id = Some(project_id.to_string());
         slot.card_id = Some(card_id.to_string());
         Some(slot.clone())
     }
 
+    /// Settle a proposal. Open means the operator said no; accepted-and-not-yet
+    /// acted-on means they changed their mind or handled it themselves — either
+    /// way it must stop reaching the Director. An accepted proposal he already
+    /// acted on is history and stays as it is.
     pub fn dismiss(&mut self, id: &str) -> Option<Proposal> {
         let slot = self.proposals.iter_mut().find(|p| p.id == id)?;
-        if slot.status != ProposalStatus::Open {
+        let settleable = slot.status == ProposalStatus::Open
+            || (slot.status == ProposalStatus::Accepted && slot.card_id.is_none());
+        if !settleable {
             return None;
         }
         slot.status = ProposalStatus::Dismissed;
@@ -176,6 +211,19 @@ impl InboxState {
             .iter()
             .filter(|p| p.status == ProposalStatus::Open)
             .collect()
+    }
+
+    /// Accepted, and nothing done about it yet: exactly what the Director has
+    /// standing permission for and has not used. This is what his next turn is
+    /// told, oldest first so the one that has waited longest reads first.
+    pub fn awaiting_action(&self) -> Vec<&Proposal> {
+        let mut waiting: Vec<&Proposal> = self
+            .proposals
+            .iter()
+            .filter(|p| p.status == ProposalStatus::Accepted && p.card_id.is_none())
+            .collect();
+        waiting.sort_by_key(|p| p.created_ms);
+        waiting
     }
 }
 
@@ -204,14 +252,111 @@ mod tests {
     fn accept_and_dismiss_settle_and_refuse_to_settle_twice() {
         let mut inbox = InboxState::default();
         let p = inbox.propose("p1".into(), NOW, "t", "o", "s");
-        assert!(inbox.accept(&p.id, "_harness", "c_9").is_some());
-        assert!(inbox.accept(&p.id, "_harness", "c_9").is_none(), "already settled");
-        assert!(inbox.dismiss(&p.id).is_none());
+        assert!(inbox.accept(&p.id).is_some());
+        assert!(inbox.accept(&p.id).is_none(), "already settled");
+        assert!(inbox.dismiss(&p.id).is_some(), "the operator may still withdraw permission");
+        assert!(inbox.dismiss(&p.id).is_none(), "and only once");
+    }
+
+    /// The whole point of the change: accepting is permission, not work.
+    /// It needs no project, touches no board, and leaves nothing behind but
+    /// the operator's yes.
+    #[test]
+    fn accepting_needs_no_project_and_mints_nothing() {
+        let mut inbox = InboxState::default();
+        let p = inbox.propose("p1".into(), NOW, "widen the pathguard", "12× refused", "allow it");
+        let accepted = inbox.accept(&p.id).expect("accept takes an id and nothing else");
+        assert_eq!(accepted.status, ProposalStatus::Accepted);
+        assert_eq!(accepted.card_id, None, "no card is born on accept");
+        assert_eq!(accepted.project_id, None, "and nowhere is chosen for it");
+        assert!(inbox.open().is_empty(), "it left the operator's queue");
+    }
+
+    /// Acceptance is what reaches the Director, and it has to stop reaching
+    /// him: once he has acted, and if the operator changes their mind.
+    #[test]
+    fn an_accepted_proposal_waits_for_him_until_it_is_acted_on_or_withdrawn() {
+        let mut inbox = InboxState::default();
+        let a = inbox.propose("p1".into(), NOW, "a", "o", "s");
+        let b = inbox.propose("p2".into(), NOW + 1, "b", "o", "s");
+        inbox.propose("p3".into(), NOW + 2, "c", "o", "s");
+        assert!(inbox.awaiting_action().is_empty(), "open is not permission");
+
+        inbox.accept(&a.id);
+        inbox.accept(&b.id);
         assert_eq!(
-            inbox.proposals[0].card_id.as_deref(),
-            Some("c_9"),
-            "accept records where the card was born"
+            inbox.awaiting_action().iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            vec!["p1", "p2"],
+            "oldest first"
         );
+
+        assert!(inbox.record_action(&a.id, "_harness", "c_9").is_some());
+        assert!(
+            inbox.record_action(&a.id, "_harness", "c_10").is_none(),
+            "acted on once"
+        );
+        assert!(inbox.dismiss(&b.id).is_some(), "the operator settles the other");
+        assert!(inbox.awaiting_action().is_empty());
+        assert_eq!(inbox.proposals.iter().find(|p| p.id == "p1").unwrap().card_id.as_deref(), Some("c_9"));
+    }
+
+    /// The other half of the durability question, asked rather than assumed:
+    /// a permission granted before a restart must still be a permission after
+    /// one. It is, and by construction — acceptance is a *state* written into
+    /// inbox.json, not a delivery, so `awaiting_action` recomputes it from the
+    /// file every time. That is the honest difference from a verdict, which is
+    /// news and is said once.
+    #[test]
+    fn an_accepted_proposal_survives_a_restart() {
+        let mut inbox = InboxState::default();
+        let p = inbox.propose("p1".into(), NOW, "widen the pathguard", "12×", "allow it");
+        inbox.accept(&p.id);
+
+        let on_disk = serde_json::to_string(&inbox).unwrap();
+        let reloaded: InboxState = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(
+            reloaded.awaiting_action().len(),
+            1,
+            "the permission outlives the process"
+        );
+
+        // And once he has acted, the restart does not raise it again.
+        let mut reloaded = reloaded;
+        reloaded.record_action(&p.id, "_harness", "c_9");
+        let again: InboxState =
+            serde_json::from_str(&serde_json::to_string(&reloaded).unwrap()).unwrap();
+        assert!(again.awaiting_action().is_empty());
+    }
+
+    /// This is state on a real machine. An inbox.json written by the version
+    /// where accepting minted a card must still load — with its record intact —
+    /// and one written without those fields at all must not crash the app on
+    /// startup.
+    #[test]
+    fn an_old_inbox_file_still_loads() {
+        let old = r#"{
+          "proposals": [
+            {
+              "id": "prp_1", "created_ms": 1800000000000, "title": "old accepted",
+              "observation": "o", "proposal": "s", "status": "accepted",
+              "card_id": "c_1", "project_id": "_harness"
+            },
+            {
+              "id": "prp_2", "created_ms": 1800000000001, "title": "no such fields",
+              "observation": "o", "proposal": "s", "status": "open"
+            }
+          ],
+          "last_look_ms": 1800000000000
+        }"#;
+        let inbox: InboxState = serde_json::from_str(old).expect("old inbox.json must still load");
+        assert_eq!(inbox.proposals.len(), 2, "nothing is discarded");
+        assert_eq!(inbox.proposals[0].card_id.as_deref(), Some("c_1"));
+        assert_eq!(inbox.proposals[1].card_id, None);
+        assert!(
+            inbox.awaiting_action().is_empty(),
+            "an old acceptance already has its card; it is not pending permission"
+        );
+        assert_eq!(inbox.open().len(), 1);
     }
 
     /// The bug: accepting a proposal built the card from `proposal.title`

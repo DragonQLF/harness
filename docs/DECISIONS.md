@@ -1952,3 +1952,104 @@ runtime deixa de parar com ele.
 e `the_loser_of_the_agent_limit_never_builds`, uma vez cada) não são desta
 forma: ambos esperam por estados que colam. Não têm reprodutor nem mensagem
 guardada, e esta passagem não os explica.
+
+### 98. Aceitar é permissão, não é trabalho — e o veredicto volta pela mesma estrada
+Duas metades do mesmo canal. Corrige o #79 e o #83, que descrevem
+comportamento que já não existe.
+
+**Aceitar deixa de criar cartão.** O `inbox_accept` procurava o projecto
+espelho, chamava `create_card_inner` com o texto da proposta e guardava o
+`card_id` na proposta. O "sim" do operador era portanto uma **ordem**: cartão
+nascido no `_harness`, atribuído ao worker por omissão, sem ele ter dito nada
+sobre nenhuma das duas coisas. E numa máquina sem modo espelho recusava com
+"não há onde pôr este cartão" — uma falha em forma de cartão para uma coisa que
+não é um cartão. Nas palavras do operador: *"propose_improvement é o Director a
+dizer que precisa de alguma coisa, e eu aceito — a partir daí ele pode agir."*
+
+`InboxState::accept(id)` marca `Accepted` e mais nada: não recebe projecto, não
+recebe cartão, não toca em quadro nenhum e não pode falhar por falta de sítio.
+
+**O `card_id`/`project_id` ficam, com outro significado.** Deixam de ser "onde
+o cartão nasceu ao aceitar" e passam a ser "o que o Director fez com isto
+**depois**", preenchidos quando ele cria o cartão e passa o `proposal_id` novo
+do `create_card`. É esse par que responde à única pergunta que o canal precisa
+de fazer — já agiu? — e é o que preserva o registo verdadeiro de todas as
+propostas aceites no tempo do comportamento antigo. Apagá-los seria perder
+história de operador para não ganhar nada. Levam `#[serde(default)]`: um
+`inbox.json` escrito antes ou depois desta forma tem de carregar, porque uma
+proposta no disco de alguém não é coisa que uma mudança de formato deite fora.
+Há teste com um ficheiro antigo literal.
+
+**A permissão chega-lhe como facto, não como evento empurrado.** Estrada do
+`outside_work`: guardada de um lado, buscada no turno do outro
+(`ChatContext.accepted_proposals`). Sai da lista quando ele age (o
+`proposal_id`) ou quando o operador a retira — o `dismiss` passa a aceitar uma
+proposta aceite que ainda ninguém executou, porque uma permissão que não se
+pode devolver não é uma permissão. O `truncate` conta uma aceitação por
+executar como viva, senão a poda revogava-a em silêncio.
+
+**Nos dois ramos do prompt.** Aceitar acontece **entre** turnos, num ecrã que
+ele não vê, e o ramo retomado — o que corre numa conversa viva — `return`a
+antes de tudo o resto. É a armadilha exacta do #91 e do aviso de versão. Teste
+prende os dois ramos.
+
+**A segunda metade: o veredicto da revisão automática não chegava a ninguém.**
+O #12 fez do `reviewer` um campo de perfil (`director`/`you`/`nobody`), logo a
+revisão automática é política configurável. O #19 removeu do engine o
+`director_chat`, a `Msg::DirectorChat` e o handle — *"o engine deixou de ter
+noção de conversa"* — e estava certo. Mas entre as duas ficou um buraco que
+**ninguém decidiu**: o canal por onde o veredicto voltaria tinha sido apagado
+por um refactor cujo objectivo era outro. Um agente acabava, a revisão corria,
+o Director dava um parecer — e o Director da conversa nunca soube que o seu
+próprio revisor tinha julgado alguma coisa. Não estava sequer no `DEBT.md`. O
+silêncio foi consequência, não escolha. Foi o próprio Director que o
+diagnosticou e o arquivou com `propose_improvement`, que é exactamente para o
+que a caixa serve.
+
+A correcção **não devolve ao engine noção nenhuma de conversa**, e isso é
+inegociável. O engine continua a fazer o que já fazia: persistir `CardApproved`
+/ `CardRejected` com o actor e a razão em cima. Zero linhas mudadas em
+`crates/engine/src/director.rs`. Quem vem buscar é a casca: o laço de eventos
+que já existe em `spawn_runtime` reconhece o facto e guarda-o
+(`harness_app::verdicts`), e o `chat.rs` levanta-o no turno seguinte, ao lado do
+`outside_work`.
+
+- **Quem julgou já era tipado, e é isso que torna o travão honesto.** Só
+  `Actor::Director` é notícia. `reviewer: you` deixa uma revisão `Actor::Human`
+  porque foi o operador que leu o diff; `reviewer: nobody` fecha o cartão
+  também como `Actor::Human`. Nenhum dos dois é um juízo dele, portanto nenhum
+  dos dois lhe é dito. O actor do caminho `nobody` passou a estar assertado no
+  engine, que é onde a distinção nasce.
+- **Entregue uma vez e passa a passado** (`take`, não `read`), disciplina do
+  `outside_work`: o quadro que ele recebe já carrega o estado permanente de
+  cada cartão, e isto é a *notícia*. Repetido todos os turnos deixava de ser
+  informação e passava a papel de parede. Um cartão julgado duas vezes guarda
+  só o veredicto posterior, e guardam-se dez.
+- **No disco, em `verdicts.json`, ao lado do `inbox.json`.** O momento mais
+  provável para uma revisão acabar é um momento em que ninguém está a ouvir —
+  o operador fecha a janela quando acabou o dia, e a revisão corre sozinha. Só
+  em memória, o veredicto desaparecia antes de lhe poder ser dito, que é o bug
+  original outra vez em ponto pequeno. **Persiste-se a remoção e não só a
+  chegada:** se o `take` vivesse só em memória, um restart entre o `take` e a
+  escrita seguinte dizia-lhe a mesma coisa duas vezes, e a disciplina toda é
+  dizer uma vez. Escrita pelo `paths::write_json` (tmp + rename, como todos os
+  outros), leitura pelo `read_json_or_default`: ficheiro ausente é uma
+  instalação antiga, ficheiro ilegível é um dia mau, e ambos são uma caixa
+  vazia. O Relay abrir sem veredictos está bem; o Relay recusar-se a abrir por
+  causa deste ficheiro não estava.
+- **A proposta aceite já era durável, e por construção.** Perguntou-se em vez
+  de se assumir: aceitar é um **estado** escrito no `inbox.json`, não uma
+  entrega, e o `awaiting_action` recalcula-o do ficheiro a cada turno. É essa a
+  diferença honesta entre os dois factos que viajam nesta estrada — a permissão
+  fica até ele agir, o veredicto diz-se uma vez. Há teste para o
+  round-trip de cada um.
+- **Campo irmão, não segundo mecanismo.** A forma de um veredicto não é a de
+  uma proposta, portanto são dois campos do `ChatContext` na mesma estrada — e
+  não duas estradas.
+
+**Fica em aberto, e por decidir:** o revisor continua a receber um diff sem
+contexto nenhum (nem carta do projecto, nem `memory/decisions/`, nem a
+transcrição do run que está a julgar) e um resumo que os lockfiles afogam; e a
+revisão não tem tecto de orçamento nem relógio, ao contrário do fecho do dia
+(#79). Nenhuma das duas foi feita aqui. A estrada acomoda ambas sem se mexer:
+são o *dentro* do run de revisão, e este canal só trata do que sai dele.
