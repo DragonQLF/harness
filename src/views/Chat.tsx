@@ -75,7 +75,16 @@ function commandOf(request: PendingApproval): string {
  *  `**bold`, a table three rows in — and it completes those blocks for display
  *  so the text settles instead of flickering as the rest arrives. */
 function Prose({ text }: { text: string }) {
-  return <Streamdown>{text}</Streamdown>;
+  // Streamdown ships its own chip for inline code — dark and heavy, sized for
+  // a white page rather than for this thread. The old hand-rolled Prose used
+  // `bg-active`, which reads as emphasis instead of as a label, so the app's
+  // own tokens win here. `:not(pre) > code` leaves fenced blocks alone: those
+  // are meant to be a slab, and only the inline chips were shouting.
+  return (
+    <Streamdown className="[&_:not(pre)>code]:rounded-5px [&_:not(pre)>code]:bg-active [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-body [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:text-ink2 [&_:not(pre)>code]:before:content-none [&_:not(pre)>code]:after:content-none dark:[&_:not(pre)>code]:bg-active-d dark:[&_:not(pre)>code]:text-ink2-d">
+      {text}
+    </Streamdown>
+  );
 }
 
 const TICK = (
