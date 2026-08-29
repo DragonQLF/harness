@@ -98,7 +98,7 @@ pub(crate) async fn create_card_inner(
     })
 }
 
-fn short_id() -> String {
+pub(crate) fn short_id() -> String {
     uuid::Uuid::new_v4().to_string().replace('-', "").chars().take(4).collect()
 }
 
@@ -154,6 +154,30 @@ pub async fn set_dependencies(
         .await
 }
 
+/// Fix a card's title in place.
+///
+/// The domain refuses this once the card has run, and that guard is the whole
+/// reason the command is safe: a card with a run behind it has a transcript
+/// and a commit whose subject is the old title, and renaming it would make
+/// both of them describe work under a name that no longer exists. Until then
+/// the title is just the operator's own wording of what they want, and
+/// correcting a typo should not mean discarding the card and writing it again.
+#[tauri::command]
+pub async fn edit_card(
+    project_id: String,
+    card_id: String,
+    title: String,
+    ws: Shared<'_>,
+) -> Result<u64, String> {
+    ws.runtime(&project_id).await?
+        .engine
+        .execute(Command::EditCard {
+            card_id: CardId::new(card_id),
+            title,
+        })
+        .await
+}
+
 #[tauri::command]
 pub async fn assign_agent(
     project_id: String,
@@ -183,6 +207,9 @@ pub async fn approve_card(
             card_id: CardId::new(card_id),
             by: Actor::Human,
             reason: reason.unwrap_or_default(),
+            // Whole card: the Board's Approve names no block, which is
+            // what an empty selection means everywhere.
+            hunks: Vec::new(),
         })
         .await
 }
@@ -200,6 +227,7 @@ pub async fn reject_card(
             card_id: CardId::new(card_id),
             reason,
             by: Actor::Human,
+            hunks: Vec::new(),
         })
         .await
 }
@@ -480,12 +508,22 @@ pub async fn activity(
     let runtime = ws.runtime(&project_id).await?;
     let cards = runtime.engine.snapshot().await?.cards;
     let store = Arc::clone(&runtime.store);
+    let run_log = Arc::clone(&runtime.run_log);
     let history = tauri::async_runtime::spawn_blocking(move || {
         harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
-    Ok(insights::activity(&history, &cards, limit.unwrap_or(200)))
+    // The transcripts are read here, once, rather than a row at a time from the
+    // screen: the Sessions table wants a tool count on every line, and asking
+    // for two hundred logs over IPC to tally them is the expensive way round.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut rows = insights::activity(&history, &cards, limit.unwrap_or(200));
+        insights::fill_tool_counts(&mut rows, |run_id| run_log.path_of(run_id));
+        rows
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

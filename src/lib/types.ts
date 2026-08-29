@@ -23,10 +23,18 @@ import type { BranchRow } from "./generated/BranchRow";
 import type { BranchState } from "./generated/BranchState";
 import type { Card } from "./generated/Card";
 import type { CardId } from "./generated/CardId";
+import type { CardChecks } from "./generated/CardChecks";
 import type { CheckRow } from "./generated/CheckRow";
 import type { CommitRow } from "./generated/CommitRow";
 import type { Conversation } from "./generated/Conversation";
+import type { ConversationTotals } from "./generated/ConversationTotals";
+import type { FileText } from "./generated/FileText";
 import type { FolderInfo } from "./generated/FolderInfo";
+import type { Hunk } from "./generated/Hunk";
+import type { HunkLine } from "./generated/HunkLine";
+import type { ToolCount } from "./generated/ToolCount";
+import type { TranscriptExport } from "./generated/TranscriptExport";
+import type { TreeEntry } from "./generated/TreeEntry";
 import type { LanguageRow } from "./generated/LanguageRow";
 import type { MirrorWarning } from "./generated/MirrorWarning";
 import type { OutsideWork } from "./generated/OutsideWork";
@@ -37,8 +45,12 @@ import type { Provider } from "./generated/Provider";
 import type { ProjectStats } from "./generated/ProjectStats";
 import type { Review } from "./generated/Review";
 import type { Reviewer } from "./generated/Reviewer";
+import type { ActorFilter } from "./generated/ActorFilter";
 import type { RunId } from "./generated/RunId";
 import type { RunOutcome } from "./generated/RunOutcome";
+import type { RunStats } from "./generated/RunStats";
+import type { RunWindow } from "./generated/RunWindow";
+import type { Spend } from "./generated/Spend";
 import type { SessionView } from "./generated/SessionView";
 import type { Settings } from "./generated/Settings";
 import type { Snapshot } from "./generated/Snapshot";
@@ -71,11 +83,16 @@ export type {
   BranchRow,
   BranchState,
   Card,
+  CardChecks,
   CardId,
   CheckRow,
   CommitRow,
   Conversation,
+  ConversationTotals,
+  FileText,
   FolderInfo,
+  Hunk,
+  HunkLine,
   LanguageRow,
   McpGrant,
   McpTransport,
@@ -88,13 +105,20 @@ export type {
   ProjectStats,
   Review,
   Reviewer,
+  ActorFilter,
   RunId,
   RunOutcome,
+  RunStats,
+  RunWindow,
   SessionView,
+  Spend,
   Settings,
   SkillGrant,
   Snapshot,
   Status,
+  ToolCount,
+  TranscriptExport,
+  TreeEntry,
   WorktreeMode,
   WorktreeRow,
 };
@@ -129,6 +153,7 @@ export type RunEventKind =
   | "tool_use"
   | "tool_result"
   | "turns"
+  | "usage"
   | "done"
   | "failed"
   | "approval_requested"
@@ -153,6 +178,20 @@ export interface RunUpdate {
   allow?: boolean;
 }
 
+/** What an attachment looks like, for the chip that stands for it. Written by
+ *  hand rather than generated: `AttachmentPreview` is a shell response, like
+ *  `Bootstrap` and the rest above it, not a domain type. */
+export interface AttachmentPreview {
+  path: string;
+  name: string;
+  ext: string;
+  size: number;
+  /** A data URI when the file is an image small enough to inline. */
+  image: string | null;
+  /** The opening of a text file, so a pasted patch is recognisable. */
+  head: string | null;
+}
+
 export interface RunLogLine {
   ts_ms: number;
   kind: RunEventKind;
@@ -165,9 +204,21 @@ export interface RunLogLine {
   turns?: number | null;
   request_id?: string;
   allow?: boolean;
+  /** On a `usage` line: the model that spent those tokens. It is the only
+   *  record of what a run actually ran on — the agent profile says what it
+   *  would run on *today*, which is a different question once the profile has
+   *  been edited. Absent on every other kind, and on runs recorded before
+   *  usage was written down. */
+  model?: string | null;
 }
 
 // ---- shell wrappers that still live in src-tauri ---------------------------
+
+/** A card's checks were run again, on the project they belong to. */
+export interface CardChecksEvent {
+  project_id: string;
+  checks: CardChecks;
+}
 
 /** What a folder looks like before adopting it — composed client-side. */
 export interface ProjectView extends Project {

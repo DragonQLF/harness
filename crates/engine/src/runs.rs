@@ -797,6 +797,7 @@ impl Engine {
                     card_id: card_id.clone(),
                     by: Actor::Human,
                     reason: "no reviewer configured for this agent".into(),
+                    hunks: Vec::new(),
                 };
                 match self.board.decide(&cmd) {
                     Ok(events) => {

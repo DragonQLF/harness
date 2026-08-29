@@ -179,6 +179,7 @@ pub struct SkillGrant {
     pub source: String,
     /// The SKILL.md body, without the frontmatter Relay writes itself.
     pub body: String,
+    #[ts(type = "number")]
     pub added_ms: u64,
 }
 
@@ -242,6 +243,7 @@ pub struct McpGrant {
     pub tools: Vec<String>,
     /// Where the declaration came from: a URL, a package, a registry entry.
     pub source: String,
+    #[ts(type = "number")]
     pub added_ms: u64,
 }
 
@@ -475,6 +477,23 @@ pub enum RunEvent {
         /// expand instead of dumping it inline (#28's reason).
         #[serde(default)]
         detail: Option<String>,
+    },
+    /// What one model turn spent. Written to the log rather than shown live,
+    /// because the thread's accounting is read back off disk: a token count
+    /// that only ever existed in memory is one the next read cannot have.
+    ///
+    /// `input_tokens` is the prompt the model was handed *this turn*, so the
+    /// last one of these is also how full its context window is — which is why
+    /// the model that spent them travels with the numbers.
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+        #[serde(default)]
+        cache_read_tokens: u64,
+        #[serde(default)]
+        cache_creation_tokens: u64,
+        #[serde(default)]
+        model: Option<String>,
     },
     Done {
         session_id: Option<String>,

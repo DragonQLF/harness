@@ -101,6 +101,67 @@ pub enum Actor {
     Director,
 }
 
+/// One block of a card's diff, named the way git names it.
+///
+/// The header is the identity: git writes `@@ -14,6 +14,8 @@ fn resolve(` once
+/// per block, and two blocks of the same file never share one. Carrying it
+/// typed is what lets the log say *which* hunk was decided instead of a
+/// sentence about it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HunkRef {
+    /// Path relative to the worktree.
+    pub file: String,
+    /// The `@@ … @@` line, verbatim.
+    pub header: String,
+    /// Where the block lands in the file after the change, and how many lines
+    /// it covers there. Zero when the diff did not say; the header already
+    /// holds the same numbers in text, so this is for reading, not identity.
+    #[serde(default)]
+    pub new_start: u32,
+    #[serde(default)]
+    pub new_lines: u32,
+}
+
+impl HunkRef {
+    pub fn new(file: impl Into<String>, header: impl Into<String>) -> Self {
+        Self {
+            file: file.into(),
+            header: header.into(),
+            new_start: 0,
+            new_lines: 0,
+        }
+    }
+
+    /// Two references point at the same block when the file and the header
+    /// match. The line range is derived from the header, so comparing it too
+    /// would only make identity fragile.
+    pub fn names(&self, other: &HunkRef) -> bool {
+        self.file == other.file && self.header == other.header
+    }
+
+    /// `crates/app/src/code.rs @@ -14,6 +14,8 @@` — the one-line form, so a
+    /// reason the operator reads is built out of the typed fields rather than
+    /// typed by hand somewhere else.
+    pub fn label(&self) -> String {
+        format!("{} {}", self.file, self.header.trim())
+    }
+}
+
+/// One hunk-level verdict, kept on the card while its diff is being read.
+///
+/// Verdicts pile up as the operator works down the panel and are consumed the
+/// moment the diff is fully decided — see [`resolve_review`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct HunkVerdict {
+    pub hunk: HunkRef,
+    pub approved: bool,
+    #[serde(default)]
+    pub by: Actor,
+    /// What the operator said about this block. May be empty on an approval.
+    #[serde(default)]
+    pub reason: String,
+}
+
 /// The last review a card received, kept on the card so the board can show it
 /// without walking the log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -108,6 +169,10 @@ pub struct Review {
     pub by: Actor,
     pub approved: bool,
     pub reason: String,
+    /// The blocks the verdict was about. Empty when the card was decided as a
+    /// whole, which is what the Board's Approve and Send back always mean.
+    #[serde(default)]
+    pub hunks: Vec<HunkRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -131,6 +196,11 @@ pub struct Card {
     pub runs: u32,
     #[serde(default)]
     pub last_review: Option<Review>,
+    /// Hunk-level verdicts taken since the last run finished, in the order
+    /// they were taken. Empty on every card that was decided whole. Cleared
+    /// when the card is decided or a new run rewrites the diff underneath it.
+    #[serde(default)]
+    pub hunk_verdicts: Vec<HunkVerdict>,
     /// The native agent session this card's runs continue, once one has been
     /// reported. Kept on the card so it survives a restart: without it the next
     /// run starts a stranger on work it has already done.
@@ -153,10 +223,137 @@ pub struct Card {
     /// again. Distinct from Failed on purpose — money was spent, nothing broke.
     #[serde(default)]
     pub budget_paused: bool,
+    /// When this card reached Done, taken from the log's own timestamp for the
+    /// event that put it there.
+    ///
+    /// The domain has no clock, so this is the one field reduced from outside
+    /// the event: [`Board::apply_at`] hands over the stored `ts_ms`. `None`
+    /// covers three honest cases — the card is not Done, it left Done again,
+    /// or the log that records it kept no timestamp (written before they were
+    /// stored). A card that fell out of the activity window keeps its finish
+    /// time all the same, which is the whole point of it living here.
+    #[serde(default)]
+    pub finished_ms: Option<u64>,
 }
 
 fn default_agent() -> String {
     "builder".to_string()
+}
+
+/// What the verdicts taken so far mean for the card as a whole.
+///
+/// See [`resolve_review`] for the rule; this is only the shape of its answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewOutcome {
+    /// Some block of the diff has no verdict yet, so the card stays in Review.
+    Open { decided: u32, of: u32 },
+    /// Every block passed.
+    Approve { hunks: Vec<HunkRef> },
+    /// Every block was sent back. The card itself is the carrier of the work,
+    /// exactly as a whole-card rejection is.
+    Reject { hunks: Vec<HunkRef>, reason: String },
+    /// Some passed, some did not.
+    Partial {
+        approved: Vec<HunkRef>,
+        rejected: Vec<HunkVerdict>,
+    },
+}
+
+/// What a set of hunk verdicts means for the card, given the diff as git
+/// prints it *now*.
+///
+/// The diff is the authority on which blocks exist: a verdict whose hunk is no
+/// longer in it was taken against a diff that has since moved, and counting it
+/// would let a stale opinion close a card. Such verdicts are ignored rather
+/// than an error — the operator simply has that block to read again.
+///
+/// A card with no diff is never resolved here. Nothing was reviewed, so there
+/// is nothing for the verdicts to mean; whole-card approve still applies.
+pub fn resolve_review(verdicts: &[HunkVerdict], diff: &[HunkRef]) -> ReviewOutcome {
+    let of = diff.len() as u32;
+    if of == 0 {
+        return ReviewOutcome::Open { decided: 0, of: 0 };
+    }
+    // Last verdict on a block wins: the operator may change their mind before
+    // the diff is fully read, and the newer opinion is the one they hold.
+    let verdict_for = |hunk: &HunkRef| verdicts.iter().rev().find(|v| v.hunk.names(hunk));
+
+    let mut approved: Vec<HunkRef> = Vec::new();
+    let mut rejected: Vec<HunkVerdict> = Vec::new();
+    for hunk in diff {
+        match verdict_for(hunk) {
+            None => {
+                return ReviewOutcome::Open {
+                    decided: (approved.len() + rejected.len()) as u32,
+                    of,
+                }
+            }
+            Some(v) if v.approved => approved.push(hunk.clone()),
+            Some(v) => rejected.push(HunkVerdict {
+                hunk: hunk.clone(),
+                ..v.clone()
+            }),
+        }
+    }
+
+    if rejected.is_empty() {
+        return ReviewOutcome::Approve { hunks: approved };
+    }
+    if approved.is_empty() {
+        return ReviewOutcome::Reject {
+            reason: sent_back_reason(&rejected),
+            hunks: rejected.into_iter().map(|v| v.hunk).collect(),
+        };
+    }
+    ReviewOutcome::Partial { approved, rejected }
+}
+
+/// The prose form of a set of rejections, built from the typed verdicts so the
+/// sentence in the log cannot drift from the blocks it names.
+fn sent_back_reason(rejected: &[HunkVerdict]) -> String {
+    let mut out = format!(
+        "{} hunk{} sent back",
+        rejected.len(),
+        if rejected.len() == 1 { "" } else { "s" }
+    );
+    for verdict in rejected {
+        out.push_str("\n- ");
+        out.push_str(&verdict.hunk.label());
+        if !verdict.reason.trim().is_empty() {
+            out.push_str(" — ");
+            out.push_str(verdict.reason.trim());
+        }
+    }
+    out
+}
+
+/// The title — which is to say the prompt — of the card the rejected blocks
+/// become when the rest of a diff is approved.
+///
+/// The first line is the one-line subject the board and the commit read; the
+/// body names every block that was sent back and why, because that is the
+/// whole content of the work being carried over.
+pub fn follow_up_title(from: &Card, rejected: &[HunkVerdict]) -> String {
+    format!(
+        "Rework {} hunk{} sent back on {}\n\nApproved as {}, so the rest of that card has landed. \
+         What is left is the work below.\n{}",
+        rejected.len(),
+        if rejected.len() == 1 { "" } else { "s" },
+        from.subject(),
+        from.id,
+        rejected
+            .iter()
+            .map(|v| {
+                let mut line = format!("- {}", v.hunk.label());
+                if !v.reason.trim().is_empty() {
+                    line.push_str("\n  ");
+                    line.push_str(v.reason.trim());
+                }
+                line
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 /// The one-line form of a card's title: everything up to the first newline.
@@ -211,12 +408,31 @@ pub enum Event {
         by: Actor,
         #[serde(default)]
         reason: String,
+        /// The blocks the approval was about. Empty on a whole-card approve,
+        /// which is what every log written before hunk review holds.
+        #[serde(default)]
+        hunks: Vec<HunkRef>,
     },
     CardRejected {
         card_id: CardId,
         reason: String,
         #[serde(default)]
         by: Actor,
+        /// The blocks that were sent back. Empty on a whole-card rejection.
+        #[serde(default)]
+        hunks: Vec<HunkRef>,
+    },
+    /// One block of a card's diff was decided. The card does not move: the
+    /// verdicts sit on it until the diff is fully read, and the event that
+    /// completes it carries the card's own outcome alongside.
+    HunkReviewed {
+        card_id: CardId,
+        hunk: HunkRef,
+        approved: bool,
+        #[serde(default)]
+        by: Actor,
+        #[serde(default)]
+        reason: String,
     },
     /// The agent reported the session it is working in. Recorded so a later run
     /// — or the operator, in a terminal — can resume that same conversation
@@ -276,6 +492,7 @@ impl Event {
             | Event::RunFinished { card_id, .. }
             | Event::CardApproved { card_id, .. }
             | Event::CardRejected { card_id, .. }
+            | Event::HunkReviewed { card_id, .. }
             | Event::AgentSession { card_id, .. }
             | Event::CardDiscarded { card_id, .. }
             | Event::CardDependencies { card_id, .. }
@@ -317,8 +534,34 @@ pub enum Command {
         cost_usd: Option<f64>,
         turns: Option<u32>,
     },
-    ApproveCard { card_id: CardId, by: Actor, reason: String },
-    RejectCard { card_id: CardId, reason: String, by: Actor },
+    /// Approve the card. `hunks` names the blocks the verdict was about and is
+    /// a record, not a filter: a branch merges whole, so an approval always
+    /// lands the whole card. Empty is the Board's Approve, unchanged.
+    ApproveCard { card_id: CardId, by: Actor, reason: String, hunks: Vec<HunkRef> },
+    /// Send the card back. `hunks` names the blocks that were wrong; empty is
+    /// the Board's Send back, unchanged.
+    RejectCard { card_id: CardId, reason: String, by: Actor, hunks: Vec<HunkRef> },
+    /// Decide one block of a card's diff.
+    ///
+    /// `diff` is the card's blocks as git prints them at the moment the
+    /// operator clicks, and it is what makes "every hunk is decided" a fact
+    /// the domain can check rather than a guess. When this verdict completes
+    /// the diff the card resolves in the same decision, so a replay of the
+    /// log reaches the same board in one step.
+    ///
+    /// `follow_up` is the id the rejected work would be carried on if this
+    /// verdict completes a partial rejection. It arrives from the caller
+    /// rather than being minted here because the domain has no source of
+    /// randomness and replay must land on the same id every time.
+    ReviewHunk {
+        card_id: CardId,
+        hunk: HunkRef,
+        approved: bool,
+        by: Actor,
+        reason: String,
+        diff: Vec<HunkRef>,
+        follow_up: CardId,
+    },
     /// Remember the agent session a run is using.
     RecordSession { card_id: CardId, session_id: String },
     /// Take a card off the board for good.
@@ -362,6 +605,8 @@ pub enum DecisionError {
     AlreadyRan { card_id: CardId, runs: u32 },
     /// The edit asked for the title the card already has.
     SameTitle,
+    /// A verdict named a block that is not in the diff it was taken against.
+    UnknownHunk(String),
 }
 
 impl fmt::Display for DecisionError {
@@ -417,6 +662,10 @@ impl fmt::Display for DecisionError {
                  card. Say what should be different instead, or take a new card for the rest"
             ),
             DecisionError::SameTitle => write!(f, "that is the title the card already has"),
+            DecisionError::UnknownHunk(label) => write!(
+                f,
+                "{label} is not in this card's diff any more — read it again before deciding it"
+            ),
         }
     }
 }
@@ -443,7 +692,28 @@ impl Board {
         v
     }
 
+    /// Fold an event whose timestamp is not known — a caller replaying a log
+    /// that kept none, or a test that has no clock. See [`Board::apply_at`],
+    /// which this is the zero-timestamp case of.
     pub fn apply(&mut self, event: &Event) {
+        self.apply_at(event, 0);
+    }
+
+    /// Fold an event together with the moment the log recorded it.
+    ///
+    /// The domain owns no clock, so a time can only ever arrive from the
+    /// record. `ts_ms` is the stored timestamp; zero means the record kept
+    /// none, and nothing that needs a time is set from it. Replay is
+    /// deterministic because the timestamp is stored beside the event, never
+    /// read from the machine doing the replaying.
+    pub fn apply_at(&mut self, event: &Event, ts_ms: u64) {
+        // Whether this card was already finished, read before the fold so the
+        // crossing can be seen afterwards.
+        let was_done = event
+            .card_id()
+            .and_then(|id| self.cards.get(id))
+            .map(|card| card.status == Status::Done);
+
         match event {
             Event::CardCreated { card_id, title } => {
                 self.cards.insert(
@@ -458,11 +728,13 @@ impl Board {
                         turns: 0,
                         runs: 0,
                         last_review: None,
+                        hunk_verdicts: Vec::new(),
                         session_id: None,
                         worktree: None,
                         branch: None,
                         depends_on: Vec::new(),
                         budget_paused: false,
+                        finished_ms: None,
                     },
                 );
             }
@@ -492,6 +764,11 @@ impl Board {
                     card.current_run = Some(run_id.clone());
                     card.runs += 1;
                     card.last_review = None;
+                    // A new run rewrites the diff, so every verdict taken
+                    // against the old one is about blocks that no longer
+                    // exist. Keeping them would let a stale opinion close the
+                    // card the moment the next review begins.
+                    card.hunk_verdicts.clear();
                     // Where it works can move between runs; the session it
                     // continues is left alone, because a new run resumes the
                     // one the last run left behind.
@@ -523,24 +800,62 @@ impl Board {
                     card.turns += turns.unwrap_or(0);
                 }
             }
-            Event::CardApproved { card_id, by, reason } => {
+            Event::CardApproved {
+                card_id,
+                by,
+                reason,
+                hunks,
+            } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
                     card.status = Status::Done;
                     card.last_review = Some(Review {
                         by: *by,
                         approved: true,
                         reason: reason.clone(),
+                        hunks: hunks.clone(),
                     });
+                    // The verdicts are spent: they are in this event and in
+                    // whatever card carries the rest of the work.
+                    card.hunk_verdicts.clear();
                 }
             }
-            Event::CardRejected { card_id, reason, by } => {
+            Event::CardRejected {
+                card_id,
+                reason,
+                by,
+                hunks,
+            } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
                     card.status = Status::Ready;
                     card.last_review = Some(Review {
                         by: *by,
                         approved: false,
                         reason: reason.clone(),
+                        hunks: hunks.clone(),
                     });
+                    card.hunk_verdicts.clear();
+                }
+            }
+            Event::HunkReviewed {
+                card_id,
+                hunk,
+                approved,
+                by,
+                reason,
+            } => {
+                if let Some(card) = self.cards.get_mut(card_id) {
+                    let verdict = HunkVerdict {
+                        hunk: hunk.clone(),
+                        approved: *approved,
+                        by: *by,
+                        reason: reason.clone(),
+                    };
+                    // Deciding the same block twice replaces: the operator
+                    // changed their mind, they did not vote twice.
+                    match card.hunk_verdicts.iter_mut().find(|v| v.hunk.names(hunk)) {
+                        Some(slot) => *slot = verdict,
+                        None => card.hunk_verdicts.push(verdict),
+                    }
                 }
             }
             Event::CardDiscarded { card_id, .. } => {
@@ -569,6 +884,25 @@ impl Board {
             Event::BudgetPauseSet { card_id, paused } => {
                 if let Some(card) = self.cards.get_mut(card_id) {
                     card.budget_paused = *paused;
+                }
+            }
+        }
+
+        // Done is the one status that carries a time, and it is set here
+        // rather than inside the approve arm so that every door into Done —
+        // the operator's, the Director's, the auto-approve when an agent has
+        // no reviewer, and any future one — records it the same way. A card
+        // sent back out of Done drops it: a finish time on a card that is not
+        // finished is worse than none.
+        //
+        // A `BoardSnapshot` names no card and never reaches this, which is
+        // what keeps a compacted log's finish times intact.
+        if let Some(card_id) = event.card_id() {
+            if let Some(card) = self.cards.get_mut(card_id) {
+                match (was_done, card.status == Status::Done) {
+                    (Some(false), true) => card.finished_ms = (ts_ms > 0).then_some(ts_ms),
+                    (_, false) => card.finished_ms = None,
+                    _ => {}
                 }
             }
         }
@@ -835,7 +1169,7 @@ impl Board {
                     turns: *turns,
                 }])
             }
-            Command::ApproveCard { card_id, by, reason } => {
+            Command::ApproveCard { card_id, by, reason, hunks } => {
                 let card = self
                     .cards
                     .get(card_id)
@@ -847,9 +1181,10 @@ impl Board {
                     card_id: card_id.clone(),
                     by: *by,
                     reason: reason.trim().to_string(),
+                    hunks: hunks.clone(),
                 }])
             }
-            Command::RejectCard { card_id, reason, by } => {
+            Command::RejectCard { card_id, reason, by, hunks } => {
                 let card = self
                     .cards
                     .get(card_id)
@@ -864,7 +1199,113 @@ impl Board {
                     card_id: card_id.clone(),
                     reason: reason.trim().to_string(),
                     by: *by,
+                    hunks: hunks.clone(),
                 }])
+            }
+            Command::ReviewHunk {
+                card_id,
+                hunk,
+                approved,
+                by,
+                reason,
+                diff,
+                follow_up,
+            } => {
+                let card = self
+                    .cards
+                    .get(card_id)
+                    .ok_or_else(|| DecisionError::CardNotFound(card_id.clone()))?;
+                if card.status != Status::Review {
+                    return Err(DecisionError::NotInReview(card.status));
+                }
+                // Deciding a block the diff does not hold means the operator
+                // is looking at a stale panel. Refusing is the only honest
+                // answer: the record would otherwise name a hunk nobody can
+                // find.
+                if !diff.iter().any(|h| h.names(hunk)) {
+                    return Err(DecisionError::UnknownHunk(hunk.label()));
+                }
+
+                let verdict = Event::HunkReviewed {
+                    card_id: card_id.clone(),
+                    hunk: hunk.clone(),
+                    approved: *approved,
+                    by: *by,
+                    reason: reason.trim().to_string(),
+                };
+
+                // What the card's verdicts will be once this one is folded in.
+                let mut taken = card.hunk_verdicts.clone();
+                let next = HunkVerdict {
+                    hunk: hunk.clone(),
+                    approved: *approved,
+                    by: *by,
+                    reason: reason.trim().to_string(),
+                };
+                match taken.iter_mut().find(|v| v.hunk.names(hunk)) {
+                    Some(slot) => *slot = next,
+                    None => taken.push(next),
+                }
+
+                let mut events = vec![verdict];
+                match resolve_review(&taken, diff) {
+                    // Still blocks to read. The card waits where it is.
+                    ReviewOutcome::Open { .. } => {}
+                    ReviewOutcome::Approve { hunks } => events.push(Event::CardApproved {
+                        card_id: card_id.clone(),
+                        by: *by,
+                        reason: format!(
+                            "{} hunk{} approved",
+                            hunks.len(),
+                            if hunks.len() == 1 { "" } else { "s" }
+                        ),
+                        hunks,
+                    }),
+                    ReviewOutcome::Reject { hunks, reason } => events.push(Event::CardRejected {
+                        card_id: card_id.clone(),
+                        reason,
+                        by: *by,
+                        hunks,
+                    }),
+                    // The rule for a partial rejection. A branch merges whole,
+                    // so nothing here can land three quarters of a diff: the
+                    // approved work goes in as the card, and what was sent
+                    // back is carried on a new card rather than dropped. The
+                    // follow-up is created before the approval so a reader of
+                    // the log sees the carrier exist before the card closes,
+                    // and it lands in Ready for the same reason a rejected
+                    // card does — the work is understood and can be started.
+                    ReviewOutcome::Partial { approved, rejected } => {
+                        if self.cards.contains_key(follow_up) {
+                            return Err(DecisionError::DuplicateCard(follow_up.clone()));
+                        }
+                        events.push(Event::CardCreated {
+                            card_id: follow_up.clone(),
+                            title: follow_up_title(card, &rejected),
+                        });
+                        events.push(Event::CardAssigned {
+                            card_id: follow_up.clone(),
+                            agent_id: card.agent_id.clone(),
+                        });
+                        events.push(Event::CardMoved {
+                            card_id: follow_up.clone(),
+                            from: Status::Backlog,
+                            to: Status::Ready,
+                        });
+                        events.push(Event::CardApproved {
+                            card_id: card_id.clone(),
+                            by: *by,
+                            reason: format!(
+                                "{} of {} hunks approved; {} carries the rest",
+                                approved.len(),
+                                approved.len() + rejected.len(),
+                                follow_up
+                            ),
+                            hunks: approved,
+                        });
+                    }
+                }
+                Ok(events)
             }
         }
     }
@@ -990,6 +1431,140 @@ mod tests {
             replayed.apply(e);
         }
         assert_eq!(driven.cards(), replayed.cards());
+    }
+
+    /// A card's whole life, each event stamped as the log stamps it. Returned
+    /// as a log so the replay tests below drive exactly what a restart would.
+    fn done_log(id: &CardId) -> Vec<(Event, u64)> {
+        vec![
+            (
+                Event::CardCreated { card_id: id.clone(), title: "ship it".into() },
+                1_000,
+            ),
+            (
+                Event::CardMoved { card_id: id.clone(), from: Backlog, to: Ready },
+                2_000,
+            ),
+            (
+                Event::RunStarted {
+                    card_id: id.clone(),
+                    run_id: RunId("r1".into()),
+                    worktree: Some("/tmp/c1".into()),
+                    branch: Some("harness/c1".into()),
+                },
+                3_000,
+            ),
+            (
+                Event::RunFinished {
+                    card_id: id.clone(),
+                    run_id: RunId("r1".into()),
+                    outcome: RunOutcome::Completed,
+                    cost_usd: Some(0.4),
+                    turns: Some(7),
+                },
+                4_000,
+            ),
+            (
+                Event::CardApproved {
+                    card_id: id.clone(),
+                    by: Actor::Human,
+                    reason: String::new(),
+                    hunks: Vec::new(),
+                },
+                5_000,
+            ),
+        ]
+    }
+
+    #[test]
+    fn done_carries_the_moment_it_was_approved() {
+        let id = CardId::new("c_fin");
+        let mut board = Board::default();
+        for (event, ts) in done_log(&id) {
+            // Not finished until it is: every step before the approval leaves
+            // the field alone.
+            board.apply_at(&event, ts);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Done);
+        assert_eq!(card.finished_ms, Some(5_000));
+    }
+
+    #[test]
+    fn a_finish_time_only_appears_with_the_finish() {
+        let id = CardId::new("c_mid");
+        let mut board = Board::default();
+        for (event, ts) in done_log(&id).into_iter().take(4) {
+            board.apply_at(&event, ts);
+            assert_eq!(board.get(&id).unwrap().finished_ms, None);
+        }
+        assert_eq!(board.get(&id).unwrap().status, Review);
+    }
+
+    #[test]
+    fn replaying_a_stamped_log_reproduces_the_finish_time() {
+        let id = CardId::new("c_rep");
+        let log = done_log(&id);
+
+        let mut driven = Board::default();
+        for (event, ts) in &log {
+            driven.apply_at(event, *ts);
+        }
+        let mut replayed = Board::default();
+        for (event, ts) in &log {
+            replayed.apply_at(event, *ts);
+        }
+        assert_eq!(driven.cards(), replayed.cards());
+        assert_eq!(replayed.get(&id).unwrap().finished_ms, Some(5_000));
+
+        // Compaction folds the board into one event. The finish time rides on
+        // the card itself, so the log that replaces the log keeps it.
+        let snapshot = Event::BoardSnapshot {
+            cards: driven.cards().into_iter().cloned().collect(),
+        };
+        let mut compacted = Board::default();
+        compacted.apply_at(&snapshot, 6_000);
+        assert_eq!(compacted.cards(), driven.cards());
+    }
+
+    #[test]
+    fn a_log_without_timestamps_still_loads() {
+        let id = CardId::new("c_old");
+        let mut board = Board::default();
+        for (event, _) in done_log(&id) {
+            // What a log written before timestamps were stored replays as:
+            // `ts_ms` defaults to zero, and no time is invented for it.
+            board.apply_at(&event, 0);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Done);
+        assert_eq!(card.finished_ms, None);
+    }
+
+    #[test]
+    fn leaving_done_drops_the_finish_time() {
+        let id = CardId::new("c_back");
+        let mut board = Board::default();
+        for (event, ts) in done_log(&id) {
+            board.apply_at(&event, ts);
+        }
+        assert_eq!(board.get(&id).unwrap().finished_ms, Some(5_000));
+
+        // An override is the only way back out of Done, and a card sitting in
+        // Ready must not still claim a finish.
+        let events = board
+            .decide(&Command::OverrideCard {
+                card_id: id.clone(),
+                to: Ready,
+                reason: "wrong card approved".into(),
+            })
+            .unwrap();
+        for e in &events {
+            board.apply_at(e, 7_000);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Ready);
+        assert_eq!(card.finished_ms, None);
     }
 
     #[test]
@@ -1635,6 +2210,7 @@ mod tests {
                         card_id: id.clone(),
                         reason: "again".into(),
                         by: Actor::Director,
+                        hunks: Vec::new(),
                     })
                     .unwrap()[0],
             );
@@ -1749,6 +2325,7 @@ mod tests {
                     card_id: id.clone(),
                     by: Actor::Director,
                     reason: "diff looks right".into(),
+                    hunks: Vec::new(),
                 })
                 .unwrap()[0],
         );
@@ -1819,6 +2396,7 @@ mod tests {
                 card_id: id.clone(),
                 reason: "again".into(),
                 by: Actor::Human,
+                hunks: Vec::new(),
             })
             .unwrap()
         {
@@ -1889,5 +2467,388 @@ mod tests {
         // Nothing to restore, and nothing broken by its absence.
         assert!(card.worktree.is_none());
         assert!(card.session_id.is_none());
+    }
+
+    // ---- hunk-level review -------------------------------------------------
+
+    use super::{follow_up_title, one_line, resolve_review, HunkRef, HunkVerdict, ReviewOutcome};
+
+    /// `@@` headers as git writes them, one per block of a pretend diff.
+    fn diff_of(n: u32) -> Vec<HunkRef> {
+        (0..n)
+            .map(|i| HunkRef {
+                file: format!("src/f{i}.rs"),
+                header: format!("@@ -{},4 +{},6 @@ fn f{i}(", i * 10 + 1, i * 10 + 1),
+                new_start: i * 10 + 1,
+                new_lines: 6,
+            })
+            .collect()
+    }
+
+    /// A card that has run once and is sitting in Review, together with the
+    /// log that put it there — which is what the replay tests drive.
+    fn in_review(id: &CardId, agent: &str) -> (Board, Vec<Event>) {
+        let mut board = Board::default();
+        let mut log = Vec::new();
+        let cmds = [
+            Command::CreateCard { card_id: id.clone(), title: "clamp the budget".into() },
+            Command::AssignAgent { card_id: id.clone(), agent_id: agent.into() },
+            Command::MoveCard { card_id: id.clone(), to: Ready },
+            Command::StartRun {
+                card_id: id.clone(),
+                run_id: RunId("r1".into()),
+                worktree: Some("/tmp/c".into()),
+                branch: Some("harness/c".into()),
+            },
+            Command::FinishRun {
+                card_id: id.clone(),
+                run_id: RunId("r1".into()),
+                outcome: RunOutcome::Completed,
+                cost_usd: None,
+                turns: None,
+            },
+        ];
+        for cmd in cmds {
+            for e in board.decide(&cmd).unwrap() {
+                board.apply(&e);
+                log.push(e);
+            }
+        }
+        assert_eq!(board.get(id).unwrap().status, Review);
+        (board, log)
+    }
+
+    fn review(
+        board: &mut Board,
+        log: &mut Vec<Event>,
+        card_id: &CardId,
+        hunk: &HunkRef,
+        approved: bool,
+        reason: &str,
+        diff: &[HunkRef],
+        follow_up: &str,
+    ) -> Result<(), DecisionError> {
+        let events = board.decide(&Command::ReviewHunk {
+            card_id: card_id.clone(),
+            hunk: hunk.clone(),
+            approved,
+            by: Actor::Human,
+            reason: reason.into(),
+            diff: diff.to_vec(),
+            follow_up: CardId::new(follow_up),
+        })?;
+        for e in &events {
+            board.apply(e);
+        }
+        log.extend(events);
+        Ok(())
+    }
+
+    #[test]
+    fn a_card_with_no_hunk_selection_is_decided_exactly_as_before() {
+        let id = CardId::new("c_whole");
+        let (mut board, _) = in_review(&id, "builder");
+        for e in board
+            .decide(&Command::ApproveCard {
+                card_id: id.clone(),
+                by: Actor::Human,
+                reason: "looks right".into(),
+                hunks: Vec::new(),
+            })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Done);
+        let review = card.last_review.clone().unwrap();
+        assert!(review.approved);
+        assert_eq!(review.reason, "looks right");
+        // No block was named, and none is invented.
+        assert!(review.hunks.is_empty());
+        // And nothing else appeared on the board.
+        assert_eq!(board.cards().len(), 1);
+    }
+
+    #[test]
+    fn a_verdict_leaves_the_card_in_review_until_every_hunk_is_read() {
+        let id = CardId::new("c_open");
+        let diff = diff_of(3);
+        let (mut board, mut log) = in_review(&id, "builder");
+
+        review(&mut board, &mut log, &id, &diff[0], true, "", &diff, "c_new").unwrap();
+        review(&mut board, &mut log, &id, &diff[1], true, "", &diff, "c_new").unwrap();
+
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Review, "two of three decided is not a decision");
+        assert_eq!(card.hunk_verdicts.len(), 2);
+        assert!(card.last_review.is_none());
+        assert_eq!(
+            resolve_review(&card.hunk_verdicts, &diff),
+            ReviewOutcome::Open { decided: 2, of: 3 }
+        );
+    }
+
+    #[test]
+    fn every_hunk_approved_approves_the_card() {
+        let id = CardId::new("c_all_yes");
+        let diff = diff_of(2);
+        let (mut board, mut log) = in_review(&id, "builder");
+        for hunk in &diff {
+            review(&mut board, &mut log, &id, hunk, true, "", &diff, "c_new").unwrap();
+        }
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Done);
+        let review = card.last_review.clone().unwrap();
+        assert!(review.approved);
+        assert_eq!(review.hunks, diff);
+        // Spent: the verdicts are in the event, not left on the card.
+        assert!(card.hunk_verdicts.is_empty());
+        // Nothing was carried over, because nothing was left behind.
+        assert_eq!(board.cards().len(), 1);
+    }
+
+    #[test]
+    fn every_hunk_rejected_sends_the_card_back_and_carries_nothing() {
+        let id = CardId::new("c_all_no");
+        let diff = diff_of(2);
+        let (mut board, mut log) = in_review(&id, "builder");
+        review(&mut board, &mut log, &id, &diff[0], false, "wrong clamp", &diff, "c_new").unwrap();
+        review(&mut board, &mut log, &id, &diff[1], false, "", &diff, "c_new").unwrap();
+
+        let card = board.get(&id).unwrap();
+        // The card itself is the carrier, so there is no follow-up to make.
+        assert_eq!(card.status, Ready);
+        assert_eq!(board.cards().len(), 1);
+        let review = card.last_review.clone().unwrap();
+        assert!(!review.approved);
+        assert_eq!(review.hunks, diff);
+        assert!(review.reason.starts_with("2 hunks sent back"));
+        assert!(review.reason.contains("src/f0.rs"));
+        assert!(review.reason.contains("wrong clamp"));
+    }
+
+    #[test]
+    fn rejecting_some_hunks_lands_the_rest_and_carries_them_on_a_follow_up() {
+        let id = CardId::new("c_partial");
+        let diff = diff_of(4);
+        let (mut board, mut log) = in_review(&id, "scout");
+
+        for hunk in &diff[..3] {
+            review(&mut board, &mut log, &id, hunk, true, "", &diff, "c_rest").unwrap();
+        }
+        // Still open with three of four decided.
+        assert_eq!(board.get(&id).unwrap().status, Review);
+        review(
+            &mut board,
+            &mut log,
+            &id,
+            &diff[3],
+            false,
+            "this clamp is off by one",
+            &diff,
+            "c_rest",
+        )
+        .unwrap();
+
+        // The approved work landed.
+        let card = board.get(&id).unwrap();
+        assert_eq!(card.status, Done);
+        let review = card.last_review.clone().unwrap();
+        assert!(review.approved);
+        assert_eq!(review.hunks, diff[..3].to_vec());
+        assert!(review.reason.contains("c_rest"));
+
+        // And the rejected work survived on a card of its own.
+        let follow_up = board.get(&CardId::new("c_rest")).expect("a follow-up card");
+        assert_eq!(follow_up.status, Ready, "it can be started, like any send-back");
+        assert_eq!(follow_up.agent_id, "scout", "the same agent owns the rest");
+        assert!(follow_up.subject().starts_with("Rework 1 hunk sent back on"));
+        assert!(follow_up.title.contains("src/f3.rs"));
+        assert!(follow_up.title.contains("this clamp is off by one"));
+        assert!(follow_up.title.contains("c_partial"));
+    }
+
+    #[test]
+    fn the_whole_partial_decision_replays_to_the_same_board() {
+        let id = CardId::new("c_replay");
+        let diff = diff_of(3);
+        let (mut driven, mut log) = in_review(&id, "builder");
+        review(&mut driven, &mut log, &id, &diff[0], true, "", &diff, "c_rest").unwrap();
+        review(&mut driven, &mut log, &id, &diff[1], false, "no", &diff, "c_rest").unwrap();
+        review(&mut driven, &mut log, &id, &diff[2], true, "", &diff, "c_rest").unwrap();
+
+        let mut replayed = Board::default();
+        for e in &log {
+            replayed.apply(e);
+        }
+        assert_eq!(driven.cards(), replayed.cards());
+        // Both cards, not just the one that was decided.
+        assert_eq!(replayed.cards().len(), 2);
+        assert_eq!(replayed.get(&id).unwrap().status, Done);
+        assert_eq!(replayed.get(&CardId::new("c_rest")).unwrap().status, Ready);
+
+        // The events themselves carry it: no clock, no id generator, no
+        // ordering left to the reader.
+        let json: Vec<String> = log.iter().map(|e| serde_json::to_string(e).unwrap()).collect();
+        let mut from_json = Board::default();
+        for line in &json {
+            from_json.apply(&serde_json::from_str::<Event>(line).unwrap());
+        }
+        assert_eq!(driven.cards(), from_json.cards());
+    }
+
+    #[test]
+    fn deciding_a_hunk_twice_replaces_the_verdict() {
+        let id = CardId::new("c_mind");
+        let diff = diff_of(2);
+        let (mut board, mut log) = in_review(&id, "builder");
+        review(&mut board, &mut log, &id, &diff[0], false, "no", &diff, "c_rest").unwrap();
+        review(&mut board, &mut log, &id, &diff[0], true, "", &diff, "c_rest").unwrap();
+        assert_eq!(board.get(&id).unwrap().hunk_verdicts.len(), 1);
+
+        review(&mut board, &mut log, &id, &diff[1], true, "", &diff, "c_rest").unwrap();
+        // Both approved after the change of mind, so nothing is carried over.
+        assert_eq!(board.get(&id).unwrap().status, Done);
+        assert_eq!(board.cards().len(), 1);
+    }
+
+    #[test]
+    fn a_hunk_the_diff_no_longer_holds_is_refused() {
+        let id = CardId::new("c_stale");
+        let diff = diff_of(2);
+        let (board, _) = in_review(&id, "builder");
+        let gone = HunkRef::new("src/removed.rs", "@@ -1,2 +1,3 @@");
+        assert!(matches!(
+            board.decide(&Command::ReviewHunk {
+                card_id: id.clone(),
+                hunk: gone,
+                approved: true,
+                by: Actor::Human,
+                reason: String::new(),
+                diff,
+                follow_up: CardId::new("c_rest"),
+            }),
+            Err(DecisionError::UnknownHunk(_))
+        ));
+    }
+
+    #[test]
+    fn a_verdict_against_a_diff_that_has_moved_never_closes_a_card() {
+        let old = diff_of(2);
+        let now = vec![old[0].clone(), HunkRef::new("src/f9.rs", "@@ -1,2 +1,4 @@")];
+        let taken = vec![
+            HunkVerdict { hunk: old[0].clone(), approved: true, by: Actor::Human, reason: String::new() },
+            HunkVerdict { hunk: old[1].clone(), approved: true, by: Actor::Human, reason: String::new() },
+        ];
+        // One of the two verdicts is about a block that is gone; the block
+        // that replaced it has not been read.
+        assert_eq!(
+            resolve_review(&taken, &now),
+            ReviewOutcome::Open { decided: 1, of: 2 }
+        );
+    }
+
+    #[test]
+    fn a_new_run_throws_away_the_verdicts_it_invalidates() {
+        let id = CardId::new("c_rerun");
+        let diff = diff_of(2);
+        let (mut board, mut log) = in_review(&id, "builder");
+        review(&mut board, &mut log, &id, &diff[0], true, "", &diff, "c_rest").unwrap();
+        assert_eq!(board.get(&id).unwrap().hunk_verdicts.len(), 1);
+
+        for cmd in [
+            Command::MoveCard { card_id: id.clone(), to: Ready },
+            Command::StartRun {
+                card_id: id.clone(),
+                run_id: RunId("r2".into()),
+                worktree: None,
+                branch: None,
+            },
+        ] {
+            for e in board.decide(&cmd).unwrap() {
+                board.apply(&e);
+            }
+        }
+        assert!(board.get(&id).unwrap().hunk_verdicts.is_empty());
+    }
+
+    #[test]
+    fn a_card_out_of_review_takes_no_verdicts() {
+        let id = CardId::new("c_backlog");
+        let mut board = Board::default();
+        for e in board
+            .decide(&Command::CreateCard { card_id: id.clone(), title: "x".into() })
+            .unwrap()
+        {
+            board.apply(&e);
+        }
+        let diff = diff_of(1);
+        assert!(matches!(
+            board.decide(&Command::ReviewHunk {
+                card_id: id.clone(),
+                hunk: diff[0].clone(),
+                approved: true,
+                by: Actor::Human,
+                reason: String::new(),
+                diff,
+                follow_up: CardId::new("c_rest"),
+            }),
+            Err(DecisionError::NotInReview(Backlog))
+        ));
+    }
+
+    #[test]
+    fn an_empty_diff_is_never_resolved_by_hunk_verdicts() {
+        assert_eq!(
+            resolve_review(&[], &[]),
+            ReviewOutcome::Open { decided: 0, of: 0 }
+        );
+    }
+
+    #[test]
+    fn the_follow_up_reads_as_the_work_that_is_left() {
+        let id = CardId::new("c_src");
+        let (board, _) = in_review(&id, "builder");
+        let card = board.get(&id).unwrap();
+        let diff = diff_of(1);
+        let title = follow_up_title(
+            card,
+            &[HunkVerdict {
+                hunk: diff[0].clone(),
+                approved: false,
+                by: Actor::Human,
+                reason: "the clamp is off by one".into(),
+            }],
+        );
+        // The first line is the prompt's subject; everything the agent needs
+        // is under it.
+        assert_eq!(one_line(&title), "Rework 1 hunk sent back on clamp the budget");
+        assert!(title.contains("src/f0.rs @@ -1,4 +1,6 @@ fn f0("));
+        assert!(title.contains("the clamp is off by one"));
+    }
+
+    #[test]
+    fn an_older_log_without_hunks_still_loads() {
+        // Exactly the shape written before hunk review existed.
+        let raw = concat!(
+            r#"{"type":"card_created","card_id":"c1","title":"old"}"#,
+            "\n",
+            r#"{"type":"card_moved","card_id":"c1","from":"backlog","to":"ready"}"#,
+            "\n",
+            r#"{"type":"run_started","card_id":"c1","run_id":"run-1"}"#,
+            "\n",
+            r#"{"type":"run_finished","card_id":"c1","run_id":"run-1","outcome":"completed"}"#,
+            "\n",
+            r#"{"type":"card_approved","card_id":"c1","by":"human","reason":"fine"}"#,
+        );
+        let mut board = Board::default();
+        for line in raw.split('\n') {
+            board.apply(&serde_json::from_str::<Event>(line).expect(line));
+        }
+        let card = board.get(&CardId::new("c1")).unwrap();
+        assert_eq!(card.status, Done);
+        assert!(card.last_review.clone().unwrap().hunks.is_empty());
+        assert!(card.hunk_verdicts.is_empty());
     }
 }

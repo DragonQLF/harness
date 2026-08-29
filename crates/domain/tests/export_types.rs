@@ -34,6 +34,8 @@ fn export_types() {
     harness_domain::Status::export().unwrap();
     harness_domain::Actor::export().unwrap();
     harness_domain::RunOutcome::export().unwrap();
+    harness_domain::HunkRef::export().unwrap();
+    harness_domain::HunkVerdict::export().unwrap();
     harness_domain::Review::export().unwrap();
     harness_domain::Card::export().unwrap();
 

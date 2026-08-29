@@ -114,6 +114,13 @@ pub struct Workspace {
     /// Improvement proposals waiting on the operator, plus the mark of the
     /// last end-of-day look.
     inbox: Mutex<InboxState>,
+    /// Verdicts the automatic review reached while nobody was talking to the
+    /// Director. Held on this side on purpose: the engine that produces them
+    /// has no notion of conversation (#19) and does not get one back — it goes
+    /// on persisting board events, and the chat side comes and gets them.
+    /// On disk, because the likeliest moment for one to arrive is a moment
+    /// nobody is there to hear it.
+    verdicts: Arc<Mutex<harness_app::verdicts::Store>>,
     /// What the last look at Relay's own repository found: commits that never
     /// went through a card. Held here so the Director's next turn receives it
     /// rather than having to know to ask — and so the window can come and get
@@ -143,6 +150,9 @@ impl Workspace {
             paths::read_json_or_default(&paths.conversations_file());
         let chats = ConversationsHandle::spawn(app.clone(), paths.clone(), conversations);
         let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
+        // Verdicts filed while the window was shut. Absent on an old install
+        // and unreadable on a bad day; both open empty rather than refusing.
+        let verdicts = harness_app::verdicts::Store::open(paths.verdicts_file());
         let sidecar_dir = sidecar::prepare(&app, &paths);
         // A missing transcript directory must not stop the app opening: an
         // in-memory conversation is still better than no window.
@@ -190,6 +200,7 @@ impl Workspace {
             chats,
             chat_log,
             inbox: Mutex::new(inbox),
+            verdicts: Arc::new(Mutex::new(verdicts)),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
@@ -560,6 +571,12 @@ impl Workspace {
         self.registry.project(id).await
     }
 
+    /// The window this workspace belongs to, for the handful of places that
+    /// push to it without going through a command's return value.
+    pub fn app(&self) -> &AppHandle {
+        &self.app
+    }
+
     /// What a folder looks like, so the UI can offer the right next step.
     pub async fn inspect_folder(&self, path: &str) -> FolderInfo {
         let root = PathBuf::from(path.trim());
@@ -855,8 +872,69 @@ impl Workspace {
         );
 
         let app = self.app.clone();
+        let check_engine = engine.clone();
+        let check_paths = self.paths.clone();
+        let verdicts = Arc::clone(&self.verdicts);
         tauri::async_runtime::spawn(async move {
             while let Ok(envelope) = events_rx.recv().await {
+                // The verdict of an automatic review, on its way past. The
+                // engine already writes who decided and why; nothing here is
+                // asked of it, and it learns nothing about conversations. We
+                // simply keep the fact until a turn comes for it (#12, #19).
+                if let Some(verdict) = harness_app::verdicts::from_event(
+                    &envelope.project_id,
+                    "",
+                    &envelope.event,
+                ) {
+                    // The title is worth one snapshot: a card id alone reads
+                    // as an id. Only director verdicts get this far, so this
+                    // is rare rather than per-event.
+                    let title = check_engine
+                        .snapshot()
+                        .await
+                        .ok()
+                        .and_then(|s| {
+                            s.cards
+                                .into_iter()
+                                .find(|c| c.id.as_str() == verdict.card_id)
+                                .map(|c| c.title)
+                        })
+                        .unwrap_or_default();
+                    verdicts.lock().unwrap().record(harness_app::verdicts::Verdict {
+                        title,
+                        ..verdict
+                    });
+                }
+                // A completed run is the moment a card's checks mean
+                // something: the work is committed, it sits in that card's own
+                // worktree, and nothing will touch it before the review. Off
+                // in its own task, because a check pass takes minutes and the
+                // event stream must not wait behind it.
+                if let harness_domain::Event::RunFinished {
+                    card_id,
+                    outcome: harness_domain::RunOutcome::Completed,
+                    ..
+                } = &envelope.event
+                {
+                    let engine = check_engine.clone();
+                    let paths = check_paths.clone();
+                    let app = app.clone();
+                    let project_id = envelope.project_id.clone();
+                    let card_id = card_id.to_string();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = crate::commands::project::card_checks_after_run(
+                            &engine,
+                            &paths,
+                            &app,
+                            &project_id,
+                            &card_id,
+                        )
+                        .await
+                        {
+                            eprintln!("could not check {card_id}: {e}");
+                        }
+                    });
+                }
                 let _ = app.emit("engine://event", &envelope);
             }
         });
@@ -921,49 +999,55 @@ impl Workspace {
         Ok(proposal)
     }
 
-    /// Accept a proposal: the card is born in the harness's own project — the
-    /// one mirror mode builds — never in whatever is open (#72).
-    pub async fn accept_proposal(self: &Arc<Self>, proposal_id: &str) -> Result<Proposal, String> {
-        let open = self.inbox().proposals.into_iter().find(|p| {
-            p.id == proposal_id && p.status == harness_app::inbox::ProposalStatus::Open
-        });
-        let Some(proposal) = open else {
-            return Err(format!("no open proposal {proposal_id}"));
-        };
-        let known = self.projects().await;
-        let Some(mirror) = projects::mirror_project(&known).cloned() else {
-            return Err(
-                "the harness repository is not registered as a project (mirror mode), so there \
-                 is nowhere to put this card — add it as a project first"
-                    .to_string(),
-            );
-        };
-        // The whole proposal, not only its title. The title is the prompt the
-        // agent receives, so a card born from a title alone reaches the builder
-        // with none of the reasons that motivated it.
-        let created = crate::commands::board::create_card_inner(
-            self,
-            &mirror.id,
-            &proposal.as_card_text(),
-            agents::DEFAULT_WORKER,
-            false,
-            true,
-        )
-        .await?;
+    /// Accept a proposal: the operator granting permission, and nothing more.
+    ///
+    /// No card, no project, no board. Accepting used to mint one on the spot in
+    /// the mirror project, which made a "yes" into an order and made accepting
+    /// impossible at all where mirror mode was not set up — a card-shaped
+    /// failure for something that is not a card. What acceptance now does is
+    /// reach the Director in his next turn, and acting on it is his.
+    pub fn accept_proposal(&self, proposal_id: &str) -> Result<Proposal, String> {
         let accepted = {
             let mut guard = self.inbox.lock().unwrap();
-            match guard.accept(
-                proposal_id,
-                &mirror.id,
-                created.card_id.as_str(),
-            ) {
-                Some(p) => p,
-                None => return Err(format!("no open proposal {proposal_id}")),
-            }
+            guard
+                .accept(proposal_id)
+                .ok_or_else(|| format!("no open proposal {proposal_id}"))?
         };
         self.save_inbox(&self.inbox());
         self.publish_inbox();
         Ok(accepted)
+    }
+
+    /// The Director acted on an accepted proposal: record the card, so the
+    /// permission stops being handed to him every turn.
+    pub fn record_proposal_action(
+        &self,
+        proposal_id: &str,
+        project_id: &str,
+        card_id: &str,
+    ) -> Option<Proposal> {
+        let acted = {
+            let mut guard = self.inbox.lock().unwrap();
+            guard.record_action(proposal_id, project_id, card_id)?
+        };
+        self.save_inbox(&self.inbox());
+        self.publish_inbox();
+        Some(acted)
+    }
+
+    /// Permissions he has been granted and not yet used — what his next turn
+    /// is told, the same way `outside_work` is.
+    pub fn accepted_proposals(&self) -> Vec<Proposal> {
+        self.inbox().awaiting_action().into_iter().cloned().collect()
+    }
+
+    /// Verdicts his automatic reviewer reached since he was last told, and
+    /// forget them. Taken rather than read: delivered once, then past, which
+    /// is `outside_work`'s discipline — the board in his prompt already
+    /// carries the standing state of every card. The forgetting is written to
+    /// disk with the take, so a restart in between does not say it twice.
+    pub fn take_review_verdicts(&self) -> Vec<harness_app::verdicts::Verdict> {
+        self.verdicts.lock().unwrap().take()
     }
 
     /// The last thing the look at Relay's own repository found, if anything,

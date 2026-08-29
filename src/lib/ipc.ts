@@ -6,17 +6,23 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ActiveRun,
   ActivityRow,
+  AttachmentPreview,
   AgentProfile,
   AgentStats,
   Bootstrap,
+  CardChecks,
+  CardChecksEvent,
   CardDiff,
   CatalogModel,
   ClosingBegan,
   ClosingPhase,
   CheckRow,
   Conversation,
+  ConversationTotals,
   CreatedCard,
   Envelope,
+  FileText,
+  Hunk,
   MirrorWarning,
   Navigation,
   PendingApproval,
@@ -28,12 +34,16 @@ import type {
   ProjectStats,
   ProjectView,
   QueueRow,
+  ActorFilter,
   RunLogLine,
+  RunStats,
   RunUpdate,
   Settings,
   Snapshot,
   Status,
   SystemStatus,
+  TranscriptExport,
+  TreeEntry,
   WorktreeRow,
 } from "./types";
 
@@ -73,6 +83,14 @@ export const api = {
   setChecks: (projectId: string, checks: CheckRow[]) =>
     invoke<CheckRow[]>("project_set_checks", { projectId, checks }),
   runChecks: (projectId: string) => invoke<CheckRow[]>("project_run_checks", { projectId }),
+  /** The last check pass made in this card's own worktree. `null` means none
+   *  ever was, which is not the same fact as nothing having failed. */
+  cardChecks: (projectId: string, cardId: string) =>
+    invoke<CardChecks | null>("card_checks", { projectId, cardId }),
+  /** Run the project's checks in this card's worktree and record the result
+   *  against the card. */
+  cardRunChecks: (projectId: string, cardId: string) =>
+    invoke<CardChecks>("card_run_checks", { projectId, cardId }),
 
   worktrees: (projectId: string) => invoke<WorktreeRow[]>("worktrees", { projectId }),
   removeWorktree: (projectId: string, path: string) =>
@@ -101,10 +119,81 @@ export const api = {
   activeRuns: (projectId: string) => invoke<ActiveRun[]>("active_runs", { projectId }),
   runLog: (projectId: string, runId: string) =>
     invoke<RunLogLine[]>("run_log", { projectId, runId }),
+  /** Copy run transcripts into a folder the operator picks. `runIds` omitted
+   *  takes every transcript the project has; null comes back when the picker
+   *  was dismissed. */
+  exportTranscripts: (projectId: string, runIds?: string[]) =>
+    invoke<TranscriptExport | null>("export_transcripts", {
+      projectId,
+      runIds: runIds ?? null,
+    }),
   /** What a card changed against the base branch, read from its worktree. */
   cardDiff: (projectId: string, cardId: string) =>
     invoke<CardDiff>("card_diff", { projectId, cardId }),
   reviewQueue: (projectId: string) => invoke<QueueRow[]>("review_queue", { projectId }),
+  /** Which cards must be Done before this one may start. The command has been
+   *  registered since the board was written; it had no wrapper, so the one
+   *  affordance that reaches it — Deps on a blocked card — had nowhere to go. */
+  setDependencies: (projectId: string, cardId: string, dependsOn: string[]) =>
+    invoke<number>("set_dependencies", { projectId, cardId, dependsOn }),
+  /** Correct a card's wording in place. The engine refuses once the card has
+   *  run — by then a transcript and a commit subject carry the old title — so
+   *  this is only ever offered while `runs == 0`. */
+  editCard: (projectId: string, cardId: string, title: string) =>
+    invoke<number>("edit_card", { projectId, cardId, title }),
+  /** Finished runs across the last 38 weeks: the heatmap, the three window
+   *  tiles, the per-actor spend and the day's line counts. `actor` is the
+   *  heatmap's own tab and narrows the run counts, never the money. */
+  runStats: (projectId: string, actor: ActorFilter = "all") =>
+    invoke<RunStats>("run_stats", {
+      projectId,
+      actor,
+      tzOffsetMinutes: tzOffsetMinutes(),
+    }),
+
+  // ---- code ----
+  /** Every file in a card's worktree, with the ones it changed marked. With
+   *  no card it is the project's own checkout. */
+  listTree: (projectId: string, cardId?: string | null) =>
+    invoke<TreeEntry[]>("list_tree", { projectId, cardId: cardId ?? null }),
+  /** One file, read-only. `rev` reads it out of a commit instead of off disk. */
+  readWorktreeFile: (
+    projectId: string,
+    cardId: string | null,
+    path: string,
+    rev?: string | null,
+  ) =>
+    invoke<FileText>("read_worktree_file", {
+      projectId,
+      cardId: cardId ?? null,
+      path,
+      rev: rev ?? null,
+    }),
+  /** What a card changed, as `@@` blocks. `path` narrows it to one file. */
+  diffHunks: (projectId: string, cardId: string, path?: string | null) =>
+    invoke<Hunk[]>("diff_hunks", { projectId, cardId, path: path ?? null }),
+  /** Decide one block of a card's diff. The block is named by its file and its
+   *  `@@` header — git's own identity for it — and what the verdict means for
+   *  the card is the engine's to decide: nothing until every block has one,
+   *  then approve, send back, or approve with the rejected blocks carried onto
+   *  a follow-up card. Returns the sequence number of the decision. */
+  reviewHunk: (
+    projectId: string,
+    cardId: string,
+    file: string,
+    header: string,
+    approved: boolean,
+    reason?: string,
+  ) =>
+    invoke<number>("review_hunk", {
+      projectId,
+      cardId,
+      file,
+      header,
+      approved,
+      reason: reason ?? null,
+    }),
+
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
   /** Stop waiting for the close sequence; the window goes as soon as it can. */
   closeNow: () => invoke<void>("close_now"),
@@ -144,6 +233,10 @@ export const api = {
   /** The stored transcript, readable whether or not the session resumes. */
   conversationTranscript: (conversationId: string) =>
     invoke<RunLogLine[]>("conversation_transcript", { conversationId }),
+  /** The thread's accounting, counted over the whole transcript rather than
+   *  over whatever the screen has loaded. */
+  conversationTotals: (conversationId: string) =>
+    invoke<ConversationTotals>("conversation_totals", { conversationId }),
   /** Send a message. The answer streams back on the run channel, keyed by the
    *  conversation id. */
   chatSend: (text: string, conversationId?: string | null, attachments: string[] = []) =>
@@ -154,6 +247,17 @@ export const api = {
     }),
   /** Native picker for files to attach to the next message. */
   pickFiles: () => invoke<string[]>("chat_pick_files"),
+  /** Write a pasted or dropped attachment to disk and answer with its path.
+   *
+   *  Everything downstream of an attachment speaks in paths — the agent is
+   *  told to read the file with its own tools — and the clipboard speaks in
+   *  bytes. This is where the two meet. `data` is base64: a 20 MB image as a
+   *  JSON array of numbers is ~100 MB of wire. */
+  saveAttachment: (name: string | null, mime: string, data: string) =>
+    invoke<string>("chat_save_attachment", { name, mime, data }),
+  /** Enough about an attachment to draw it rather than name it. */
+  attachmentPreview: (path: string) =>
+    invoke<AttachmentPreview>("chat_attachment_preview", { path }),
 
   /** Profiles you can create from. Fetched on request: a template is a menu
    *  entry, never something Relay installs by itself. */
@@ -175,7 +279,8 @@ export const api = {
   // ---- inbox ----
   /** The Director's improvement proposals, newest first. */
   inbox: () => invoke<Proposal[]>("inbox_list"),
-  /** Accept one: its card is born in the harness's own project. */
+  /** Accept one: permission for the Director to act on it, not a card. He is
+   *  told in his next turn and creates it himself, or does not. */
   inboxAccept: (proposalId: string) =>
     invoke<Proposal>("inbox_accept", { proposalId }),
   inboxDismiss: (proposalId: string) =>
@@ -198,6 +303,10 @@ export const events = {
     listen<Envelope>("engine://event", (evt) => fn(evt.payload)),
   onRunUpdate: (fn: (u: RunUpdate) => void) =>
     listen<RunUpdate>("engine://run", (evt) => fn(evt.payload)),
+  /** A card's checks were run again — a finished run triggers its own pass, so
+   *  this arrives without anybody having asked for it. */
+  onCardChecks: (fn: (e: CardChecksEvent) => void) =>
+    listen<CardChecksEvent>("checks://card", (evt) => fn(evt.payload)),
   onApprovalAsked: (fn: (a: PendingApproval) => void) =>
     listen<PendingApproval>("approvals://asked", (evt) => fn(evt.payload)),
   onApprovalQueue: (fn: (a: PendingApproval[]) => void) =>

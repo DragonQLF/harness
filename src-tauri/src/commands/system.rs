@@ -392,15 +392,14 @@ pub async fn inbox_list(ws: Shared<'_>) -> Result<Vec<harness_app::inbox::Propos
     Ok(ws.inbox().proposals)
 }
 
-/// Accept a proposal: the card is born in the harness's own project, never in
-/// whatever is open (#72). Creating the card is ours; deciding was theirs.
+/// Accept a proposal: permission, not work. Nothing is created and nothing is
+/// assigned — the Director is told in his next turn and acts on it himself.
 #[tauri::command]
 pub async fn inbox_accept(
     proposal_id: String,
-    ws: State<'_, Arc<Workspace>>,
+    ws: Shared<'_>,
 ) -> Result<harness_app::inbox::Proposal, String> {
-    let ws = Arc::clone(&ws);
-    ws.accept_proposal(&proposal_id).await
+    ws.accept_proposal(&proposal_id)
 }
 
 #[tauri::command]

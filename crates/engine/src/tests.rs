@@ -1223,6 +1223,22 @@ async fn a_reviewerless_agent_closes_its_own_card() {
         status_of(&r.handle, &id).await == Some(Status::Done)
     })
     .await;
+
+    // Who closed it is load-bearing outside the engine: the Director is told
+    // about verdicts his own reviewer reached, and `nobody` is the operator's
+    // brake — it must not read as a judgement of his. The actor is what makes
+    // that distinction, so it is asserted rather than assumed.
+    let card = r
+        .handle
+        .snapshot()
+        .await
+        .unwrap()
+        .cards
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap();
+    let review = card.last_review.expect("closing a card leaves its record");
+    assert_eq!(review.by, Actor::Human, "no reviewer is not the Director");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1628,6 +1644,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
             card_id: id.clone(),
             reason: "another pass".into(),
             by: Actor::Human,
+            hunks: Vec::new(),
         })
         .await
         .unwrap();
@@ -1881,6 +1898,7 @@ async fn a_rejected_card_keeps_its_work_report_in_the_log() {
             card_id: id.clone(),
             reason: "not good enough".into(),
             by: Actor::Human,
+            hunks: Vec::new(),
         })
         .await
         .unwrap();
@@ -2414,4 +2432,89 @@ async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
         1,
         "and never again: rebuilding it would delete the branch its commits are on"
     );
+}
+
+/// A partial rejection through the single writer: the approved work lands, the
+/// rejected work is carried on a card of its own, and a restart that replays
+/// the stored log alone reaches exactly the same board.
+///
+/// The rule itself lives in `harness_domain` and is tested there. What this
+/// proves is that the writer persists the whole decision as one run of events,
+/// so nothing about it depends on the process that took it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_partial_rejection_lands_the_rest_and_survives_a_restart() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+
+    let id = CardId::new("c_split");
+    card_ready(&handle, &id).await;
+    let mut human = profile();
+    human.reviewer = Reviewer::Human;
+    handle.start_run(id.clone(), "work".into(), human).await.unwrap();
+    wait_for("card reaches review", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    // The two blocks the shell would have read out of the worktree.
+    let diff = vec![
+        harness_domain::HunkRef::new("src/policy.rs", "@@ -14,6 +14,8 @@"),
+        harness_domain::HunkRef::new("src/policy.rs", "@@ -40,3 +42,5 @@"),
+    ];
+    let rest = CardId::new("c_rest");
+    for (hunk, approved, reason) in [
+        (&diff[0], true, ""),
+        (&diff[1], false, "the guard is inverted"),
+    ] {
+        handle
+            .execute(Command::ReviewHunk {
+                card_id: id.clone(),
+                hunk: hunk.clone(),
+                approved,
+                by: Actor::Human,
+                reason: reason.into(),
+                diff: diff.clone(),
+                follow_up: rest.clone(),
+            })
+            .await
+            .unwrap();
+    }
+
+    let live = handle.snapshot().await.unwrap();
+    assert_eq!(
+        live.cards.iter().find(|c| c.id == id).map(|c| c.status),
+        Some(Status::Done),
+    );
+    let carried = live
+        .cards
+        .iter()
+        .find(|c| c.id == rest)
+        .expect("the rejected block is on a card of its own");
+    assert_eq!(carried.status, Status::Ready);
+    assert!(carried.title.contains("the guard is inverted"));
+
+    // Nothing but the log: the same board, from a cold start.
+    let mut replayed = Board::default();
+    for stored in store.read_all().unwrap() {
+        replayed.apply_at(&stored.event, stored.ts_ms);
+    }
+    let from_log: Vec<Card> = replayed.cards().into_iter().cloned().collect();
+    assert_eq!(from_log, live.cards);
 }

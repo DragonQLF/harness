@@ -90,6 +90,27 @@ impl CliGit {
         }
     }
 
+    /// The same call, but the bytes exactly as git wrote them.
+    ///
+    /// `git` above trims, which is right for a sha and wrong for everything
+    /// the Code screen reads: `status --porcelain` opens its first line with a
+    /// space that carries meaning, and a file's contents are not text at all.
+    fn git_raw(&self, cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GitError> {
+        let out = git_command()
+            .arg("-c")
+            .arg("core.quotepath=false")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .map_err(|e| GitError::Io(e.to_string()))?;
+        if out.status.success() {
+            Ok(out.stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(GitError::Git(stderr.trim().to_string()))
+        }
+    }
+
     fn rev_parse_head(&self, cwd: &Path) -> Result<String, GitError> {
         self.git(cwd, &["rev-parse", "HEAD"])
     }
@@ -351,8 +372,12 @@ impl CliGit {
         if !cur.path.is_empty() {
             rows.push(cur);
         }
+        let now_ms = now_ms();
         for row in &mut rows {
-            row.dirty = self.is_dirty(Path::new(&row.path));
+            let dir = Path::new(&row.path);
+            row.dirty = self.is_dirty(dir);
+            row.last_activity_ms = self.last_activity_ms(dir);
+            row.stale = is_stale(row.last_activity_ms, now_ms, STALE_AFTER_DAYS);
         }
         rows
     }
@@ -361,6 +386,58 @@ impl CliGit {
         self.git(dir, &["status", "--porcelain"])
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false)
+    }
+
+    /// The most recent sign of life in a checkout, in milliseconds.
+    ///
+    /// Two witnesses, and the later one wins. HEAD's committer date is the
+    /// reliable half — it is exactly when work last landed here — but a
+    /// worktree an agent is still writing in may not have committed for hours,
+    /// so the directory's own mtime is read beside it. Neither alone answers
+    /// "has anything happened here"; the newer of the two does.
+    pub fn last_activity_ms(&self, dir: &Path) -> u64 {
+        let head = self
+            .git(dir, &["log", "-1", "--format=%ct"])
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .map(|secs| secs * 1000)
+            .unwrap_or(0);
+        let touched = std::fs::metadata(dir)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        head.max(touched)
+    }
+
+    /// Lines added and removed by commits since a git date expression.
+    ///
+    /// `--branches` rather than `--all`: every local branch, which includes the
+    /// `harness/*` branches the card worktrees commit on, and excludes what a
+    /// fetch dragged in from a remote and nobody here has merged. Merges are
+    /// left out because their lines are already counted on the side they came
+    /// from.
+    ///
+    /// `since` is passed through to git verbatim: `@<unix seconds>` pins it to
+    /// the operator's own midnight rather than to whatever "today" means in the
+    /// repository's timezone. It must be a real second — git reads `@0` as a
+    /// date it failed to parse and silently substitutes now.
+    pub fn lines_since(&self, since: &str) -> (u64, u64) {
+        let raw = self
+            .git(
+                &self.repo_root,
+                &[
+                    "log",
+                    "--branches",
+                    "--no-merges",
+                    &format!("--since={since}"),
+                    "--numstat",
+                    "--format=",
+                ],
+            )
+            .unwrap_or_default();
+        numstat_totals(&raw)
     }
 
     /// Shas reachable from the default branch, newest first.
@@ -537,6 +614,79 @@ impl CliGit {
         }
     }
 
+    // ---- what the Code screen reads out of a worktree ----
+    //
+    // These four hand back what git printed and decide nothing: the tree, the
+    // dirty overlay, the diff and one file's bytes are all parsed in
+    // `harness_app::code`, where they can be tested without a repository.
+
+    /// HEAD of any checkout, or an empty string when there is not one yet.
+    /// The tracked-file cache keys on this.
+    pub fn head_at(&self, wt: &Path) -> String {
+        self.rev_parse_head(wt).unwrap_or_default()
+    }
+
+    /// Every path git tracks in a worktree.
+    pub fn ls_files(&self, wt: &Path) -> Vec<String> {
+        self.git(wt, &["ls-files"])
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// What has moved in a worktree since HEAD.
+    ///
+    /// `--untracked-files=all` because the default collapses a new directory
+    /// into one `dir/` line, and a tree that shows a folder it cannot open is
+    /// worse than one file per row. Ignored paths are still left out, so this
+    /// does not walk `node_modules`.
+    pub fn status_porcelain(&self, wt: &Path) -> String {
+        self.git_raw(wt, &["status", "--porcelain", "--untracked-files=all"])
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default()
+    }
+
+    /// The unified diff a worktree holds, at three lines of context.
+    ///
+    /// Two passes, same as `review_patch`: what the card committed since
+    /// `base`, then what it has not committed at all. They cannot overlap —
+    /// the second is measured against HEAD — so reading them one after the
+    /// other is the whole change and counts nothing twice.
+    pub fn unified_diff(&self, wt: &Path, base: &str, path: Option<&str>) -> String {
+        let range = format!("{base}...HEAD");
+        let mut args: Vec<&str> = vec!["diff", "--unified=3", "--no-color", "--no-ext-diff"];
+        let committed_args = {
+            let mut a = args.clone();
+            a.push(&range);
+            if let Some(p) = path {
+                a.push("--");
+                a.push(p);
+            }
+            a
+        };
+        args.push("HEAD");
+        if let Some(p) = path {
+            args.push("--");
+            args.push(p);
+        }
+        let committed = self.git(wt, &committed_args).unwrap_or_default();
+        let pending = self.git(wt, &args).unwrap_or_default();
+        if pending.trim().is_empty() {
+            committed
+        } else {
+            format!("{committed}\n{pending}")
+        }
+    }
+
+    /// One file's bytes at a revision, for reading HEAD beside the working
+    /// copy. Reading the working copy itself is a plain file read, not a git
+    /// call, so it does not live here.
+    pub fn show_file(&self, wt: &Path, rev: &str, path: &str) -> Result<Vec<u8>, GitError> {
+        self.git_raw(wt, &["show", &format!("{rev}:{path}")])
+    }
+
     /// Lines added plus removed across the last `days` days.
     pub fn changed_lines(&self, days: usize) -> u64 {
         let since = format!("--since={days} days ago");
@@ -660,6 +810,10 @@ pub struct BranchRow {
     pub state: BranchState,
 }
 
+/// A checkout nobody has touched for this long is one the operator can drop.
+/// A week: shorter and a card left over a weekend reads as abandoned.
+pub const STALE_AFTER_DAYS: u64 = 7;
+
 #[derive(Debug, Clone, Default, Serialize, TS)]
 pub struct WorktreeRow {
     pub path: String,
@@ -667,6 +821,43 @@ pub struct WorktreeRow {
     pub branch: Option<String>,
     pub bare: bool,
     pub dirty: bool,
+    /// The last sign of life here, in milliseconds since the epoch. Zero when
+    /// neither git nor the filesystem would say — and zero is never stale,
+    /// because "we could not tell" is not "nothing happened".
+    pub last_activity_ms: u64,
+    /// Nothing has happened here in [`STALE_AFTER_DAYS`].
+    pub stale: bool,
+}
+
+/// Has this checkout gone quiet? An unknown age is not evidence of one.
+fn is_stale(last_activity_ms: u64, now_ms: u64, days: u64) -> bool {
+    last_activity_ms > 0 && now_ms.saturating_sub(last_activity_ms) > days * 86_400_000
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Added and removed columns of `git ... --numstat`. A binary file writes `-`
+/// in both and is skipped: it has no lines to count.
+fn numstat_totals(raw: &str) -> (u64, u64) {
+    let mut added = 0u64;
+    let mut removed = 0u64;
+    for line in raw.lines() {
+        let mut cols = line.split(TAB);
+        let Some(a) = cols.next().and_then(|c| c.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(d) = cols.next().and_then(|c| c.parse::<u64>().ok()) else {
+            continue;
+        };
+        added += a;
+        removed += d;
+    }
+    (added, removed)
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -692,6 +883,7 @@ pub struct CommitRow {
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct LanguageRow {
     pub name: String,
+    #[ts(type = "number")]
     pub bytes: u64,
     pub pct: f64,
 }
@@ -1043,5 +1235,76 @@ mod tests {
         let week = git.activity(7);
         assert_eq!(week.len(), 7);
         assert_eq!(week.iter().sum::<u64>(), 3, "two on main plus the side commit");
+    }
+
+    #[test]
+    fn numstat_columns_add_up_and_binaries_are_skipped() {
+        let raw = ["12\t4\tsrc/main.rs", "-\t-\tlogo.png", "0\t9\told.rs", ""].join("\n");
+        assert_eq!(numstat_totals(&raw), (12, 13));
+        assert_eq!(numstat_totals(""), (0, 0));
+    }
+
+    #[test]
+    fn staleness_needs_an_age_to_judge() {
+        let now = 1_800_000_000_000u64;
+        let day = 86_400_000u64;
+        assert!(!is_stale(now - 2 * day, now, 7), "two days is still warm");
+        assert!(is_stale(now - 8 * day, now, 7));
+        // An age nobody could read is not a claim that nothing happened.
+        assert!(!is_stale(0, now, 7));
+    }
+
+    #[test]
+    fn the_days_lines_come_off_the_commits_of_every_branch() {
+        let (_dir, git) = fresh_repo();
+        let root = git.repo_root().to_path_buf();
+
+        std::fs::write(root.join("main.rs"), "fn main() {}\n".repeat(10)).unwrap();
+        git.git(&root, &["add", "-A"]).unwrap();
+        git.git(&root, &["commit", "-m", "feat: ten lines"]).unwrap();
+
+        // A card's own branch counts too: that is where agents commit.
+        let wt = git.create_worktree("c1", "main").unwrap();
+        std::fs::write(wt.0.join("side.rs"), "fn side() {}\n".repeat(4)).unwrap();
+        git.commit(&wt, "feat: four more", &Trailers::default()).unwrap();
+
+        // Then take five away.
+        std::fs::write(root.join("main.rs"), "fn main() {}\n".repeat(5)).unwrap();
+        git.git(&root, &["add", "-A"]).unwrap();
+        git.git(&root, &["commit", "-m", "chore: trim"]).unwrap();
+
+        // A real second in the past. Not `@0`: git reads a zero timestamp as a
+        // date it could not parse and quietly falls back to now, which makes
+        // this the kind of test that passes on a fast machine.
+        let (added, removed) = git.lines_since("@946684800");
+        assert_eq!(added, 15, "ten on main, four on the card branch, one README");
+        assert_eq!(removed, 5);
+
+        // Nothing landed after now, so today's window from here is empty.
+        let future = now_ms() / 1000 + 3600;
+        assert_eq!(git.lines_since(&format!("@{future}")), (0, 0));
+    }
+
+    #[test]
+    fn a_worktree_says_when_something_last_happened_in_it() {
+        let (_dir, git) = fresh_repo();
+        let wt = git.create_worktree("c1", "main").unwrap();
+        std::fs::write(wt.0.join("work.rs"), "fn work() {}\n").unwrap();
+        git.commit(&wt, "feat: work", &Trailers::default()).unwrap();
+
+        let rows = git.worktree_list();
+        let row = rows
+            .iter()
+            .find(|r| r.branch.as_deref() == Some("harness/c1"))
+            .expect("the card's checkout");
+        assert!(row.last_activity_ms > 0, "it has just been committed in");
+        assert!(
+            !row.stale,
+            "a checkout committed to seconds ago cannot be stale"
+        );
+        assert!(
+            now_ms().saturating_sub(row.last_activity_ms) < 5 * 60_000,
+            "the age is this minute's, not the epoch's"
+        );
     }
 }

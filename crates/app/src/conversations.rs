@@ -10,6 +10,7 @@
 //! Pure: no I/O, no clock. The shell hands in ids and timestamps so the whole
 //! module is testable without a window.
 
+use harness_ports::{RunEvent, RunLogLine};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -28,7 +29,9 @@ pub struct Conversation {
     /// Optionally pinned to a project, which decides what code it may read.
     pub project_id: Option<String>,
     pub title: String,
+    #[ts(type = "number")]
     pub created_ms: u64,
+    #[ts(type = "number")]
     pub updated_ms: u64,
     pub archived: bool,
     /// A versão do Relay que esta conversa viu da última vez.
@@ -120,6 +123,142 @@ pub fn title_from(message: &str) -> String {
         out.push_str(word);
     }
     out
+}
+
+/// What a thread has spent, read back off its own transcript.
+///
+/// Every field is `Option` where the answer can genuinely be missing, because
+/// a transcript written before usage was recorded has no tokens in it and no
+/// amount of arithmetic will invent them. `None` is what makes the screen show
+/// an em-dash instead of a plausible zero.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+pub struct ConversationTotals {
+    /// Every token the thread has spent, prompt and answer and cache alike.
+    pub tokens: Option<u64>,
+    /// Carried here so the card is one response rather than two.
+    pub spend_usd: f64,
+    /// Tool invocations over the whole transcript, not just what is on screen.
+    pub tool_calls: u32,
+    /// What the model was holding on its last turn: the prompt it was handed,
+    /// plus what it wrote. This is the context in use, not the running total.
+    pub context_tokens: Option<u64>,
+    /// The window that context sits in. `None` when the model is unknown.
+    pub context_window: Option<u64>,
+    /// `context_tokens` as a percentage of `context_window`, 0–100.
+    pub context_pct: Option<f64>,
+    /// The model the last recorded turn ran on.
+    pub model: Option<String>,
+}
+
+/// Context window per model, in tokens.
+///
+/// Deliberately a table and not `catalog.rs`: the catalogue is fetched from
+/// models.dev over the network and only cached once the operator has opened
+/// the Agents screen, so reading a thread on a fresh install would find
+/// nothing. These are the models a Claude login serves. Anything not listed
+/// returns `None` and the screen says so rather than dividing by a guess.
+///
+/// Matched by prefix because the SDK reports dated ids (`claude-opus-4-5-…`),
+/// longest-lived families first so `claude-opus-4-5` is not read as
+/// `claude-opus-4`.
+const CONTEXT_WINDOWS: &[(&str, u64)] = &[
+    // The million-token generations.
+    ("claude-fable-5", 1_000_000),
+    ("claude-mythos-5", 1_000_000),
+    ("claude-opus-5", 1_000_000),
+    ("claude-opus-4-8", 1_000_000),
+    ("claude-opus-4-7", 1_000_000),
+    ("claude-opus-4-6", 1_000_000),
+    ("claude-sonnet-5", 1_000_000),
+    ("claude-sonnet-4-6", 1_000_000),
+    // Everything before them held 200k.
+    ("claude-haiku-4-5", 200_000),
+    ("claude-haiku-3", 200_000),
+    ("claude-opus-4-5", 200_000),
+    ("claude-opus-4-1", 200_000),
+    ("claude-opus-4", 200_000),
+    ("claude-sonnet-4-5", 200_000),
+    ("claude-sonnet-4", 200_000),
+    ("claude-3", 200_000),
+    // The bare aliases a profile can carry when the transcript never recorded
+    // a resolved id. They point at whatever the login currently serves.
+    ("fable", 1_000_000),
+    ("opus", 1_000_000),
+    ("sonnet", 1_000_000),
+    ("haiku", 200_000),
+];
+
+/// How much room this model has, or `None` when we have never heard of it.
+pub fn context_window(model: &str) -> Option<u64> {
+    let id = model.trim().to_lowercase();
+    if id.is_empty() {
+        return None;
+    }
+    // The 1M-context beta rides on the id itself, and it outranks the family.
+    if id.contains("[1m]") {
+        return Some(1_000_000);
+    }
+    CONTEXT_WINDOWS
+        .iter()
+        .find(|(needle, _)| id.starts_with(needle))
+        .map(|(_, window)| *window)
+}
+
+/// Add up a stored transcript. `cost_usd` comes from the index, which is where
+/// spend is already accounted; everything else is read from the lines.
+pub fn totals(lines: &[RunLogLine], cost_usd: f64, fallback_model: Option<&str>) -> ConversationTotals {
+    let mut spent = 0u64;
+    let mut saw_usage = false;
+    let mut tool_calls = 0u32;
+    let mut context_tokens = None;
+    let mut model = None;
+
+    for line in lines {
+        match &line.event {
+            RunEvent::ToolUse { .. } => tool_calls = tool_calls.saturating_add(1),
+            RunEvent::Usage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+                model: turn_model,
+            } => {
+                saw_usage = true;
+                let prompt = input_tokens
+                    .saturating_add(*cache_read_tokens)
+                    .saturating_add(*cache_creation_tokens);
+                spent = spent
+                    .saturating_add(prompt)
+                    .saturating_add(*output_tokens);
+                // The newest turn wins: what the model held last is what the
+                // session is carrying now.
+                context_tokens = Some(prompt.saturating_add(*output_tokens));
+                if let Some(name) = turn_model {
+                    model = Some(name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let model = model.or_else(|| fallback_model.map(str::to_string));
+    let window = model.as_deref().and_then(context_window);
+    let context_pct = match (context_tokens, window) {
+        (Some(used), Some(window)) if window > 0 => {
+            Some(((used as f64 / window as f64) * 100.0).min(100.0))
+        }
+        _ => None,
+    };
+
+    ConversationTotals {
+        tokens: saw_usage.then_some(spent),
+        spend_usd: cost_usd,
+        tool_calls,
+        context_tokens,
+        context_window: window,
+        context_pct,
+        model,
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -478,6 +617,150 @@ mod tests {
         idx.record_session("chat_1", "sess-new", 4).unwrap();
         assert!(!idx.get("chat_1").unwrap().resume_failed);
         assert_eq!(idx.get("chat_1").unwrap().resumes(), Some("sess-new"));
+    }
+
+    fn line(ts_ms: u64, event: RunEvent) -> RunLogLine {
+        RunLogLine { ts_ms, event }
+    }
+
+    fn usage(input: u64, output: u64, cache_read: u64, model: &str) -> RunEvent {
+        RunEvent::Usage {
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: cache_read,
+            cache_creation_tokens: 0,
+            model: Some(model.to_string()),
+        }
+    }
+
+    #[test]
+    fn a_thread_adds_up_every_turn_it_recorded() {
+        let lines = vec![
+            line(1, RunEvent::UserMessage { text: "go".into() }),
+            line(2, usage(1_000, 200, 0, "claude-opus-4-5-20251101")),
+            line(3, RunEvent::Text { text: "on it".into() }),
+            line(4, usage(1_500, 300, 4_000, "claude-opus-4-5-20251101")),
+        ];
+        let t = totals(&lines, 0.42, None);
+        // Both turns, prompt and answer and cache alike.
+        assert_eq!(t.tokens, Some(1_200 + 5_800));
+        assert_eq!(t.spend_usd, 0.42);
+        // Context is the last turn only, not the running total.
+        assert_eq!(t.context_tokens, Some(5_800));
+        assert_eq!(t.context_window, Some(200_000));
+        assert!((t.context_pct.unwrap() - 2.9).abs() < 1e-9);
+        assert_eq!(t.model.as_deref(), Some("claude-opus-4-5-20251101"));
+    }
+
+    #[test]
+    fn tool_calls_count_the_whole_transcript_not_the_answered_ones() {
+        let lines = vec![
+            line(
+                1,
+                RunEvent::ToolUse {
+                    tool: "create_card".into(),
+                    summary: String::new(),
+                    tool_use_id: Some("t1".into()),
+                    parent_tool_use_id: None,
+                },
+            ),
+            line(
+                2,
+                RunEvent::ToolResult {
+                    tool_use_id: "t1".into(),
+                    ok: true,
+                    summary: String::new(),
+                    detail: None,
+                },
+            ),
+            // Still in flight when the log was written: it was still a call.
+            line(
+                3,
+                RunEvent::ToolUse {
+                    tool: "read_diff".into(),
+                    summary: String::new(),
+                    tool_use_id: Some("t2".into()),
+                    parent_tool_use_id: None,
+                },
+            ),
+        ];
+        assert_eq!(totals(&lines, 0.0, None).tool_calls, 2);
+    }
+
+    #[test]
+    fn a_transcript_written_before_usage_existed_reports_nothing_rather_than_zero() {
+        let lines = vec![
+            line(1, RunEvent::UserMessage { text: "hello".into() }),
+            line(2, RunEvent::Text { text: "hi".into() }),
+        ];
+        let t = totals(&lines, 1.25, Some("sonnet"));
+        assert_eq!(t.tokens, None, "no usage lines means no honest total");
+        assert_eq!(t.context_tokens, None);
+        assert_eq!(t.context_pct, None, "a window with nothing in it is not 0%");
+        // Spend is accounted elsewhere, so it survives an empty transcript.
+        assert_eq!(t.spend_usd, 1.25);
+    }
+
+    #[test]
+    fn an_unknown_model_leaves_the_context_blank_instead_of_guessing() {
+        let lines = vec![line(1, usage(100, 10, 0, "qwen3.5:latest"))];
+        let t = totals(&lines, 0.0, None);
+        assert_eq!(t.tokens, Some(110), "tokens are still countable");
+        assert_eq!(t.context_window, None);
+        assert_eq!(t.context_pct, None);
+    }
+
+    #[test]
+    fn the_window_table_reads_dated_ids_and_stops_at_the_right_family() {
+        assert_eq!(context_window("claude-opus-4-5-20251101"), Some(200_000));
+        assert_eq!(context_window("claude-opus-4-8"), Some(1_000_000));
+        assert_eq!(context_window("claude-sonnet-4-5-20250929"), Some(200_000));
+        assert_eq!(context_window("claude-sonnet-4-6"), Some(1_000_000));
+        assert_eq!(context_window("claude-haiku-4-5-20251001"), Some(200_000));
+        // The 1M beta is on the id itself and outranks the family.
+        assert_eq!(context_window("claude-sonnet-4-5[1m]"), Some(1_000_000));
+        // Bare aliases the login resolves for us.
+        assert_eq!(context_window("opus"), Some(1_000_000));
+        assert_eq!(context_window("haiku"), Some(200_000));
+        assert_eq!(context_window("   "), None);
+        assert_eq!(context_window("llama4"), None);
+    }
+
+    #[test]
+    fn the_last_turn_names_the_model_even_when_earlier_ones_did_not() {
+        let lines = vec![
+            line(
+                1,
+                RunEvent::Usage {
+                    input_tokens: 10,
+                    output_tokens: 1,
+                    cache_read_tokens: 0,
+                    cache_creation_tokens: 0,
+                    model: None,
+                },
+            ),
+            line(2, usage(20, 2, 0, "claude-sonnet-4-6")),
+        ];
+        let t = totals(&lines, 0.0, Some("opus"));
+        assert_eq!(t.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(t.tokens, Some(33));
+    }
+
+    #[test]
+    fn the_profile_model_stands_in_when_the_transcript_never_named_one() {
+        let lines = vec![line(
+            1,
+            RunEvent::Usage {
+                input_tokens: 100_000,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                model: None,
+            },
+        )];
+        let t = totals(&lines, 0.0, Some("haiku"));
+        assert_eq!(t.context_window, Some(200_000));
+        assert_eq!(t.context_pct, Some(50.0));
     }
 
     #[test]

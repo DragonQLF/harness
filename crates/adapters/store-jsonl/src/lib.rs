@@ -417,11 +417,13 @@ mod tests {
                 turns: 0,
                 runs: 0,
                 last_review: None,
+                hunk_verdicts: Vec::new(),
                 session_id: None,
                 worktree: None,
                 branch: None,
                 depends_on: Vec::new(),
                 budget_paused: false,
+                finished_ms: None,
             }],
         };
         let stored = store.append_event(&snapshot, 2).unwrap();

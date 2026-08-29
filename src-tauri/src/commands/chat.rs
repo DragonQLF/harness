@@ -99,6 +99,37 @@ pub async fn conversation_transcript(
         .map_err(|e| e.to_string())?
 }
 
+/// The thread's accounting: tokens, spend, tool calls and how full the model's
+/// context is. A sibling of `conversation_transcript` rather than a field on
+/// it, so the rail can refresh when a turn ends without re-reading every line
+/// the thread already has on screen.
+#[tauri::command]
+pub async fn conversation_totals(
+    conversation_id: String,
+    ws: Shared<'_>,
+) -> Result<harness_app::conversations::ConversationTotals, String> {
+    let conversation = ws
+        .conversation(&conversation_id)
+        .await
+        .ok_or_else(|| format!("no conversation {conversation_id}"))?;
+    // Only a fallback: a transcript that recorded its own model wins.
+    let profile_model = ws
+        .agent_exact(&conversation.profile_id)
+        .await
+        .and_then(|p| p.model);
+    let ws = Arc::clone(&ws);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::chat::totals(
+            &ws,
+            &conversation.id,
+            conversation.cost_usd,
+            profile_model.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Send a message. The answer streams back on the run channel, keyed by the
 /// conversation id.
 #[tauri::command]
@@ -224,4 +255,137 @@ pub async fn analyst_ask(
 pub async fn chat_stop(conversation_id: String, ws: Shared<'_>) -> Result<(), String> {
     crate::chat::stop_turn(&ws, &conversation_id).await;
     Ok(())
+}
+
+/// Write a pasted or dropped attachment to disk, and answer with its path.
+///
+/// Everything downstream of here speaks in paths — `chat::send` checks the file
+/// exists, and `director::with_attachments` tells the agent to read it with its
+/// own tools. The clipboard speaks in bytes. This is the one place the two
+/// meet, and it is why a screenshot can be pasted into the composer at all:
+/// without it there is no path to attach.
+///
+/// The name is decided in `harness_app::attachments`, where it is testable, and
+/// the MIME type decides the extension — a clipboard name is not trusted to say
+/// what its own bytes are.
+#[tauri::command]
+pub async fn chat_save_attachment(
+    name: Option<String>,
+    mime: String,
+    data: String,
+    ws: Shared<'_>,
+) -> Result<String, String> {
+    use base64::Engine as _;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|_| "that attachment did not survive the trip from the clipboard".to_string())?;
+
+    if let Some(why) = harness_app::attachments::refuse(&mime, bytes.len()) {
+        return Err(why);
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let file_name = harness_app::attachments::file_name(name.as_deref(), &mime, stamp)
+        .ok_or_else(|| format!("Relay has no name for a {mime}"))?;
+
+    let dir = ws.paths.attachments_dir();
+    let path = dir.join(&file_name);
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        Ok::<String, String>(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// What an attachment looks like, for the chip that stands for it.
+#[derive(serde::Serialize)]
+pub struct AttachmentPreview {
+    pub path: String,
+    pub name: String,
+    pub ext: String,
+    pub size: u64,
+    /// A data URI, when the file is an image small enough to inline. `None`
+    /// for everything else — the chip then says what it is rather than showing
+    /// a broken frame.
+    pub image: Option<String>,
+    /// The opening of a text file, so a pasted log or patch is recognisable
+    /// without opening it. Capped hard; this is a chip, not a reader.
+    pub head: Option<String>,
+}
+
+/// Enough about an attachment to draw it. A screenshot should look like the
+/// screenshot, not like a path: the operator pasted a picture and the chip
+/// saying `pasted-1724930400000.png` is a worse answer than the picture.
+///
+/// Inlining is capped well below the attach ceiling — a chip is ~40px tall and
+/// a 20 MB data URI to fill it would cost more than the message it decorates.
+#[tauri::command]
+pub async fn chat_attachment_preview(path: String) -> Result<AttachmentPreview, String> {
+    use base64::Engine as _;
+    const INLINE_MAX: u64 = 4 * 1024 * 1024;
+    const HEAD_BYTES: usize = 400;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::PathBuf::from(&path);
+        let meta = std::fs::metadata(&p).map_err(|e| format!("{path}: {e}"))?;
+        if !meta.is_file() {
+            return Err(format!("{path} is not a file on this machine"));
+        }
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        let size = meta.len();
+
+        // The extension is the only thing a picked file tells us about itself;
+        // `attachments::extension_for` is the same table read the other way.
+        let mime = match ext.as_str() {
+            "png" => Some("image/png"),
+            "jpg" | "jpeg" => Some("image/jpeg"),
+            "gif" => Some("image/gif"),
+            "webp" => Some("image/webp"),
+            "svg" => Some("image/svg+xml"),
+            "bmp" => Some("image/bmp"),
+            _ => None,
+        };
+
+        let image = match mime {
+            Some(mime) if size <= INLINE_MAX => std::fs::read(&p).ok().map(|bytes| {
+                format!(
+                    "data:{mime};base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode(&bytes)
+                )
+            }),
+            _ => None,
+        };
+
+        let head = if image.is_none()
+            && matches!(ext.as_str(), "txt" | "md" | "json" | "toml" | "csv" | "log" | "patch" | "diff" | "rs" | "ts" | "tsx" | "js" | "css" | "html" | "yml" | "yaml")
+        {
+            std::fs::read(&p).ok().and_then(|bytes| {
+                let cut = bytes.len().min(HEAD_BYTES);
+                // Never cut a UTF-8 sequence in half: a chip showing U+FFFD is
+                // a chip that looks broken.
+                let text = String::from_utf8_lossy(&bytes[..cut]);
+                let text = text.trim();
+                (!text.is_empty()).then(|| text.chars().take(160).collect::<String>())
+            })
+        } else {
+            None
+        };
+
+        Ok(AttachmentPreview { path, name, ext, size, image, head })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

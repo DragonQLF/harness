@@ -102,6 +102,14 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // Only the main window closing means Relay is closing. The
+                // splash closes itself the moment it hands over, and without
+                // this it began the whole shutdown sequence — wip commits, the
+                // end-of-day look, the three-minute wait — over a window that
+                // had simply finished its job.
+                if window.label() != "main" {
+                    return;
+                }
                 let Some(workspace) = window.try_state::<Arc<Workspace>>() else {
                     return;
                 };
@@ -137,6 +145,7 @@ pub fn run() {
             commands::board::move_card,
             commands::board::override_card,
             commands::board::set_dependencies,
+            commands::board::edit_card,
             commands::board::assign_agent,
             commands::board::approve_card,
             commands::board::reject_card,
@@ -149,6 +158,15 @@ pub fn run() {
             commands::board::review_queue,
             commands::board::activity,
             commands::board::project_stats,
+            // code
+            commands::code::list_tree,
+            commands::code::read_worktree_file,
+            commands::code::diff_hunks,
+            commands::code::review_hunk,
+            // run history
+            commands::stats::run_stats,
+            // sessions
+            commands::sessions::export_transcripts,
             // conversations
             commands::chat::conversations_list,
             commands::chat::conversation_new,
@@ -160,7 +178,10 @@ pub fn run() {
             commands::chat::conversation_pin,
             commands::chat::conversation_transcript,
             commands::chat::chat_send,
+            commands::chat::conversation_totals,
             commands::chat::chat_pick_files,
+            commands::chat::chat_save_attachment,
+            commands::chat::chat_attachment_preview,
             commands::chat::agent_templates,
             commands::chat::agent_create_from_template,
             commands::chat::agent_duplicate,
@@ -200,6 +221,8 @@ pub fn run() {
             commands::project::project_checks,
             commands::project::project_set_checks,
             commands::project::project_run_checks,
+            commands::project::card_checks,
+            commands::project::card_run_checks,
             // system
             commands::system::bootstrap,
             commands::system::status,

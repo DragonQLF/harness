@@ -95,6 +95,28 @@ async fn pump_lines(
                         }
                     }
                     Some("assistant") => {
+                        // The same per-turn usage the sidecar reports, so a
+                        // conversation run through the command line accounts
+                        // for itself too.
+                        if let Some(usage) = v.pointer("/message/usage") {
+                            let tokens = |name: &str| {
+                                usage.get(name).and_then(|t| t.as_u64()).unwrap_or(0)
+                            };
+                            emit(
+                                &tx,
+                                RunEvent::Usage {
+                                    input_tokens: tokens("input_tokens"),
+                                    output_tokens: tokens("output_tokens"),
+                                    cache_read_tokens: tokens("cache_read_input_tokens"),
+                                    cache_creation_tokens: tokens("cache_creation_input_tokens"),
+                                    model: v
+                                        .pointer("/message/model")
+                                        .and_then(|m| m.as_str())
+                                        .map(str::to_string),
+                                },
+                            )
+                            .await;
+                        }
                         let content = v
                             .pointer("/message/content")
                             .and_then(|c| c.as_array())

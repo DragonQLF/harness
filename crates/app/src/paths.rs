@@ -59,6 +59,14 @@ impl AppPaths {
         self.root.join("inbox.json")
     }
 
+    /// Verdicts his automatic reviewer reached that he has not been told about
+    /// yet. Beside the inbox and workspace level for the same reason: a review
+    /// belongs to a project, but being told is the Director's, and he is one
+    /// across every board.
+    pub fn verdicts_file(&self) -> PathBuf {
+        self.root.join("verdicts.json")
+    }
+
     /// The last commit of the mirror repository Relay knows about, so it can
     /// tell when its own source moved without a card behind it. App data, not
     /// the operator's repository: Relay's files never live inside one.
@@ -77,6 +85,14 @@ impl AppPaths {
     /// every board, and a conversation may be pinned to no project at all.
     pub fn conversations_dir(&self) -> PathBuf {
         self.root.join("conversations")
+    }
+
+    /// Where a pasted or dropped attachment is written. Beside the
+    /// conversations rather than inside one: the same image can be attached to
+    /// two threads, and a transcript that outlives its file is worse than a
+    /// file that outlives its thread.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.root.join("attachments")
     }
 
     pub fn sidecar_dir(&self) -> PathBuf {
@@ -118,6 +134,15 @@ impl AppPaths {
 
     pub fn checks_file(&self, project_id: &str) -> PathBuf {
         self.project_dir(project_id).join("checks.json")
+    }
+
+    /// One card's last check pass, run in that card's own worktree. Beside
+    /// `checks.json`, which holds the commands themselves: the list is the
+    /// project's, each result belongs to a card.
+    pub fn card_checks_file(&self, project_id: &str, card_id: &str) -> PathBuf {
+        self.project_dir(project_id)
+            .join("checks")
+            .join(format!("{}.json", sanitize(card_id)))
     }
 
     pub fn project_worktrees(&self, project_id: &str) -> PathBuf {
@@ -191,6 +216,7 @@ mod tests {
             paths.conversations_dir(),
             paths.events_file("Some Project"),
             paths.runs_dir("Some Project"),
+            paths.card_checks_file("Some Project", "../../c_1"),
             paths.project_worktrees("Some Project"),
             paths.sidecar_dir(),
         ] {

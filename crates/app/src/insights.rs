@@ -2,11 +2,13 @@
 //! Everything here is a pure function of events plus the current board, so it
 //! can be tested without an engine.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use harness_domain::{Actor, Card, Event, RunOutcome, Status};
 use harness_ports::StoredEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 const DAY_MS: i64 = 86_400_000;
@@ -27,7 +29,9 @@ pub fn today_index(tz_offset_minutes: i64) -> i64 {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct ActivityRow {
+    #[ts(type = "number")]
     pub seq: u64,
+    #[ts(type = "number")]
     pub ts_ms: u64,
     /// `card`, `run`, `approval` or `review` — the Activity filters.
     #[ts(type = "string")]
@@ -41,6 +45,29 @@ pub struct ActivityRow {
     pub approved: bool,
     pub card_id: String,
     pub detail: String,
+    /// The run this row is about, when it is one. Absent on card rows, and on
+    /// the older logs written before it was carried here. Without it a screen
+    /// can only ask `run_log` for the newest run of a card, because that is the
+    /// one id the snapshot happens to hold.
+    #[serde(default)]
+    pub run_id: Option<String>,
+    /// How the run ended, as the log recorded it. `None` on a start — it has
+    /// not ended — so the reader pairs a start with its ending by run id
+    /// instead of reading the human label, which is prose and will be reworded.
+    #[serde(default)]
+    pub outcome: Option<RunOutcome>,
+    /// The tools this run called, in the order it first called them. Empty
+    /// when the row is not a run, or when its transcript is no longer on disk:
+    /// both are "nothing to say", and the screen says so with an em-dash.
+    #[serde(default)]
+    pub tools: Vec<ToolCount>,
+}
+
+/// One tool a run called, and how many times.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ToolCount {
+    pub tool: String,
+    pub count: u32,
 }
 
 pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<ActivityRow> {
@@ -131,6 +158,23 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                     },
                     reason.clone(),
                 ),
+                // One block of a diff, decided on its own. The card's own
+                // outcome arrives as its own row when the diff is finished,
+                // so this line is about the block and names it.
+                Event::HunkReviewed {
+                    hunk,
+                    approved,
+                    reason,
+                    ..
+                } => (
+                    "review",
+                    if *approved { "Hunk approved" } else { "Hunk sent back" },
+                    if reason.trim().is_empty() {
+                        hunk.label()
+                    } else {
+                        format!("{} — {}", hunk.label(), reason.trim())
+                    },
+                ),
                 Event::CardDependencies { depends_on, .. } => (
                     "card",
                     "Order set",
@@ -175,6 +219,15 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                     )
                 }
             };
+            // The events already carry the run; the row used to drop it, and a
+            // dropped id is a transcript nothing can ask for again.
+            let (run_id, outcome) = match &stored.event {
+                Event::RunStarted { run_id, .. } => (Some(run_id.0.clone()), None),
+                Event::RunFinished {
+                    run_id, outcome, ..
+                } => (Some(run_id.0.clone()), Some(outcome.clone())),
+                _ => (None, None),
+            };
             Some(ActivityRow {
                 seq: stored.seq,
                 ts_ms: stored.ts_ms,
@@ -183,6 +236,9 @@ pub fn activity(history: &[StoredEvent], cards: &[Card], limit: usize) -> Vec<Ac
                 label: label.to_string(),
                 card_id,
                 detail,
+                run_id,
+                outcome,
+                tools: Vec::new(),
             })
         })
         .collect();
@@ -204,6 +260,203 @@ pub fn status_name(status: Status) -> &'static str {
     }
 }
 
+// ---- what a run touched ----------------------------------------------------
+
+/// The tool's own word, as the transcript prints it.
+///
+/// The harness hands the agent its board tools through an MCP server, which
+/// prefixes their names; `src/state/events.ts` strips the same prefix when it
+/// draws a transcript line. The Sessions column sits beside that transcript, so
+/// it has to arrive at the same word or the two disagree about one call.
+fn tool_label(raw: &str) -> String {
+    let stripped = raw
+        .strip_prefix("mcp__harness__")
+        .or_else(|| raw.strip_prefix("harness"))
+        .unwrap_or(raw);
+    let stripped = stripped.strip_prefix("__").unwrap_or(stripped);
+    if stripped.is_empty() {
+        raw.to_string()
+    } else {
+        stripped.to_string()
+    }
+}
+
+/// Tool calls in one JSONL transcript, first call first.
+///
+/// A `tool_result` body can be megabytes of captured output, so a line is only
+/// handed to the parser once its text says it is a call. The column wants the
+/// name and the tally; nothing here reads an argument or a result.
+pub fn tool_counts(transcript: &str) -> Vec<ToolCount> {
+    #[derive(Deserialize)]
+    struct Call {
+        tool: Option<String>,
+    }
+
+    let mut order: Vec<String> = Vec::new();
+    let mut tally: HashMap<String, u32> = HashMap::new();
+    for line in transcript.lines() {
+        if !line.contains("\"kind\":\"tool_use\"") {
+            continue;
+        }
+        let Ok(call) = serde_json::from_str::<Call>(line) else {
+            continue;
+        };
+        // A line that says it is a call and names no tool: a malformed write,
+        // or a log from before the field existed. It is not a call we can name.
+        let Some(raw) = call.tool else {
+            continue;
+        };
+        let name = tool_label(&raw);
+        match tally.get_mut(&name) {
+            Some(n) => *n += 1,
+            None => {
+                order.push(name.clone());
+                tally.insert(name, 1);
+            }
+        }
+    }
+    order
+        .into_iter()
+        .map(|tool| {
+            let count = tally.get(&tool).copied().unwrap_or(0);
+            ToolCount { tool, count }
+        })
+        .collect()
+}
+
+/// Tool tallies per transcript, remembered against the file's length.
+///
+/// A finished run's transcript never changes again, so it is read once and the
+/// screen's next refresh costs a `stat`; a live one only ever grows, and the
+/// length is what tells us it did. Keyed by path rather than run id, because a
+/// run id is only unique inside its own project.
+#[derive(Default)]
+pub struct ToolCache {
+    inner: Mutex<HashMap<PathBuf, (u64, Vec<ToolCount>)>>,
+}
+
+impl ToolCache {
+    pub fn counts(&self, file: &Path) -> Vec<ToolCount> {
+        let Ok(len) = std::fs::metadata(file).map(|m| m.len()) else {
+            return Vec::new();
+        };
+        if let Ok(map) = self.inner.lock() {
+            if let Some((at, counts)) = map.get(file) {
+                if *at == len {
+                    return counts.clone();
+                }
+            }
+        }
+        let Ok(text) = std::fs::read_to_string(file) else {
+            return Vec::new();
+        };
+        let counts = tool_counts(&text);
+        if let Ok(mut map) = self.inner.lock() {
+            map.insert(file.to_path_buf(), (len, counts.clone()));
+        }
+        counts
+    }
+
+    /// Drop a transcript, for when it is deleted from disk.
+    pub fn forget(&self, file: &Path) {
+        if let Ok(mut map) = self.inner.lock() {
+            map.remove(file);
+        }
+    }
+}
+
+pub static TOOL_CACHE: LazyLock<ToolCache> = LazyLock::new(ToolCache::default);
+
+/// Fill in what each run touched, so one `activity` response carries the whole
+/// table. The alternative is the screen asking for every row's transcript by
+/// hand — two hundred round trips, each one shipping back a full log to count
+/// six lines of it.
+///
+/// `transcript` maps a run id to its file: naming that file is the run log
+/// adapter's rule, and this module does not get to guess at it.
+pub fn fill_tool_counts(rows: &mut [ActivityRow], transcript: impl Fn(&str) -> PathBuf) {
+    for row in rows.iter_mut() {
+        let Some(run_id) = row.run_id.as_deref() else {
+            continue;
+        };
+        row.tools = TOOL_CACHE.counts(&transcript(run_id));
+    }
+}
+
+// ---- taking the transcripts off the machine --------------------------------
+
+/// What an export wrote, so the screen states the outcome rather than assuming
+/// one.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct TranscriptExport {
+    /// The folder that was created, in full.
+    pub dir: String,
+    pub files: usize,
+    #[ts(type = "number")]
+    pub bytes: u64,
+    /// Runs whose transcript was not on disk. Named, not silently dropped: a
+    /// short export the operator cannot account for is worse than a warning.
+    pub missing: Vec<String>,
+}
+
+/// The folder an export creates inside the one the operator picked.
+pub fn export_folder_name(project_id: &str) -> String {
+    format!("{}-transcripts", crate::paths::sanitize(project_id))
+}
+
+/// Copy run transcripts into `dest_root/<name>`, or the next free name beside
+/// it. Never writes over an existing folder: an export is a copy the operator
+/// is about to hand to someone, and silently merging two of them loses the
+/// boundary between the runs.
+pub fn export_transcripts(
+    dest_root: &Path,
+    name: &str,
+    runs: &[(String, PathBuf)],
+) -> Result<TranscriptExport, String> {
+    let dir = free_dir(dest_root, name);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir:?}: {e}"))?;
+
+    let mut files = 0usize;
+    let mut bytes = 0u64;
+    let mut missing = Vec::new();
+    for (run_id, src) in runs {
+        // The source file's own name is already the safe one the run log
+        // minted; rebuilding it from the run id here would be a second rule.
+        let Some(file_name) = src.file_name().filter(|_| src.is_file()) else {
+            missing.push(run_id.clone());
+            continue;
+        };
+        match std::fs::copy(src, dir.join(file_name)) {
+            Ok(n) => {
+                files += 1;
+                bytes += n;
+            }
+            Err(_) => missing.push(run_id.clone()),
+        }
+    }
+
+    Ok(TranscriptExport {
+        dir: dir.to_string_lossy().to_string(),
+        files,
+        bytes,
+        missing,
+    })
+}
+
+fn free_dir(root: &Path, name: &str) -> PathBuf {
+    let first = root.join(name);
+    if !first.exists() {
+        return first;
+    }
+    for n in 2..1000 {
+        let next = root.join(format!("{name}-{n}"));
+        if !next.exists() {
+            return next;
+        }
+    }
+    first
+}
+
 #[derive(Debug, Clone, Default, Serialize, TS)]
 pub struct ProjectStats {
     pub cards: usize,
@@ -223,6 +476,7 @@ pub struct ProjectStats {
     pub week_runs: Vec<u32>,
     /// Lines the agents wrote per day, oldest first (from card turns is not
     /// available, so this counts runs and is filled in by the git side).
+    #[ts(type = "number")]
     pub last_event_ms: u64,
 }
 
@@ -296,8 +550,11 @@ pub struct AgentStats {
     pub sent_back: u32,
     /// Runs per day for the last seven days, oldest first.
     pub week_runs: Vec<u32>,
+    #[ts(type = "number")]
     pub lines_added: u64,
+    #[ts(type = "number")]
     pub lines_removed: u64,
+    #[ts(type = "number")]
     pub commits: u64,
 }
 
@@ -398,7 +655,7 @@ mod tests {
         let run = RunId("run-1".into());
         push(&mut board, &mut log, &mut seq, now_ms, Command::StartRun { card_id: id.clone(), run_id: run.clone(), worktree: None, branch: None });
         push(&mut board, &mut log, &mut seq, now_ms, Command::FinishRun { card_id: id.clone(), run_id: run, outcome: RunOutcome::Completed, cost_usd: Some(0.25), turns: Some(9) });
-        push(&mut board, &mut log, &mut seq, now_ms, Command::ApproveCard { card_id: id.clone(), by: Actor::Director, reason: "scoped".into() });
+        push(&mut board, &mut log, &mut seq, now_ms, Command::ApproveCard { card_id: id.clone(), by: Actor::Director, reason: "scoped".into(), hunks: Vec::new() });
 
         // A second card, still waiting, run a week ago.
         let old = CardId::new("c2");
@@ -488,6 +745,142 @@ mod tests {
     }
 
     #[test]
+    fn run_rows_carry_the_run_and_how_it_ended() {
+        let now_ms = now();
+        let (log, cards) = fixture(now_ms);
+        let rows = activity(&log, &cards, 100);
+
+        let starts: Vec<&ActivityRow> = rows
+            .iter()
+            .filter(|r| r.run_id.is_some() && r.outcome.is_none())
+            .collect();
+        assert_eq!(starts.len(), 2, "both runs started");
+        assert!(starts.iter().any(|r| r.run_id.as_deref() == Some("run-1")));
+        assert!(starts.iter().any(|r| r.run_id.as_deref() == Some("run-2")));
+
+        // A start and its ending are found by id, never by reading the label.
+        let ended = rows
+            .iter()
+            .find(|r| r.run_id.as_deref() == Some("run-1") && r.outcome.is_some())
+            .expect("run-1 ended");
+        assert_eq!(ended.outcome, Some(RunOutcome::Completed));
+
+        // A card event is not a run, and says so rather than guessing.
+        let created = rows.iter().find(|r| r.label == "Card created").unwrap();
+        assert!(created.run_id.is_none());
+        assert!(created.outcome.is_none());
+        assert!(created.tools.is_empty());
+    }
+
+    #[test]
+    fn tool_counts_tally_calls_and_read_nothing_else() {
+        let transcript = [
+            r#"{"ts_ms":1,"kind":"started","session_id":"s"}"#,
+            r#"{"ts_ms":2,"kind":"tool_use","tool":"Read","summary":"a.rs"}"#,
+            r#"{"ts_ms":3,"kind":"tool_use","tool":"Edit","summary":"b.rs"}"#,
+            r#"{"ts_ms":4,"kind":"tool_use","tool":"Edit","summary":"c.rs"}"#,
+            r#"{"ts_ms":5,"kind":"tool_use","tool":"mcp__harness__read_diff","summary":""}"#,
+            r#"{"ts_ms":6,"kind":"tool_use"}"#,
+            r#"{"ts_ms":7,"kind":"tool_result","tool_use_id":"t","ok":true,"summary":"ok"}"#,
+            "",
+            "half a line, never finished",
+        ]
+        .join("\n");
+
+        assert_eq!(
+            tool_counts(&transcript),
+            vec![
+                ToolCount { tool: "Read".into(), count: 1 },
+                ToolCount { tool: "Edit".into(), count: 2 },
+                ToolCount { tool: "read_diff".into(), count: 1 },
+            ],
+            "first call first, and the harness prefix off"
+        );
+        assert!(tool_counts("").is_empty());
+    }
+
+    /// A directory of this test's own, cleaned before use.
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("harness-insights-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn every_run_row_gets_its_tools_and_a_missing_transcript_is_empty() {
+        let dir = scratch("tools");
+        std::fs::write(
+            dir.join("run-1.jsonl"),
+            format!(
+                "{}\n{}\n",
+                r#"{"ts_ms":1,"kind":"tool_use","tool":"Read","summary":"a"}"#,
+                r#"{"ts_ms":2,"kind":"tool_use","tool":"Read","summary":"b"}"#
+            ),
+        )
+        .unwrap();
+
+        let now_ms = now();
+        let (log, cards) = fixture(now_ms);
+        let mut rows = activity(&log, &cards, 100);
+        let at = dir.clone();
+        fill_tool_counts(&mut rows, |id| at.join(format!("{id}.jsonl")));
+
+        // Both the start and the ending of run-1 describe the same transcript.
+        for row in rows.iter().filter(|r| r.run_id.as_deref() == Some("run-1")) {
+            assert_eq!(row.tools, vec![ToolCount { tool: "Read".into(), count: 2 }]);
+        }
+        // run-2 never wrote one; that is an empty cell, not an invented one.
+        assert!(rows
+            .iter()
+            .filter(|r| r.run_id.as_deref() == Some("run-2"))
+            .all(|r| r.tools.is_empty()));
+
+        // The cache follows the file's length, so an appended call is seen.
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(dir.join("run-1.jsonl")).unwrap();
+        writeln!(f, r#"{{"ts_ms":3,"kind":"tool_use","tool":"Bash","summary":"cargo"}}"#).unwrap();
+        drop(f);
+        let mut again = activity(&log, &cards, 100);
+        let at = dir.clone();
+        fill_tool_counts(&mut again, |id| at.join(format!("{id}.jsonl")));
+        let grown = again.iter().find(|r| r.run_id.as_deref() == Some("run-1")).unwrap();
+        assert_eq!(grown.tools.len(), 2, "the new call is counted");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_export_copies_the_transcripts_and_never_writes_over_one() {
+        let root = scratch("export");
+        let runs = root.join("runs");
+        std::fs::create_dir_all(&runs).unwrap();
+        std::fs::write(runs.join("run-1.jsonl"), "{\"ts_ms\":1,\"kind\":\"started\"}\n").unwrap();
+        let dest = root.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let sources = vec![
+            ("run-1".to_string(), runs.join("run-1.jsonl")),
+            ("run-gone".to_string(), runs.join("run-gone.jsonl")),
+        ];
+        let name = export_folder_name("Some Project");
+        assert_eq!(name, "some-project-transcripts");
+
+        let first = export_transcripts(&dest, &name, &sources).unwrap();
+        assert_eq!(first.files, 1);
+        assert_eq!(first.missing, vec!["run-gone".to_string()]);
+        assert!(first.bytes > 0);
+        assert!(std::path::Path::new(&first.dir).join("run-1.jsonl").is_file());
+
+        // A second export beside the first, not on top of it.
+        let second = export_transcripts(&dest, &name, &sources).unwrap();
+        assert_ne!(second.dir, first.dir);
+        assert!(second.dir.ends_with("-2"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn day_buckets_respect_the_operators_timezone() {
         // 00:30 UTC is still the previous day two hours behind.
         let ts = 1_700_000_000_000u64;
@@ -506,6 +899,7 @@ pub struct ReviewCandidate {
     pub card_id: String,
     pub title: String,
     /// Higher wants eyes first. Mechanical, explainable, no model involved.
+    #[ts(type = "number")]
     pub risk: u64,
     /// Why the score says so, in words a person can check.
     pub reasons: Vec<String>,
@@ -580,12 +974,14 @@ mod triage_tests {
             cost_usd: 0.0,
             turns: 0,
             runs: 1,
-            last_review: Some(Review { by: Actor::Director, approved: true, reason: String::new() }),
+            last_review: Some(Review { by: Actor::Director, approved: true, reason: String::new(), hunks: Vec::new() }),
+            hunk_verdicts: Vec::new(),
             session_id: None,
             worktree: None,
             branch: None,
             depends_on: Vec::new(),
             budget_paused: false,
+            finished_ms: None,
         }
     }
 

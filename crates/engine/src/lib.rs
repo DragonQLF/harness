@@ -316,7 +316,10 @@ impl EngineHandle {
 pub fn rebuild(history: &[StoredEvent]) -> Board {
     let mut board = Board::default();
     for stored in history {
-        board.apply(&stored.event);
+        // The stored timestamp, not this machine's clock: a replay must
+        // reproduce the board the log describes, not the one it would have if
+        // it happened now.
+        board.apply_at(&stored.event, stored.ts_ms);
     }
     board
 }
@@ -530,7 +533,7 @@ impl Engine {
             };
             match engine.store.append_event(&snapshot, engine.now()) {
                 Ok(stored) => {
-                    engine.board.apply(&snapshot);
+                    engine.board.apply_at(&snapshot, stored.ts_ms);
                     engine.last_seq = stored.seq;
                     if let Err(e) = engine.store.compact(&[stored]) {
                         eprintln!("could not compact the log; it stays as it was: {e}");
@@ -558,7 +561,7 @@ impl Engine {
                 .store
                 .append_event(&event, ts)
                 .map_err(|e| e.to_string())?;
-            self.board.apply(&stored.event);
+            self.board.apply_at(&stored.event, stored.ts_ms);
             self.last_seq = stored.seq;
             let _ = self.logged_tx.send(Envelope {
                 seq: stored.seq,
@@ -577,7 +580,7 @@ impl Engine {
             let ev = event.clone();
             let stored = tokio::task::block_in_place(move || store.append_event(&ev, ts))
                 .map_err(|e| e.to_string())?;
-            self.board.apply(&stored.event);
+            self.board.apply_at(&stored.event, stored.ts_ms);
             self.last_seq = stored.seq;
             let _ = self.logged_tx.send(Envelope {
                 seq: stored.seq,

@@ -232,6 +232,23 @@ async fn drive(
                                 let count = ev.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
                                 let _ = tx.send(RunEvent::Turns { count }).await;
                             }
+                            "usage" => {
+                                let tokens = |name: &str| {
+                                    ev.get(name).and_then(|v| v.as_u64()).unwrap_or(0)
+                                };
+                                let _ = tx
+                                    .send(RunEvent::Usage {
+                                        input_tokens: tokens("input_tokens"),
+                                        output_tokens: tokens("output_tokens"),
+                                        cache_read_tokens: tokens("cache_read_tokens"),
+                                        cache_creation_tokens: tokens("cache_creation_tokens"),
+                                        model: ev
+                                            .get("model")
+                                            .and_then(|m| m.as_str())
+                                            .map(str::to_string),
+                                    })
+                                    .await;
+                            }
                             "tool_use" => {
                                 let tool = ev
                                     .get("tool")

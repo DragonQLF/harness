@@ -18,6 +18,7 @@ fn export_types() {
     harness_app::catalog::CatalogModel::export().unwrap();
     harness_app::projects::FolderInfo::export().unwrap();
     harness_app::conversations::Conversation::export().unwrap();
+    harness_app::conversations::ConversationTotals::export().unwrap();
     harness_app::approvals::PendingApproval::export().unwrap();
     harness_app::inbox::Proposal::export().unwrap();
     harness_app::inbox::ProposalStatus::export().unwrap();
@@ -28,10 +29,21 @@ fn export_types() {
     harness_app::selfreport::RunFailures::export().unwrap();
     harness_app::selfreport::ExpiredApproval::export().unwrap();
     harness_app::insights::ActivityRow::export().unwrap();
+    harness_app::insights::ToolCount::export().unwrap();
+    harness_app::insights::TranscriptExport::export().unwrap();
     harness_app::insights::ProjectStats::export().unwrap();
     harness_app::insights::AgentStats::export().unwrap();
     harness_app::checks::CheckRow::export().unwrap();
+    harness_app::checks::CardChecks::export().unwrap();
+    harness_app::code::TreeEntry::export().unwrap();
+    harness_app::code::FileText::export().unwrap();
+    harness_app::code::HunkLine::export().unwrap();
+    harness_app::code::Hunk::export().unwrap();
     harness_app::insights::ReviewCandidate::export().unwrap();
+    harness_app::runstats::ActorFilter::export().unwrap();
+    harness_app::runstats::Spend::export().unwrap();
+    harness_app::runstats::RunWindow::export().unwrap();
+    harness_app::runstats::RunStats::export().unwrap();
 
     // The vocabulary the screens read from: statuses, checkout modes,
     // reviewers, models and permissions. Written rather than mirrored, so the

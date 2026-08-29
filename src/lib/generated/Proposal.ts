@@ -14,6 +14,11 @@ observation: string,
  */
 proposal: string, status: ProposalStatus, 
 /**
- * Set when the operator accepts: where the card was born.
+ * What the Director *later* did about an accepted proposal, once he did
+ * it. Empty at the moment of acceptance and for as long as it is still
+ * only permission. `serde(default)` because these two are the oldest
+ * fields in the file and an inbox.json written before, or after, this
+ * shape must still load — a proposal on the operator's disk is not
+ * something a format change gets to drop.
  */
 card_id: string | null, project_id: string | null, };

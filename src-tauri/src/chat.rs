@@ -125,6 +125,13 @@ pub async fn send(
     let global_memory =
         harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
     let outside_work = ws.outside_work().await;
+    // Permission the operator granted between turns, on a screen he cannot
+    // see. Read here rather than pushed at him when he clicks: the turn is
+    // where he can act on it, and a resumed session has no other way to learn.
+    let accepted_proposals = ws.accepted_proposals();
+    // What his own reviewer decided while nobody was talking to him. Taken,
+    // not read: this is the news, and the boards below carry the state.
+    let review_verdicts = ws.take_review_verdicts();
     // A versão só se diz quando mudou. Numa sessão retomada nada mais lho
     // contaria: as ferramentas aparecem-lhe na lista sem explicação, e deduzir
     // uma actualização pelo efeito é a pior maneira de a saber.
@@ -154,6 +161,8 @@ pub async fn send(
             // Only what the last look found; the look itself runs at startup
             // and at the close, never on a turn the operator is waiting for.
             outside_work: outside_work.as_deref(),
+            accepted_proposals: &accepted_proposals,
+            review_verdicts: &review_verdicts,
             new_version,
         },
         &message,
@@ -405,4 +414,24 @@ pub fn granted_agent_for(ws: &Workspace, grants: harness_ports::Grants) -> Arc<d
 /// Read a conversation back from disk.
 pub fn transcript(ws: &Workspace, conversation_id: &str) -> Result<Vec<RunLogLine>, String> {
     RunLogPort::read(ws.chat_log(), conversation_id).map_err(|e| e.to_string())
+}
+
+/// What the thread spent, counted over the whole transcript rather than over
+/// whatever the screen happens to have loaded. The arithmetic is in
+/// `harness_app::conversations`; this only reads the file and hands it over.
+///
+/// `profile_model` is what the profile is configured to run on, used only when
+/// the transcript is old enough never to have named a model itself.
+pub fn totals(
+    ws: &Workspace,
+    conversation_id: &str,
+    cost_usd: f64,
+    profile_model: Option<&str>,
+) -> Result<harness_app::conversations::ConversationTotals, String> {
+    let lines = transcript(ws, conversation_id)?;
+    Ok(harness_app::conversations::totals(
+        &lines,
+        cost_usd,
+        profile_model,
+    ))
 }

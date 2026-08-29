@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use harness_app::checks::{read_checks, run_check, CheckRow};
+use harness_app::checks::{read_checks, run_check, CardChecks, CheckRow};
 use harness_app::insights::ProjectStats;
 use harness_app::paths;
 use harness_app::projects::{FolderInfo, Project};
@@ -370,6 +370,144 @@ pub async fn project_run_checks(
 
     paths::write_json(&file, &ran)?;
     Ok(ran)
+}
+
+// ---- per-card checks ----
+//
+// The same commands, run inside the card's own worktree. That is the only
+// place they can answer "is *this* card's work green": at the repository root
+// they answer for whatever is checked out there, which is every card at once
+// and therefore no card in particular.
+
+/// The last check pass made for this card, or `None` if none ever was.
+///
+/// A pure read: nothing is started here, because these commands are the
+/// operator's build and can take minutes. Opening the board must never do
+/// that.
+#[tauri::command]
+pub async fn card_checks(
+    project_id: String,
+    card_id: String,
+    ws: Shared<'_>,
+) -> Result<Option<CardChecks>, String> {
+    Ok(harness_app::checks::read_card_checks(
+        &ws.paths.card_checks_file(&project_id, &card_id),
+    ))
+}
+
+/// Run the project's configured checks in this card's worktree and record the
+/// result against the card.
+#[tauri::command]
+pub async fn card_run_checks(
+    project_id: String,
+    card_id: String,
+    ws: Shared<'_>,
+) -> Result<CardChecks, String> {
+    let project = ws
+        .project(&project_id)
+        .await
+        .ok_or_else(|| format!("unknown project {project_id}"))?;
+    let root = PathBuf::from(&project.path);
+    let checks = read_checks(&ws.paths.checks_file(&project_id), &root);
+    let runtime = ws.runtime(&project_id).await?;
+    card_check_pass(
+        &runtime.engine,
+        &ws.paths,
+        ws.app(),
+        &project_id,
+        &card_id,
+        checks,
+    )
+    .await
+}
+
+/// Run a pass and publish it.
+///
+/// Takes the engine and the paths rather than the whole workspace: the
+/// automatic pass is started from inside a project's own event loop, where
+/// asking the workspace for that project again would mean awaiting a future
+/// that can bring a whole engine up.
+pub(crate) async fn card_check_pass(
+    engine: &harness_engine::EngineHandle,
+    app_paths: &harness_app::paths::AppPaths,
+    app: &tauri::AppHandle,
+    project_id: &str,
+    card_id: &str,
+    checks: Vec<CheckRow>,
+) -> Result<CardChecks, String> {
+    // The board carries the worktree, because the checkout mode came from the
+    // agent profile at start time and may have changed since. The run id comes
+    // from the session: the card drops `current_run` the moment the run ends,
+    // and this is always asked afterwards.
+    let snap = engine.snapshot().await?;
+    let session = snap.sessions.iter().find(|s| s.card_id.as_str() == card_id);
+    let worktree = snap
+        .cards
+        .iter()
+        .find(|c| c.id.as_str() == card_id)
+        .and_then(|c| c.worktree.clone())
+        .or_else(|| session.map(|s| s.worktree.clone()))
+        .ok_or_else(|| format!("{card_id} has no worktree; nothing has run on it yet"))?;
+    let run_id = session
+        .and_then(|s| s.run_id.as_ref())
+        .map(|r| r.0.clone())
+        .unwrap_or_default();
+
+    let worktree = PathBuf::from(worktree);
+    if !worktree.is_dir() {
+        return Err(format!(
+            "the worktree for {card_id} is gone: {}",
+            worktree.display()
+        ));
+    }
+    let owned_card = card_id.to_string();
+    let now_ms = harness_ports::ClockPort::now_millis(&crate::workspace::SystemClock);
+    let pass = tauri::async_runtime::spawn_blocking(move || {
+        harness_app::checks::run_card_checks(&worktree, &owned_card, &run_id, checks, now_ms)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    paths::write_json(&app_paths.card_checks_file(project_id, card_id), &pass)?;
+    // Pushed rather than polled: this pass was started by a run finishing,
+    // which is not something the board asked for and so cannot be waiting on.
+    let _ = tauri::Emitter::emit(
+        app,
+        "checks://card",
+        CardChecksEvent {
+            project_id: project_id.to_string(),
+            checks: pass.clone(),
+        },
+    );
+    Ok(pass)
+}
+
+/// What the window hears when a card's checks were run again.
+#[derive(Debug, Clone, Serialize)]
+pub struct CardChecksEvent {
+    pub project_id: String,
+    pub checks: CardChecks,
+}
+
+/// The pass a finished run earns.
+///
+/// Only the commands the operator wrote down are ever run by Relay itself: a
+/// suggestion is a menu entry, and spending four minutes on a `cargo test` the
+/// operator never confirmed is not a suggestion anybody asked for.
+pub(crate) async fn card_checks_after_run(
+    engine: &harness_engine::EngineHandle,
+    app_paths: &harness_app::paths::AppPaths,
+    app: &tauri::AppHandle,
+    project_id: &str,
+    card_id: &str,
+) -> Result<(), String> {
+    let checks = harness_app::checks::stored_checks(&app_paths.checks_file(project_id));
+    if checks.is_empty() {
+        return Ok(());
+    }
+    card_check_pass(engine, app_paths, app, project_id, card_id, checks)
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]

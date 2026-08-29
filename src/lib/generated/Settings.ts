@@ -37,6 +37,12 @@ daily_budget_usd: number,
  */
 always_allow: Array<AllowRule>, 
 /**
+ * Download a published release as soon as one appears, instead of asking
+ * first. It never shortens a run: the swap still waits for the window to
+ * close, which is the whole point of "install on quit".
+ */
+auto_install_updates: boolean, 
+/**
  * Project shown when the app opens.
  */
 last_project: string | null, user_name: string, 
