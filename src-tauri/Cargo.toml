@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "0.3.4"
+version = "0.3.5"
 description = "Relay"
 authors = ["you"]
 edition = "2021"
@@ -18,11 +18,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
+# A pasted attachment crosses the IPC boundary as text. A 20 MB image sent as a
+# JSON array of numbers is ~100 MB of wire and a parse to match; base64 is a
+# third of the bytes and one allocation on each side.
+base64 = "0.22"
 harness-app = { path = "../crates/app" }
 harness-domain = { path = "../crates/domain" }
 harness-engine = { path = "../crates/engine" }
