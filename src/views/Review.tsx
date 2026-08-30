@@ -305,7 +305,11 @@ export function Review({
             {history.map((row) => {
               const dot =
                 row.kind === "review"
-                  ? row.label.startsWith("Approved")
+                  ? // O `approved` da `ActivityRow` existe exactamente para
+                    // isto e o doc dele di-lo: ler o prefixo do rótulo é ler
+                    // prosa, e a prosa reescreve-se. Este era o último sítio
+                    // que ainda o fazia.
+                    row.approved
                     ? "bg-ok dark:bg-ok-d"
                     : "bg-warn dark:bg-warn-d"
                   : row.kind === "run"

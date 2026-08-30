@@ -294,7 +294,17 @@ function Templates() {
   }, [agentTemplates]);
 
   /** A profile from nothing. The id is settled here so two customs in a row
-   *  cannot collide on the same name. */
+   *  cannot collide on the same name.
+   *
+   *  **Cinco valores discordam do `AgentProfile::default()` do Rust, e é de
+   *  propósito.** Um perfil nasce em dois sítios: aqui, com o operador a
+   *  clicar, e no `agents::drafted`, quando o Director pede um. O que o
+   *  Director cria vai trabalhar — worktree própria, revisão do Director. O
+   *  que nasce deste botão é um rascunho no ecrã: sem worktree, revisto por
+   *  si, com um tecto pequeno, para não haver forma de clicar "novo agente" e
+   *  ficar com uma coisa a escrever no disco. O que os mantém honestos é o
+   *  `tsc` — este literal tem de satisfazer `AgentProfile`, portanto um campo
+   *  novo no Rust parte aqui. São os *valores* que divergem, não a forma. */
   const custom = () => {
     const taken = new Set(agents.map((a) => a.id));
     let id = "new-agent";
