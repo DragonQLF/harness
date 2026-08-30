@@ -43,6 +43,25 @@ paused: boolean, permission_mode: string | null,
  */
 team: string, 
 /**
+ * The one project this profile may act on, or `None` for all of them.
+ *
+ * A fence, not a preference. When it is set, board tools default to this
+ * project *and* refuse a call that names another one — which is what
+ * makes "this agent owns that board" a fact rather than a sentence in a
+ * brief. Finished work on a fenced project is also reviewed by whoever
+ * owns it instead of by the Director (see `crate::agents::owner_of`).
+ *
+ * Never set on the Director. He is handed every board's finished work, so
+ * fencing him would leave him unable to act on what he is given — the
+ * failure would look like the review loop being broken rather than like a
+ * setting. `normalise` clears it if a hand-edited file sets it.
+ *
+ * Does nothing on a profile that cannot delegate: those never call a board
+ * tool at all. The Agents screen says so rather than offering a setting
+ * with no effect.
+ */
+project: string | null, 
+/**
  * May the operator open a persistent conversation with it?
  */
 chat_enabled: boolean, 

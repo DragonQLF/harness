@@ -34,6 +34,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 103 | Os agentes falam uns com os outros a meio do trabalho |
 | 2026-08-30 | 104 | Dois browsers por agente: um que não guarda nada e um que guarda |
 | 2026-08-30 | 106 | A linha de comandos é uma skill, e o Director tem-na |
+| 2026-08-30 | 107 | Um agente pode ficar cercado a um projecto; quem manda no quadro revê-o |
 | 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
@@ -2417,3 +2418,41 @@ o texto que ele tem diz-lhe que outro agente a pode receber com `install_skill`
 e que o que esse agente também vai precisar é da permissão `Shell`. A
 consciência da ferramenta e a maneira de a distribuir viajam juntas, porque
 separá-las é como se perde uma das duas.
+
+### 107. Um agente pode ficar cercado a um projecto, e quem manda no quadro é quem o revê
+O perfil `Project PM` dizia "Owns the board of one project" e o `AgentProfile`
+não tinha campo nenhum sobre projectos. Era uma frase no brief: nada guardava
+que quadro era o dele, nada o impedia de mexer noutro, e nada mandava o trabalho
+daquele quadro para ele. O #104 mostrou que a máquina para isto já estava toda
+lá — só faltava o facto.
+
+**Um campo, e é uma cerca e não uma preferência.** Com `project` posto, as
+ferramentas de quadro caem nele quando ninguém nomeia outro *e recusam* uma
+chamada que nomeie outro. Sem as duas metades não é uma cerca: a primeira
+sozinha é comodidade, e não dá a propriedade que interessa com muitos projectos
+— saber que aquele agente não anda por fora.
+
+**No sítio onde tudo passa.** A resolução do projecto é uma linha só no
+`director_tools::run`; pôr a cerca em cada handler queria dizer que a ferramenta
+seguinte lhe escapava calada.
+
+**O Director nunca é cercado, e isso é forçado em três sítios.** Recebe o
+trabalho acabado de todos os quadros: cercá-lo deixá-lo-ia a ler um diff e a ser
+recusado ao aprová-lo, e a avaria pareceria a revisão estar partida em vez de
+uma definição. O `normalise` limpa-lhe o campo ao carregar, o `owner_of`
+exclui-o, e o ecrã explica-o em vez de oferecer o selector.
+
+**Ser dono são três coisas ao mesmo tempo:** cercado àquele projecto, poder mexer
+num quadro, e poder ter conversa — porque a revisão corre *como um turno* numa.
+Faltando uma, não é dono, e o trabalho volta para o Director como sempre voltou.
+
+**Um dono mal configurado não trava o cartão.** Volta para o Director, e ele é
+*informado de porquê* no próprio pedido: a resposta a "porque estou eu a rever o
+quadro da Ana" fica à frente dele, e não num ecrã de definições que ele não vê.
+
+**Empates resolvem-se pelo id.** Dois agentes cercados ao mesmo quadro é uma
+configuração que a operadora fez; escolher ao acaso faria o mesmo quadro ser
+revisto por gente diferente de execução para execução.
+
+**A mensagem do agente segue a mesma regra** (#103): quem reporta um bloqueio
+chega a quem pode agir sobre ele, e não sempre à mesma pessoa.

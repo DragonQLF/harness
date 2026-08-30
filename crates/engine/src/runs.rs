@@ -328,11 +328,13 @@ impl Engine {
         let report_card = card_id.clone();
         let message_hook = self.message.clone();
         let speaking_as = profile.agent_id.clone();
+        let project = self.config.project_id.clone();
         let tools: Option<harness_ports::ToolRunner> = Some(Arc::new(move |call| {
             let tx = report_tx.clone();
             let card = report_card.clone();
             let hook = message_hook.clone();
             let agent_id = speaking_as.clone();
+            let project = project.clone();
             Box::pin(async move {
                 // O outro sentido da conversa: o agente diz alguma coisa ao
                 // Director sem parar o que está a fazer. Não espera resposta —
@@ -355,6 +357,7 @@ impl Engine {
                         );
                     };
                     return match hook(harness_ports::AgentMessage {
+                        project_id: project.clone(),
                         card_id: card.to_string(),
                         agent_id,
                         text,

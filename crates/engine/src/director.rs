@@ -42,6 +42,7 @@ impl Engine {
             return;
         };
         let request = harness_ports::ReviewRequest {
+            project_id: self.config.project_id.clone(),
             card_id: card_id.to_string(),
             run_id: run_id.to_string(),
             title: self

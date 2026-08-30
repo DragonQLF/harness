@@ -409,6 +409,9 @@ function Templates() {
         reviewer: "human",
         paused: false,
         permission_mode: null,
+        // Sem cerco: um perfil novo age no projecto da conversa, como o
+        // Director. Pôr-lhe um quadro é uma decisão a tomar, não um começo.
+        project: null,
         team: "",
         chat_enabled: true,
         tasks_enabled: true,
@@ -812,6 +815,7 @@ export function Agents({
     duplicateAgent,
     removeAgent,
     conversations,
+    projects,
   } = useStore();
 
   const cards = snapshot?.cards ?? [];
@@ -1237,6 +1241,39 @@ export function Agents({
                   <span className={mono}>.mcp.json</span> inside the repository being worked on.
                 </div>
               </div>
+              <div>
+                <Eyebrow className="block pb-2">WHICH BOARD IT OWNS</Eyebrow>
+                {agent.id === "director" ? (
+                  <div className="text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                    The Director is handed every board's finished work, so he is never fenced to
+                    one. Fencing him would leave him unable to act on what he is given.
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={agent.project ?? ""}
+                      aria-label="Which board it owns"
+                      onChange={(e) => patch({ project: e.target.value || null })}
+                      className={cx(FIELD, "cursor-pointer px-2.5 py-2 text-md font-normal text-text2 dark:text-text2-d")}
+                    >
+                      <option value="">Every project</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pt-2 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                      {agent.project
+                        ? agent.can_delegate
+                          ? "A fence, not a preference: board tools default here and refuse any other project. Finished work on this board is reviewed by this agent instead of the Director."
+                          : "This profile cannot change a board, so the fence does nothing and the Director still reviews. Turn on \u201ccan put work on a board\u201d below."
+                        : "Acts on whichever project the conversation is on, like the Director."}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div>
                 <Eyebrow className="block pb-2">WHERE IT SITS</Eyebrow>
                 <div className="flex gap-2.5">

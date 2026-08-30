@@ -42,6 +42,23 @@ pub struct AgentProfile {
     // ---- how this profile is used ----
     /// Grouping in the UI: "leadership", "engineering", "growth". Free text.
     pub team: String,
+    /// The one project this profile may act on, or `None` for all of them.
+    ///
+    /// A fence, not a preference. When it is set, board tools default to this
+    /// project *and* refuse a call that names another one — which is what
+    /// makes "this agent owns that board" a fact rather than a sentence in a
+    /// brief. Finished work on a fenced project is also reviewed by whoever
+    /// owns it instead of by the Director (see `crate::agents::owner_of`).
+    ///
+    /// Never set on the Director. He is handed every board's finished work, so
+    /// fencing him would leave him unable to act on what he is given — the
+    /// failure would look like the review loop being broken rather than like a
+    /// setting. `normalise` clears it if a hand-edited file sets it.
+    ///
+    /// Does nothing on a profile that cannot delegate: those never call a board
+    /// tool at all. The Agents screen says so rather than offering a setting
+    /// with no effect.
+    pub project: Option<String>,
     /// May the operator open a persistent conversation with it?
     pub chat_enabled: bool,
     /// May it be assigned a card to carry out?
@@ -103,6 +120,7 @@ impl Default for AgentProfile {
             // A profile is talkable and workable unless the operator says
             // otherwise, so an older file without these fields behaves exactly
             // as it did before.
+            project: None,
             chat_enabled: true,
             tasks_enabled: true,
             max_concurrent: 1,
@@ -645,6 +663,9 @@ pub fn normalise(mut agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
             // uma vez e é removível como qualquer outra concessão — mesma
             // disciplina do `can_delegate` acima: vem ligado, e quem não o
             // quiser tira-o no ecrã de Agentes.
+            // Ver o doc de `project`: cercá-lo partiria a revisão, que lhe
+            // entrega todos os quadros.
+            agent.project = None;
             if !agent
                 .granted_skills
                 .iter()
@@ -667,6 +688,28 @@ pub fn normalise(mut agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
         return with_director;
     }
     agents
+}
+
+/// Who owns a project's board, if anybody does.
+///
+/// Owning means three things at once, and all three are needed for the review
+/// to land: fenced to this project, able to change a board, and able to hold a
+/// conversation — because a review runs *as a turn* in that conversation. A
+/// profile missing any of them is not an owner, and the work goes to the
+/// Director as it always did.
+///
+/// Ties are broken by id so the answer is the same every time. Two agents
+/// fenced to one board is a configuration the operator made; picking
+/// arbitrarily would make the same board review differently run to run.
+pub fn owner_of<'a>(agents: &'a [AgentProfile], project_id: &str) -> Option<&'a AgentProfile> {
+    let mut owners: Vec<&AgentProfile> = agents
+        .iter()
+        .filter(|a| a.id != DIRECTOR_ID)
+        .filter(|a| a.project.as_deref() == Some(project_id))
+        .filter(|a| a.can_delegate && a.can_chat())
+        .collect();
+    owners.sort_by(|a, b| a.id.cmp(&b.id));
+    owners.into_iter().next()
 }
 
 pub fn find<'a>(agents: &'a [AgentProfile], id: &str) -> Option<&'a AgentProfile> {
@@ -754,6 +797,79 @@ mod tests {
         let bare = AgentProfile::default().prompt_for("Do a thing", None);
         assert!(bare.starts_with("Relay commits for you"));
       assert!(bare.ends_with("Task: Do a thing"));
+    }
+
+    fn fenced(id: &str, project: Option<&str>, delegate: bool, chat: bool) -> AgentProfile {
+        AgentProfile {
+            id: id.into(),
+            name: id.into(),
+            project: project.map(str::to_string),
+            can_delegate: delegate,
+            chat_enabled: chat,
+            ..Default::default()
+        }
+    }
+
+    /// Dono de um quadro são três coisas ao mesmo tempo, e todas fazem falta:
+    /// cercado àquele projecto, capaz de mexer num quadro, e capaz de ter uma
+    /// conversa — porque a revisão corre *como um turno* numa. Faltando uma, o
+    /// trabalho volta para o Director, que é o que sempre aconteceu.
+    #[test]
+    fn owning_a_board_takes_all_three_and_never_the_director() {
+        let crew = vec![
+            fenced("ana", Some("relay"), true, true),
+            fenced("mute", Some("relay"), true, false),
+            fenced("watcher", Some("relay"), false, true),
+            fenced("elsewhere", Some("other"), true, true),
+        ];
+        assert_eq!(owner_of(&crew, "relay").map(|a| a.id.as_str()), Some("ana"));
+        assert!(owner_of(&crew, "nobody-owns-this").is_none());
+
+        for lacking in ["mute", "watcher"] {
+            let only = vec![crew.iter().find(|a| a.id == lacking).unwrap().clone()];
+            assert!(
+                owner_of(&only, "relay").is_none(),
+                "{lacking} cannot review, so it does not own the board"
+            );
+        }
+
+        // Ele recebe todos os quadros; se pudesse ser dono de um, deixava de
+        // poder agir sobre o que lhe é entregue dos outros.
+        let director = vec![fenced(DIRECTOR_ID, Some("relay"), true, true)];
+        assert!(owner_of(&director, "relay").is_none());
+    }
+
+    /// Empate resolvido pelo id, e não pela ordem do ficheiro: o mesmo quadro
+    /// tem de ser revisto pelo mesmo agente de execução para execução.
+    #[test]
+    fn two_owners_resolve_the_same_way_every_time() {
+        let a = fenced("ana", Some("relay"), true, true);
+        let z = fenced("zoe", Some("relay"), true, true);
+        assert_eq!(
+            owner_of(&[a.clone(), z.clone()], "relay").map(|x| x.id.as_str()),
+            owner_of(&[z, a], "relay").map(|x| x.id.as_str()),
+        );
+    }
+
+    /// Cercar o Director partiria a revisão: continua a receber os quadros
+    /// todos e deixaria de poder agir sobre eles. Um ficheiro editado à mão que
+    /// o cerque é corrigido ao carregar.
+    #[test]
+    fn normalise_unfences_the_director() {
+        let out = normalise(vec![fenced(DIRECTOR_ID, Some("relay"), true, true)]);
+        let director = out.iter().find(|a| a.id == DIRECTOR_ID).unwrap();
+        assert_eq!(director.project, None);
+    }
+
+    /// E não mexe no cerco de mais ninguém.
+    #[test]
+    fn normalise_leaves_other_fences_alone() {
+        let out = normalise(vec![
+            fenced(DIRECTOR_ID, None, true, true),
+            fenced("ana", Some("relay"), true, true),
+        ]);
+        let ana = out.iter().find(|a| a.id == "ana").unwrap();
+        assert_eq!(ana.project.as_deref(), Some("relay"));
     }
 
     #[test]

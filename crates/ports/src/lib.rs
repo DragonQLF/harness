@@ -136,6 +136,9 @@ pub type Approver =
 /// A finished run the Director is meant to read.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReviewRequest {
+    /// Which board this card is on. Carried because who reads the diff can
+    /// depend on it: a project with an owner is reviewed by that owner.
+    pub project_id: String,
     pub card_id: String,
     pub run_id: String,
     /// The card's own words. The engine has them; whoever runs the review
@@ -168,6 +171,8 @@ pub type ReviewHook =
 /// Something a working agent wants the Director to know now.
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentMessage {
+    /// Which board the card is on, so this reaches whoever is in charge of it.
+    pub project_id: String,
     pub card_id: String,
     /// Which agent is speaking, so the Director is not left guessing which of
     /// four builders just said this.

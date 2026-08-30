@@ -153,8 +153,22 @@ pub async fn run(
     }
 
     // Everything below acts on one board.
+    //
+    // A profile fenced to one project (`AgentProfile::project`) resolves to it
+    // when nothing is named, and is refused when something else is. The fence
+    // is checked here because here is where every board tool passes: putting it
+    // in each handler would mean a tool added later quietly escapes it.
+    let fenced = ws.agent_exact(caller).await.and_then(|a| a.project);
     let named = text(&call.input, "project_id");
-    let project_id = match named.or(pinned_project) {
+    if let (Some(fence), Some(asked)) = (fenced.as_deref(), named.as_deref()) {
+        if asked != fence {
+            return ToolReply::refused(format!(
+                "this profile is fenced to {fence} and cannot act on {asked}. Ask the operator to \
+                 move the fence on the Agents screen, or hand the work to whoever owns that board."
+            ));
+        }
+    }
+    let project_id = match named.or(fenced).or(pinned_project) {
         Some(id) => id,
         None => {
             // Three ways out, said in order: name one, have it opened, or —
