@@ -473,7 +473,7 @@ pub(crate) async fn card_check_pass(
     // which is not something the board asked for and so cannot be waiting on.
     let _ = tauri::Emitter::emit(
         app,
-        "checks://card",
+        crate::events::CARD_CHECKS,
         CardChecksEvent {
             project_id: project_id.to_string(),
             checks: pass.clone(),

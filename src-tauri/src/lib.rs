@@ -6,6 +6,7 @@ mod closing;
 mod commands;
 mod conversations;
 mod director_tools;
+mod events;
 mod menu;
 mod reflection;
 mod registry;
@@ -53,7 +54,7 @@ pub fn run() {
     // second copy here would say everything twice.
     #[cfg(target_os = "macos")]
     let builder = builder
-        .menu(|app| menu::build(app))
+        .menu(menu::build)
         .on_menu_event(|app, event| menu::on_event(app, event.id().as_ref()));
 
     builder

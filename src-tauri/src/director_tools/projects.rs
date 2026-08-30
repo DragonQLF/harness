@@ -31,7 +31,7 @@ pub(super) async fn list_projects(ws: &Arc<Workspace>) -> ToolReply {
                 if live { "" } else { " — folder is missing" }
             ));
         }
-        return ToolReply::ok(out);
+        ToolReply::ok(out)
 }
 
 pub(super) async fn create_project(ws: &Arc<Workspace>, call: &ToolCall) -> ToolReply {

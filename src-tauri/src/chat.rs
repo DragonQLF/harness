@@ -72,7 +72,7 @@ pub struct Queued {
 /// — which is what lets the UI keep one typed listener for both.
 fn publish_chat(ws: &Workspace, conversation_id: &str, project_id: &str, event: RunEvent) {
     let _ = ws.app_handle().emit(
-        "engine://run",
+        crate::events::ENGINE_RUN,
         RunUpdate {
             project_id: project_id.to_string(),
             card_id: CardId::new(conversation_id.to_string()),
@@ -433,7 +433,7 @@ async fn send_message(
             let project_id = project_id.clone();
             move |event: RunEvent| {
                 let _ = app.emit(
-                    "engine://run",
+                    crate::events::ENGINE_RUN,
                     RunUpdate {
                         project_id: project_id.clone(),
                         card_id: CardId::new(conversation_id.clone()),

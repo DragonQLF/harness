@@ -212,7 +212,7 @@ async fn analyst_tables(ws: &Arc<Workspace>, only: Option<&str>) -> Result<Strin
     let mut out = String::new();
     for project in ws.projects().await {
         if let Some(wanted) = only {
-            if &wanted != &project.id {
+            if wanted != project.id {
                 continue;
             }
         }

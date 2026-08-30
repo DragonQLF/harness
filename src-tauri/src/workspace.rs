@@ -36,11 +36,11 @@ struct WindowNotifier(AppHandle);
 
 impl Notifier for WindowNotifier {
     fn asked(&self, request: &PendingApproval) {
-        let _ = self.0.emit("approvals://asked", request);
+        let _ = self.0.emit(crate::events::APPROVAL_ASKED, request);
     }
 
     fn queue(&self, pending: &[PendingApproval]) {
-        let _ = self.0.emit("approvals://pending", pending);
+        let _ = self.0.emit(crate::events::APPROVAL_QUEUE, pending);
     }
 }
 
@@ -121,14 +121,6 @@ pub struct Workspace {
     closing: std::sync::atomic::AtomicBool,
     /// Cancelled when the operator refuses to wait for the close sequence.
     closing_token: CancellationToken,
-    /// Este mesmo workspace, para quem precisa de o passar adiante como `Arc`.
-    ///
-    /// O gancho de revisão é entregue ao engine e tem de sobreviver à chamada
-    /// que o criou; `&self` não chega e mudar a assinatura de `runtime` para
-    /// `self: &Arc<Self>` partiria os dois chamadores internos que já estão
-    /// dentro de métodos `&self`. Fraca de propósito: uma cópia forte aqui é o
-    /// workspace a segurar-se a si próprio, que é um ciclo que nunca liberta.
-    me: std::sync::OnceLock<std::sync::Weak<Workspace>>,
 }
 
 impl Workspace {
@@ -200,9 +192,7 @@ impl Workspace {
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
-            me: std::sync::OnceLock::new(),
         });
-        let _ = workspace.me.set(Arc::downgrade(&workspace));
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
         let _ = workspace.registry.save_agents().await;
@@ -331,12 +321,6 @@ impl Workspace {
 
 
     // ---- conversations ----
-
-    /// Este workspace como `Arc`, para o entregar a quem lhe sobreviva.
-    /// `None` só enquanto o `load` não acabou, e nada corre antes disso.
-    pub fn arc(&self) -> Option<Arc<Workspace>> {
-        self.me.get().and_then(|w| w.upgrade())
-    }
 
     /// O menu do `/`, tal como a última sessão o descreveu.
     pub fn slash_commands(&self) -> Vec<harness_ports::SlashCommand> {
@@ -800,7 +784,7 @@ impl Workspace {
 
     // ---- engines ----
 
-    pub async fn runtime(&self, project_id: &str) -> Result<Arc<ProjectRuntime>, String> {
+    pub async fn runtime(self: &Arc<Self>, project_id: &str) -> Result<Arc<ProjectRuntime>, String> {
         if let Some(existing) = self.runtimes.lock().unwrap().get(project_id) {
             return Ok(Arc::clone(existing));
         }
@@ -819,7 +803,7 @@ impl Workspace {
 
     /// Bring up every registered project so the overview can count work
     /// without the operator visiting each one first.
-    pub async fn warm_all(&self) {
+    pub async fn warm_all(self: &Arc<Self>) {
         for project in self.projects().await {
             if let Err(e) = self.runtime(&project.id).await {
                 eprintln!("could not start project {}: {e}", project.id);
@@ -827,7 +811,7 @@ impl Workspace {
         }
     }
 
-    async fn spawn_runtime(&self, project: Project) -> Result<ProjectRuntime, String> {
+    async fn spawn_runtime(self: &Arc<Self>, project: Project) -> Result<ProjectRuntime, String> {
         let root = PathBuf::from(&project.path);
         if !root.is_dir() {
             return Err(format!(
@@ -881,8 +865,8 @@ impl Workspace {
                 approver: Some(self.router.approver_for(&project.id)),
                 // A revisão automática corre na conversa do Director, não num
                 // segundo Director sem sessão. Ver `crate::review`.
-                review: self.arc().as_ref().map(crate::review::hook),
-                message: self.arc().as_ref().map(crate::review::message_hook),
+                review: Some(crate::review::hook(self)),
+                message: Some(crate::review::message_hook(self)),
                 run_log: Some(run_log.clone() as Arc<dyn RunLogPort>),
             },
             config,
@@ -925,7 +909,7 @@ impl Workspace {
                         }
                     });
                 }
-                let _ = app.emit("engine://event", &envelope);
+                let _ = app.emit(crate::events::ENGINE_EVENT, &envelope);
             }
         });
 
@@ -938,7 +922,7 @@ impl Workspace {
                 if let RunEvent::ApprovalRequested { request_id, .. } = &update.event {
                     router.attach_card(request_id, update.card_id.as_str());
                 }
-                let _ = app.emit("engine://run", &update);
+                let _ = app.emit(crate::events::ENGINE_RUN, &update);
             }
         });
 
@@ -966,7 +950,7 @@ impl Workspace {
     fn publish_inbox(&self) {
         let _ = self
             .app
-            .emit("inbox://proposals", self.inbox.lock().unwrap().proposals.clone());
+            .emit(crate::events::INBOX, self.inbox.lock().unwrap().proposals.clone());
     }
 
     /// A proposal from the Director: filed, never acted on. The operator
@@ -1141,7 +1125,7 @@ impl Workspace {
                 warning: warning.clone(),
             }))
             .await;
-        let _ = self.app.emit("mirror://outside-work", &warning);
+        let _ = self.app.emit(crate::events::OUTSIDE_WORK, &warning);
         Some(said)
     }
 

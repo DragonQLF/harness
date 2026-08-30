@@ -190,6 +190,11 @@ fn open_terminal_in(dir: &Path, argv: &[&str]) -> Result<(), String> {
                 .map(|_| ())
                 .map_err(|e| format!("could not open a terminal: {e}"));
         }
+        // `return` explícito de propósito: os dois ramos desta função são
+        // `cfg`, e o do Windows não é compilado nesta máquina. Um deles a
+        // acabar em expressão e o outro em `return` é a forma de partir o
+        // outro sistema sem dar por isso.
+        #[allow(clippy::needless_return)]
         return std::process::Command::new("x-terminal-emulator")
             .current_dir(dir)
             .arg("-e")

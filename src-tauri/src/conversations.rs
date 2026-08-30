@@ -206,7 +206,7 @@ impl Conversations {
     /// escreve sozinho anunciam: os restantes chegam por um comando IPC, e
     /// quem o chamou já recebe a linha de volta na resposta.
     fn publish(&self) {
-        let _ = self.app.emit("chat://conversations", self.index.list(false));
+        let _ = self.app.emit(crate::events::CONVERSATIONS, self.index.list(false));
     }
 
     /// Guardar o que ninguém pediu: o erro vai para o `stderr` porque não há

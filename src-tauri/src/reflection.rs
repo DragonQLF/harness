@@ -217,7 +217,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                 );
             }
             let _ = app.emit(
-                "engine://run",
+                crate::events::ENGINE_RUN,
                 harness_engine::RunUpdate {
                     project_id: String::new(),
                     card_id: harness_domain::CardId::new(conversation_id.clone()),
@@ -249,16 +249,14 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         _ = tokio::time::sleep(WALL_CLOCK) => {
             token.cancel();
             let _ = (&mut run).await;
-            Some("stopped at the wall clock; what was filed is filed")
-                .map(str::to_string)
+            Some("stopped at the wall clock; what was filed is filed".to_string())
         }
         // The operator refused to keep waiting. Their time is theirs; the look
         // is due again on the next close rather than lost.
         _ = skip.cancelled() => {
             token.cancel();
             let _ = (&mut run).await;
-            Some("you closed Relay before the look finished; what was filed is filed")
-                .map(str::to_string)
+            Some("you closed Relay before the look finished; what was filed is filed".to_string())
         }
     };
     let (text, heard, failed) = forward.await;

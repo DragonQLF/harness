@@ -37,7 +37,7 @@ pub(super) fn self_report(ws: &Arc<Workspace>, call: &ToolCall) -> ToolReply {
             .map(|d| d.clamp(1, 30) as u32)
             .unwrap_or(7);
         let report = ws.collect_self_report(days);
-        return ToolReply::ok(harness_app::selfreport::render(&report));
+        ToolReply::ok(harness_app::selfreport::render(&report))
 }
 
 pub(super) async fn read_docs(ws: &Arc<Workspace>, call: &ToolCall) -> ToolReply {
@@ -53,11 +53,11 @@ pub(super) async fn read_docs(ws: &Arc<Workspace>, call: &ToolCall) -> ToolReply
                 return ToolReply::refused("read_docs needs doc as \"debt\" or \"decisions\"");
             }
         };
-        return match harness_app::devdocs::render(&docs, doc, text(&call.input, "find").as_deref())
+        match harness_app::devdocs::render(&docs, doc, text(&call.input, "find").as_deref())
         {
             Ok(rendered) => ToolReply::ok(rendered),
             Err(e) => ToolReply::refused(e),
-        };
+        }
 }
 
 pub(super) fn propose_improvement(ws: &Arc<Workspace>, call: &ToolCall) -> ToolReply {
@@ -70,13 +70,13 @@ pub(super) fn propose_improvement(ws: &Arc<Workspace>, call: &ToolCall) -> ToolR
                  enough) and proposal (the correction)",
             );
         }
-        return match ws.propose_improvement(&title, &observation, &suggestion) {
+        match ws.propose_improvement(&title, &observation, &suggestion) {
             Ok(_) => ToolReply::ok(
                 "filed in the operator's inbox — they decide whether it becomes work; announce \
                  that you proposed it",
             ),
             Err(e) => ToolReply::refused(e),
-        };
+        }
 }
 
 /// Uma decisão tomada em conversa morre com a conversa a não ser que chegue ao
@@ -94,7 +94,7 @@ pub(super) fn record_decision(
         }
         let dir = ws
             .paths
-            .project_dir(&project_id)
+            .project_dir(project_id)
             .join("memory")
             .join("decisions");
         if let Err(e) = std::fs::create_dir_all(&dir) {

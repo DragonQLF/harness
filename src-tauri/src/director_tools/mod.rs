@@ -121,10 +121,10 @@ pub async fn run(
 ) -> ToolReply {
     if !delegating && !is_read_only(&call.name) {
         // Configuration, never roles: the reader may BE the Director.
-        return ToolReply::refused(format!(
+        return ToolReply::refused(
             "this profile does not have delegation enabled - turn on \"can delegate\" \
              in the agent settings to let this profile change boards",
-        ));
+        );
     }
     if !delegating && !is_read_only(&call.name) {
         // Configuration, never roles: the reader may BE the Director.
@@ -146,7 +146,7 @@ pub async fn run(
                     card_id: text(&call.input, "card_id"),
                     why: text(&call.input, "why"),
                 };
-                let _ = app.emit("ui://navigate", &nav);
+                let _ = app.emit(crate::events::NAVIGATE, &nav);
                 return ToolReply::ok(format!("opened {screen} in the operator's window"));
         }
         "list_projects" => return projects::list_projects(ws).await,

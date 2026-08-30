@@ -61,7 +61,7 @@ pub struct ClosingPhase {
 
 fn say(app: &tauri::AppHandle, phase: &'static str, detail: impl Into<String>) {
     let _ = app.emit(
-        "closing://phase",
+        crate::events::CLOSING_PHASE,
         ClosingPhase {
             phase,
             detail: detail.into(),
@@ -94,7 +94,7 @@ async fn sequence(window: tauri::Window, ws: Arc<Workspace>) {
     let wip = ws.settings().commit_wip_on_close;
 
     let _ = app.emit(
-        "closing://began",
+        crate::events::CLOSING_BEGAN,
         ClosingBegan {
             look,
             wip,

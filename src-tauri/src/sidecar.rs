@@ -151,7 +151,7 @@ pub fn install(app: &AppHandle, dir: &Path) -> Result<String, String> {
         return Err("node was not found on PATH; install Node 20 or newer".to_string());
     }
     let program = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    let _ = app.emit("sidecar://log", "installing the sidecar dependencies…");
+    let _ = app.emit(crate::events::SIDECAR_LOG, "installing the sidecar dependencies…");
     let out = no_window(&mut Command::new(program))
         .args(["install", "--omit=dev", "--no-audit", "--no-fund"])
         .current_dir(dir)
@@ -160,7 +160,7 @@ pub fn install(app: &AppHandle, dir: &Path) -> Result<String, String> {
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     let combined = format!("{stdout}\n{stderr}").trim().to_string();
-    let _ = app.emit("sidecar://log", &combined);
+    let _ = app.emit(crate::events::SIDECAR_LOG, &combined);
     if !out.status.success() {
         return Err(if combined.is_empty() {
             format!("npm install failed with {}", out.status)

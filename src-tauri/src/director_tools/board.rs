@@ -94,7 +94,7 @@ pub(super) async fn create_card(
             );
         };
         match crate::commands::board::create_card_inner(
-            ws, &project_id, &title, &agent, start, ready,
+            ws, project_id, &title, &agent, start, ready,
         )
         .await
         {
@@ -104,7 +104,7 @@ pub(super) async fn create_card(
                 // be tied back to the permission, and without the tie the
                 // acceptance would be raised at him for ever.
                 let acted = text(&call.input, "proposal_id").and_then(|id| {
-                    ws.record_proposal_action(&id, &project_id, created.card_id.as_str())
+                    ws.record_proposal_action(&id, project_id, created.card_id.as_str())
                 });
                 ToolReply::ok(format!(
                     "created {} for {agent}{where_}{}{}",
@@ -197,7 +197,7 @@ pub(super) async fn move_card(
         if to == Status::Running {
             return match crate::commands::board::start_run_inner(
                 ws,
-                &project_id,
+                project_id,
                 CardId::new(card_id.clone()),
                 None,
             )
