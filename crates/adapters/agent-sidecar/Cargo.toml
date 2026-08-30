@@ -9,3 +9,11 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["io-util", "macros", "process", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+
+[target.'cfg(unix)'.dependencies]
+# Só para o `killpg`: ver o comentário em `run`. Um SIGKILL ao sidecar sozinho
+# deixa o CLI que ele levantou vivo, e vivo continua a segurar a sessão.
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "process", "time", "io-util"] }

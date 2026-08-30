@@ -36,6 +36,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 106 | A linha de comandos é uma skill, e o Director tem-na |
 | 2026-08-30 | 107 | Um agente pode ficar cercado a um projecto; quem manda no quadro revê-o |
 | 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
+| 2026-08-30 | 108 | Uma execução leva consigo o que levantou; o turno vazio deixa de passar por resposta |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2456,3 +2457,55 @@ revisto por gente diferente de execução para execução.
 
 **A mensagem do agente segue a mesma regra** (#103): quem reporta um bloqueio
 chega a quem pode agir sobre ele, e não sempre à mesma pessoa.
+
+### 108. Uma execução leva consigo o que levantou, e um turno que não correu não passa por resposta
+Três mensagens seguidas ficaram sem resposta, sem erro e sem nada no ecrã: a
+roda parava e a conversa seguia em branco. As respostas existiam — o CLI
+escreveu-as todas no transcript — e nenhuma chegou à aplicação.
+
+**O neto ficava órfão.** Há um sidecar por execução, e ao `done` a Rust
+matava-o. O `child.kill()` manda um SIGKILL só ao node; o CLI do Claude é neto
+dele. Ficava vivo, era adoptado pelo init — medido: o `ppid` passa a 1 — e vivo
+continuava a segurar a sessão.
+
+**Daí para a frente havia duas ideias sobre quem tinha a sessão.** A guarda das
+duas execuções na mesma conversa não travava nada, porque para a Rust a anterior
+tinha mesmo acabado. A mensagem seguinte retomava uma sessão que já era de
+outro; o CLI novo fazia o que faz nesse caso — punha o pedido na fila do órfão e
+saía sem correr turno nenhum. As `queue-operation` do transcript são isso, e são
+também o que disfarçou a avaria: a fila entregou mesmo a mensagem. **Uma fila
+entrega palavras; não devolve respostas.** Essas saíam pelo stream do órfão, que
+já ninguém lia. As três mensagens caíram na mesma janela; à quarta, quarenta
+minutos depois, o órfão já tinha morrido e a conversa voltou ao normal sozinha.
+
+**O SIGKILL era também o que impedia o sidecar de se desmontar.** O `finally`
+dele nunca chegava a correr. E mesmo que corresse não ganhava: medido, a
+desmontagem do SDK leva 1 a 3 segundos a derrubar o CLI, contra um SIGKILL
+imediato. Não é uma corrida que se ganhe com mais pressa — ganha-se mudando o
+que se mata.
+
+**Grupo próprio à nascença, grupo inteiro à morte.** O `process_group(0)` tinha
+de vir primeiro, e não é detalhe: sem ele o sidecar corre no grupo da própria
+Relay, e matar o grupo matava a aplicação. Com ele, o grupo é só deste run.
+
+**No fim de todos os caminhos, e não nos dois que matavam à mão.** A limpeza
+está depois do `drive`, num sítio só: os `break` do meio — cancelamento,
+resultado, falha, erro de arranque — saíam todos por lá e três deles não matavam
+nada, à espera do `kill_on_drop`, que só apanha o node.
+
+**Rejeitado: esperar pelo filho.** Se o `done` só saísse com o processo já
+morto, a guarda passava a assentar em verdade. Não há por onde: medido, tanto o
+`q.return()` como esgotar o iterador resolvem em 0 ms com o CLI ainda vivo. O
+SDK não dá sinal nenhum de "o processo acabou", e inventar um à custa de
+sondagens era pôr a correcção a depender de adivinhar.
+
+**E o turno vazio reprova.** Aquele `result` vinha `subtype: "success"`, custo
+0, zero turnos e texto vazio; o teste que lá estava — herdado do resume de uma
+sessão que não existe — só olhava para o `subtype`, e este era mesmo `success`.
+Silêncio sem erro é a única coisa sobre a qual a operadora não pode agir. É a
+rede por baixo da correcção: apanha o estado mau seja qual for a causa, incluindo
+as que ainda não conhecemos.
+
+**O turno é que separa, não o texto.** Um turno que só chamou ferramentas também
+acaba sem texto e correu; é o `num_turns` que distingue os dois. Reprovar por
+texto vazio calava trabalho verdadeiro.

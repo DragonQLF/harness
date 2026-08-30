@@ -611,6 +611,12 @@ impl harness_ports::AgentPort for SidecarAgent {
                 // One sidecar per run, and it outlives its usefulness the
                 // moment the result arrives; never leave it running.
                 .kill_on_drop(true);
+            // O sidecar passa a liderar um grupo só dele, e o CLI que ele
+            // levanta herda-o. Sem isto o grupo dele é o da própria Relay
+            // — matá-lo pelo grupo matava a aplicação, e é por isso que a
+            // limpeza lá em baixo não podia existir antes desta linha.
+            #[cfg(unix)]
+            cmd.process_group(0);
             #[cfg(windows)]
             {
                 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -619,7 +625,36 @@ impl harness_ports::AgentPort for SidecarAgent {
             let mut child = cmd
                 .spawn()
                 .map_err(|e| format!("failed to spawn sidecar ({program} {}): {e}", script.display()))?;
-            drive(&mut child, spec, grants, tx, cancel).await
+            // Guardado agora: depois do `kill` o handle já não sabe o pid, e é
+            // o pid que dá o grupo.
+            #[cfg(unix)]
+            let group = child.id();
+
+            let outcome = drive(&mut child, spec, grants, tx, cancel).await;
+
+            // Seja qual for o fim, nada do que este run levantou lhe sobrevive.
+            //
+            // O `child.kill()` lá dentro manda um SIGKILL ao node e mais nada.
+            // O CLI do Claude é neto: ficava órfão, era adoptado pelo init, e
+            // órfão continuava a segurar a sessão. A mensagem seguinte retomava
+            // então uma sessão que já era de outro — o CLI novo entregava-a à
+            // fila do órfão e saía sem correr turno nenhum, e a resposta saía
+            // por um stream que já ninguém lia. Três mensagens seguidas
+            // desapareceram assim (#108).
+            //
+            // E o SIGKILL no node é também o que impede o sidecar de se
+            // desmontar sozinho: o `finally` dele nunca chega a correr. Por
+            // isso a garantia tem de estar deste lado, e no fim de todos os
+            // caminhos — não só nos dois que matavam à mão.
+            #[cfg(unix)]
+            if let Some(pid) = group {
+                // O grupo é o que o `process_group(0)` acabou de criar para
+                // este run, portanto isto não alcança nada que a Relay não
+                // tenha levantado aqui.
+                unsafe { libc::killpg(pid as libc::pid_t, libc::SIGKILL) };
+            }
+            let _ = child.kill().await;
+            outcome
         })
     }
 }
@@ -690,5 +725,58 @@ mod tests {
             .as_deref(),
             Some("No conversation found with session ID: 0000"),
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod process_group_tests {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::process::Command;
+
+    fn alive(pid: u32) -> bool {
+        unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    }
+
+    /// Regressão (#108): matar o sidecar não pode deixar de pé o que ele
+    /// levantou. Antes disto o SIGKILL ia só ao node, o CLI do Claude ficava
+    /// órfão a segurar a sessão, e as mensagens seguintes iam parar à fila
+    /// dele. O `sh` faz aqui de sidecar e o `sleep` de CLI — o que se guarda é
+    /// a mecânica: grupo próprio à nascença, grupo inteiro à morte.
+    #[tokio::test]
+    async fn killing_the_sidecar_takes_the_cli_with_it() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg("sleep 60 & echo $!; sleep 60")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        cmd.process_group(0);
+        let mut child = cmd.spawn().expect("spawn");
+        let group = child.id().expect("pid");
+
+        let mut lines = BufReader::new(child.stdout.take().expect("stdout")).lines();
+        let grandchild: u32 = lines
+            .next_line()
+            .await
+            .expect("read")
+            .expect("pid line")
+            .trim()
+            .parse()
+            .expect("pid");
+        assert!(alive(grandchild), "o neto devia estar de pé antes de matarmos");
+
+        unsafe { libc::killpg(group as libc::pid_t, libc::SIGKILL) };
+        let _ = child.kill().await;
+
+        // O SIGKILL não é síncrono; dá-se-lhe uma janela curta antes de exigir.
+        for _ in 0..40 {
+            if !alive(grandchild) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        unsafe { libc::kill(grandchild as libc::pid_t, libc::SIGKILL) };
+        panic!("o neto sobreviveu ao sidecar: é a avaria do #108 de volta");
     }
 }

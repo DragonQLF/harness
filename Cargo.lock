@@ -1499,6 +1499,7 @@ name = "harness-agent-sidecar"
 version = "0.1.0"
 dependencies = [
  "harness-ports",
+ "libc",
  "serde_json",
  "tokio",
  "tokio-util",

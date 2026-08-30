@@ -104,6 +104,25 @@ class Inbox {
   }
 }
 
+/** Um `result` que não correu turno nenhum não é uma resposta, por mais alegre
+ *  que venha o `subtype`.
+ *
+ *  É o que volta quando a sessão que se está a retomar ainda está agarrada por
+ *  outro processo vivo: esse CLI mete o pedido na *sua* fila, responde-lhe num
+ *  stream que ninguém aqui está a ler, e este sai `success` sem ter falado com
+ *  modelo nenhum — sem turnos, sem custo, sem texto. Lido como sucesso, dá
+ *  silêncio no ecrã, que é a única coisa sobre a qual a operadora não pode
+ *  agir. O texto vazio sozinho não chega para o dizer: um turno que só chamou
+ *  ferramentas também acaba sem texto, e esse correu. O turno é que separa os
+ *  dois. */
+function answeredNothing(message) {
+  return (
+    message.subtype === "success" &&
+    !(message.num_turns > 0) &&
+    !(typeof message.result === "string" && message.result.trim())
+  );
+}
+
 function summarize(input) {
   if (!input || typeof input !== "object") return String(input ?? "");
   return Object.entries(input)
@@ -964,7 +983,9 @@ async function handleRun({ id, spec }) {
           // longer exists arrives exactly this way, and the SDK only throws
           // afterwards — by which time we have already returned. So the
           // failure has to be read off this message, or it passes for success.
-          const failed = message.is_error === true || message.subtype !== "success";
+          const nothing = answeredNothing(message);
+          const failed =
+            message.is_error === true || message.subtype !== "success" || nothing;
           // The turn is answered, but the operator said something else while
           // it ran and the CLI has not answered *that* yet. Returning here is
           // what used to make queueing impossible: the answer to the queued
@@ -975,11 +996,17 @@ async function handleRun({ id, spec }) {
           const errors = Array.isArray(message.errors)
             ? message.errors.map((e) => String(e).trim()).filter(Boolean).join("; ")
             : "";
-          const detail =
-            errors ||
-            (typeof message.result === "string" && message.result.trim()) ||
-            message.subtype ||
-            "the run ended with an error";
+          // O `subtype` como último recurso serve para os erros, que o trazem
+          // legível. Para o turno vazio dizia "success", que é o contrário do
+          // que se passou — por isso este tem texto próprio, e diz onde é que
+          // a mensagem foi parar.
+          const detail = nothing
+            ? "nada correu: esta sessão ainda está agarrada pela execução anterior, " +
+              "que levou a mensagem para a fila dela — a resposta não chega aqui"
+            : errors ||
+              (typeof message.result === "string" && message.result.trim()) ||
+              message.subtype ||
+              "the run ended with an error";
           // Shut before declaring it over, so nothing can be handed to a CLI
           // that is about to be killed.
           inbox.close();
@@ -1021,6 +1048,13 @@ async function handleRun({ id, spec }) {
     // the one keeping count — starts a turn of its own for it.
     inboxes.delete(id);
     inbox.close();
+    // E nada lhe sobrevive. O stream acabar não é o processo acabar: fechar a
+    // entrada mata-lhe as tarefas de fundo mas deixa-o de pé, e de pé continua
+    // a segurar a sessão. O turno que a Rust abre a seguir retoma então uma
+    // sessão que é de outro, o CLI entrega-lhe a mensagem pela fila e sai sem
+    // correr nada — a mensagem chega, a resposta sai por um stream que já
+    // ninguém lê, e o ecrã fica em branco sem erro nenhum.
+    ac.abort();
   }
 }
 

@@ -11,7 +11,7 @@
     "check": "tsc --noEmit && node scripts/no-static-inline-style.mjs && node scripts/store-deps.mjs",
     "preview": "vite preview",
     "codegen": "cargo test --workspace --test export_types",
-    "test:sidecar": "node --test sidecar/pathguard.test.mjs sidecar/toolsum.test.mjs sidecar/mcp-wiring.test.mjs sidecar/inbox.test.mjs",
+    "test:sidecar": "node --test sidecar/pathguard.test.mjs sidecar/toolsum.test.mjs sidecar/mcp-wiring.test.mjs sidecar/inbox.test.mjs sidecar/result.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
