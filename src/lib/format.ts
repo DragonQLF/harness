@@ -109,3 +109,20 @@ export function weekLetters(): string[] {
   for (let i = 6; i >= 0; i--) out.push(DAY_LETTERS[(day - i + 7) % 7]!);
   return out;
 }
+
+/** O fim de um texto, e não o princípio.
+ *
+ *  Um buffer que rola guarda os *últimos* N caracteres, portanto o que lá está
+ *  de novo está no fim. `truncate` corta pela frente e mostraria a abertura de
+ *  um pensamento que já passou — parado enquanto o buffer não enche, e a saltar
+ *  letra a letra depois de encher, ao sabor do que cai à frente. Corta-se pelo
+ *  fim, e nunca a meio de uma palavra: um espaço logo no início do corte é
+ *  onde a palavra partida acaba.
+ */
+export function tail(text: string, max: number): string {
+  const line = text.trimEnd().split("\n").filter((l) => l.trim()).pop()?.trim() ?? "";
+  if (line.length <= max) return line;
+  const cut = line.slice(line.length - max);
+  const space = cut.indexOf(" ");
+  return "…" + (space >= 0 && space < 12 ? cut.slice(space + 1) : cut);
+}

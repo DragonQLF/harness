@@ -5,7 +5,7 @@
  *  own card so the composer stays where the hand expects it, and the rail
  *  beside it reports what the thread did rather than what it said. */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Plus, Square } from "lucide-react";
 import { Streamdown } from "streamdown";
@@ -388,6 +388,113 @@ interface Block {
   tools: ChatMsg[];
 }
 
+/** Uma vez da conversa: o que foi dito, e os recibos das ferramentas que isso
+ *  puxou.
+ *
+ *  Está aqui fora, e memoizada, por causa do streaming. `blocks` é reconstruído
+ *  a cada quadro de texto — os invólucros são novos, as mensagens lá dentro é
+ *  que não —, e sem esta comparação cada quadro reanalisava o markdown de
+ *  *todos* os balões da conversa para redesenhar o último. Numa conversa longa
+ *  isso é uma dúzia de documentos por quadro, e é isso que se sentia como
+ *  gaguez: não o texto a chegar, mas tudo o que já lá estava a ser refeito
+ *  atrás dele.
+ *
+ *  O `motion.div` vem para dentro de propósito: no pai, o `memo` só pouparia os
+ *  filhos e a árvore do `motion` era montada na mesma. */
+const Turn = memo(
+  function Turn({
+    kind,
+    msg,
+    tools,
+    index,
+    streaming,
+    askAgain,
+  }: {
+    kind: Block["kind"];
+    msg: ChatMsg | null;
+    tools: ChatMsg[];
+    index: number;
+    /** O cursor a piscar. Só a última vez o tem, e só enquanto o turno corre. */
+    streaming: boolean;
+    /** Presente só na última vez, e só quando falhou: repetir a pergunta.
+     *  `null` em tudo o resto, que é o que deixa a comparação abaixo passar. */
+    askAgain: (() => void) | null;
+  }) {
+    return (
+      <motion.div custom={index} variants={rowIn} className="flex flex-none flex-col gap-3">
+        {/* A queued message is drawn as what it is: said, written down, and
+            not yet read. The filled bubble is reserved for messages the run
+            actually has — drawing this one the same way would claim the model
+            had seen it, which is the one thing the screen must never claim on
+            its own. It settles into an ordinary bubble on the backend's
+            `user_read`. */}
+        {kind === "user" &&
+          (msg!.pending ? (
+            <div className="flex max-w-[62%] flex-col items-end gap-1 self-end">
+              <div className="w-full whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] border border-dashed border-line2 bg-surface px-3.75 py-2.75 text-base leading-[1.55] text-ink2 dark:border-line2-d dark:bg-surface-d dark:text-ink2-d">
+                {msg!.text}
+              </div>
+              <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
+                queued · not read yet
+              </span>
+            </div>
+          ) : (
+            <div className="max-w-[62%] self-end whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] bg-ink px-3.75 py-2.75 text-base leading-[1.55] text-white dark:bg-ink-d dark:text-canvas-d">
+              {msg!.text}
+            </div>
+          ))}
+
+        {kind === "notice" && (
+          <div className="flex max-w-[82%] flex-col items-start gap-2">
+            <div className="whitespace-pre-wrap break-words text-base leading-[1.65] text-bad dark:text-bad-d">
+              {msg!.text}
+            </div>
+            {askAgain && (
+              <button type="button" onClick={askAgain} className={cx(PILL, "cursor-pointer")}>
+                Ask again
+              </button>
+            )}
+          </div>
+        )}
+
+        {kind === "agent" && (
+          <div className="flex max-w-[82%] flex-col gap-3">
+            {msg?.text && (
+              <div className="break-words text-base leading-[1.65] text-ink2 dark:text-ink2-d">
+                <Prose text={msg.text} />
+                {streaming && (
+                  <span
+                    aria-hidden="true"
+                    className="ml-0.75 inline-block h-[13px] w-1.5 animate-blink bg-primary align-[-2px] dark:bg-primary-d"
+                  />
+                )}
+              </div>
+            )}
+            {tools.length > 0 && (
+              <div className="flex flex-wrap gap-1.75">
+                {tools.map((t, ti) => (
+                  <Receipt key={ti} msg={t} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
+    );
+  },
+  // As mensagens antigas mantêm a identidade — só a última é substituída a
+  // cada quadro —, portanto comparar por referência chega, desde que o array
+  // de recibos se compare elemento a elemento: esse é novo em cada quadro.
+  (a, b) =>
+    a.kind === b.kind &&
+    a.msg === b.msg &&
+    a.index === b.index &&
+    a.streaming === b.streaming &&
+    a.askAgain === b.askAgain &&
+    a.tools.length === b.tools.length &&
+    a.tools.every((t, i) => t === b.tools[i]),
+);
+
 /** The chip standing for one attachment.
  *
  *  A path is what the agent needs and the worst thing to show a person: the
@@ -528,6 +635,14 @@ export function Chat() {
   const last = blocks[blocks.length - 1];
   const streaming = chatBusy && last?.kind === "agent" && !!last.msg?.text;
   const lastAsked = [...chat].reverse().find((m) => m.role === "user")?.text ?? "";
+
+  /** Repetir a última pergunta. Tem de ser estável: é uma prop do `Turn`, e uma
+   *  função nova a cada render fazia falhar a comparação de todas as vezes —
+   *  que é exactamente o que o `memo` lá está a evitar. O `ref` mantém-na
+   *  actual sem lhe mudar a identidade. */
+  const retry = useRef<() => void>(() => {});
+  retry.current = () => send(lastAsked);
+  const askAgain = useCallback(() => retry.current(), []);
 
   useEffect(() => {
     const el = thread.current;
@@ -829,74 +944,19 @@ export function Chat() {
             )}
 
             {blocks.map((block, i) => (
-              <motion.div
+              <Turn
                 key={i}
-                custom={i}
-                variants={rowIn}
-                className="flex flex-none flex-col gap-3"
-              >
-                {/* A queued message is drawn as what it is: said, written
-                    down, and not yet read. The filled bubble is reserved for
-                    messages the run actually has — drawing this one the same
-                    way would claim the model had seen it, which is the one
-                    thing the screen must never claim on its own. It settles
-                    into an ordinary bubble on the backend's `user_read`. */}
-                {block.kind === "user" &&
-                  (block.msg!.pending ? (
-                    <div className="flex max-w-[62%] flex-col items-end gap-1 self-end">
-                      <div className="w-full whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] border border-dashed border-line2 bg-surface px-3.75 py-2.75 text-base leading-[1.55] text-ink2 dark:border-line2-d dark:bg-surface-d dark:text-ink2-d">
-                        {block.msg!.text}
-                      </div>
-                      <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
-                        queued · not read yet
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="max-w-[62%] self-end whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] bg-ink px-3.75 py-2.75 text-base leading-[1.55] text-white dark:bg-ink-d dark:text-canvas-d">
-                      {block.msg!.text}
-                    </div>
-                  ))}
-
-                {block.kind === "notice" && (
-                  <div className="flex max-w-[82%] flex-col items-start gap-2">
-                    <div className="whitespace-pre-wrap break-words text-base leading-[1.65] text-bad dark:text-bad-d">
-                      {block.msg!.text}
-                    </div>
-                    {i === blocks.length - 1 && lastAsked && !chatBusy && (
-                      <button
-                        type="button"
-                        onClick={() => send(lastAsked)}
-                        className={cx(PILL, "cursor-pointer")}
-                      >
-                        Ask again
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {block.kind === "agent" && (
-                  <div className="flex max-w-[82%] flex-col gap-3">
-                    {block.msg?.text && (
-                      <div className="break-words text-base leading-[1.65] text-ink2 dark:text-ink2-d">
-                        <Prose text={block.msg.text} />
-                        {streaming && i === blocks.length - 1 && (
-                          <span
-                            aria-hidden="true"
-                            className="ml-0.75 inline-block h-[13px] w-1.5 animate-blink bg-primary align-[-2px] dark:bg-primary-d"
-                          />
-                        )}
-                      </div>
-                    )}
-                    {block.tools.length > 0 && (
-                      <div className="flex flex-wrap gap-1.75">
-                        {block.tools.map((t, ti) => (
-                          <Receipt key={ti} msg={t} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </motion.div>
+                index={i}
+                kind={block.kind}
+                msg={block.msg}
+                tools={block.tools}
+                streaming={streaming && i === blocks.length - 1}
+                askAgain={
+                  block.kind === "notice" && i === blocks.length - 1 && lastAsked && !chatBusy
+                    ? askAgain
+                    : null
+                }
+              />
             ))}
 
             {chatBusy && !streaming && (

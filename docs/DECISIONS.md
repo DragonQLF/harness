@@ -29,6 +29,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-28 | 88–89 | O aviso de trabalho fora do quadro ganha ecrã; a derivação do RightNow auditada |
 | 2026-08-28 | 90–92 | O aviso leva os factos, sobrevive ao arranque, e a máquina de estados deixa de estar em duplicado |
 | 2026-08-28 | 93–96 | Skills e MCP por agente em runtime: plugin do Relay, declaração em vez de comando, auto-elevação recusada |
+| 2026-08-30 | 99 | O token deixa de ser uma unidade de render |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2053,3 +2054,66 @@ transcrição do run que está a julgar) e um resumo que os lockfiles afogam; e 
 revisão não tem tecto de orçamento nem relógio, ao contrário do fecho do dia
 (#79). Nenhuma das duas foi feita aqui. A estrada acomoda ambas sem se mexer:
 são o *dentro* do run de revisão, e este canal só trata do que sai dele.
+
+### 99. O token deixa de ser uma unidade de render, e o quadro deixa de se medir para mexer um número
+O ecrã gaguejava a escrever, e não era o markdown nem o `motion`: era a
+contabilidade. Um `delta` é um token, e cada token era um `setState`. Com o
+objecto do contexto a ser construído de raiz a cada render do provider, isso
+punha **toda** a app a re-renderizar — barra lateral, título, o quadro — dezenas
+de vezes por segundo, para desenhar meia palavra. Quem pagava mais caro era o
+chat, onde cada quadro remandava o markdown de *todos* os balões da conversa
+pelo Streamdown para poder crescer o último, e o quadro, onde cada cartão é um
+`motion.div` com `layout` e portanto se volta a medir a cada render.
+
+**Os tokens juntam-se e assentam uma vez por quadro** (`state/chat.ts`,
+`state/events.ts`). Nenhum modelo escreve mais depressa do que 60 fps, portanto
+não se perde nada da escrita ao vivo — perde-se só o trabalho repetido atrás
+dela. Qualquer evento que não seja um token esvazia primeiro o que está
+pendente: um recibo de ferramenta à frente do texto que o anunciou trocaria a
+ordem da transcrição, que é a única coisa que ela promete. Trocar de conversa
+deita fora o que não assentou, ou os tokens da conversa que saiu do ecrã caíam
+na que entrou.
+
+**O valor do contexto passa a ser memoizado** (`state/store.tsx`). Sem isso o
+lote por quadro não chegaria: continuava a ser um objecto novo, e um objecto
+novo re-renderiza todos os `useStore` da app na mesma.
+
+**Uma vez da conversa é `memo`, com comparação à mão** (`views/Chat.tsx`). Os
+`blocks` são reconstruídos a cada quadro — os invólucros são novos, as mensagens
+lá dentro é que não —, portanto compara-se por referência e o array de recibos
+elemento a elemento. O `motion.div` foi para dentro do componente memoizado: no
+pai, o `memo` só pouparia os filhos.
+
+**O relógio dos segundos vai para onde o número está** (`views/Board.tsx`). Um
+`useTicker` no quadro inteiro fazia uma medição de `layout` de todos os cartões
+por segundo, para mexer um tempo decorrido. É agora um `<Elapsed>` com o seu
+próprio intervalo.
+
+**E o cartão a correr passa a mostrar o fim do que está a pensar, não o
+princípio.** O buffer guarda os *últimos* 2000 caracteres e a linha cortava os
+primeiros 40: enquanto o buffer não enchia mostrava a abertura de um pensamento
+já passado, e depois de encher saltava letra a letra ao sabor do que caía à
+frente. É o `tail` em `lib/format.ts`, que corta pelo fim e nunca a meio de uma
+palavra.
+
+**A memória traz um risco novo, e vem com o guardo que o cobre.** O objecto
+construído de raiz era trivialmente correcto: não havia dependências para ficar
+erradas. Memoizá-lo troca custo por um esquecimento possível, e um esquecimento
+silencioso — um campo novo no `Store` fora da lista fica preso no valor com que
+entrou, e nem o `tsc` nem os testes dizem nada. `scripts/store-deps.mjs` lê o
+`useMemo` pelo AST e falha se um campo não contribuir para as dependências; está
+no `check`, no CLAUDE.md e no workflow de release. Uma optimização que só se
+consegue manter por atenção humana não se mantém.
+
+**Rejeitado:** partir o estado de chat para um provider próprio, que era a
+correcção estrutural — um token não faria o provider geral renderizar de todo.
+Resolvia o mesmo e mais limpo, mas mexe em quem consome os eventos e em quem os
+encaminha, e não é trabalho para a véspera de uma versão. Fica em
+`docs/DEBT.md`.
+
+**Também aqui, e é uma escolha de gosto e não de custo:** o escalonar das listas
+era 0,37s de atraso sobre 0,38s de duração — a última linha assentava 0,77s
+depois de a primeira começar. Um escalonar serve para dizer em que ordem as
+coisas chegaram, e isso lê-se muito antes disso. A ordem manteve-se, o compasso
+encolheu para cerca de metade (`lib/motion.ts`).
+

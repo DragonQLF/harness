@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Check, GitBranch, ListFilter, Lock, Play, TriangleAlert } from "lucide-react";
 import { RejectSheet } from "../components/Overlays";
 import { cx } from "../lib/cx";
-import { clock, duration, money, plural, truncate } from "../lib/format";
+import { clock, duration, money, plural, tail, truncate } from "../lib/format";
 import { api, events, reason, type UnlistenFn } from "../lib/ipc";
 import { arrive, colIn, rowIn, sheetIn } from "../lib/motion";
 import {
@@ -109,18 +109,21 @@ function useArrivals(cards: { id: string; status: Status }[] | undefined) {
   return moves;
 }
 
-/** A clock that only runs while something is running. A card in Working states
- *  its own elapsed time, and elapsed time that does not move is a stopped
- *  watch, not a fact. */
-function useTicker(live: boolean): number {
+/** O tempo que uma execução leva até agora, com o seu próprio segundo.
+ *
+ *  Elapsed time that does not move is a stopped watch, not a fact — mas o
+ *  relógio estava no quadro inteiro. Uma vez por segundo re-renderizava todas
+ *  as colunas e todos os cartões, e cada cartão é um `motion.div` com `layout`,
+ *  que se volta a medir a cada render: o quadro fazia uma medição completa por
+ *  segundo, para mexer um número. Agora o relógio está onde o número está, e é
+ *  só ele que mexe. */
+function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!live) return;
-    setNow(Date.now());
     const beat = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(beat);
-  }, [live]);
-  return now;
+  }, []);
+  return <>{duration(now - since)}</>;
 }
 
 /** The one place a card is created by hand: a line, who takes it, and whether
@@ -358,8 +361,6 @@ export function Board({
 
   const cards = snapshot?.cards ?? [];
   const sessions = snapshot?.sessions ?? [];
-  const running = cards.some((c) => c.status === "running");
-  const now = useTicker(running);
 
   // A review card states what the run changed, and that lives in the worktree
   // rather than in the snapshot. Asked for once per card that needs it.
@@ -654,20 +655,37 @@ export function Board({
                       pass && !stale ? pass.rows.filter((r) => r.status === "ok").length : 0;
                     const log = outputs[card.id] ?? [];
                     const last = log[log.length - 1];
-                    const doing =
-                      streams[card.id]?.thinking?.trim() ||
-                      (last ? `${last.label} ${last.text}`.trim() : "");
+                    // O que a execução está a fazer *agora*. O pensamento chega
+                    // num buffer que guarda os últimos 2000 caracteres
+                    // (`state/events.ts`), por isso lê-se pelo fim; a linha de
+                    // transcrição já vem inteira e lê-se pelo princípio, que é
+                    // onde está o nome da ferramenta.
+                    const think = streams[card.id]?.thinking?.trim();
+                    const doing = think
+                      ? tail(think, 40)
+                      : last
+                        ? truncate(`${last.label} ${last.text}`.trim(), 40)
+                        : "";
 
                     const waiting = blockedBy(card);
                     const at = finishedAt(card);
                     // What sits on the right of the card's meta row. The left
                     // is always who owns it; only this changes per column.
+                    // O tempo decorrido conta o seu próprio segundo, por
+                    // isso esta linha é um nó e já não uma string.
+                    const elapsed = session ? <Elapsed since={session.started_ms} /> : null;
+                    const cost = card.cost_usd > 0 ? money(card.cost_usd) : null;
                     const aside =
                       status === "running"
-                        ? [session ? duration(now - session.started_ms) : null,
-                           card.cost_usd > 0 ? money(card.cost_usd) : null]
-                            .filter(Boolean)
-                            .join(" · ")
+                        ? elapsed || cost
+                          ? (
+                              <>
+                                {elapsed}
+                                {elapsed && cost ? " · " : null}
+                                {cost}
+                              </>
+                            )
+                          : null
                         : status === "review"
                           ? null
                           : card.id;
@@ -847,7 +865,7 @@ export function Board({
                             <>
                               {doing && (
                                 <div className="mt-1.5 truncate font-mono text-11 text-primary dark:text-primary-d">
-                                  {truncate(doing, 40)}
+                                  {doing}
                                 </div>
                               )}
                               {/* Still empty, and deliberately.

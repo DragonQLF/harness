@@ -8,7 +8,7 @@
  *  desenha o que ele mandou.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunLogLine, RunUpdate } from "../lib/types";
 
 const MAX_LINES = 400;
@@ -165,21 +165,65 @@ export function useRunFeed(): RunFeed {
   const [runModels, setRunModels] = useState<Record<string, string>>({});
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
 
+  /** Tokens que chegaram desde o último quadro, por cartão.
+   *
+   *  O mesmo motivo do `held` em `./chat`: um `setStreams` por token punha o
+   *  quadro inteiro a re-renderizar dezenas de vezes por segundo, e no quadro
+   *  cada cartão é um `motion.div` com `layout`, que se mede outra vez a cada
+   *  render. Junta-se e assenta uma vez por quadro. */
+  const held = useRef(new Map<string, { text: string; thinking: string }>());
+  const frame = useRef<number | null>(null);
+
+  const flush = useCallback(() => {
+    if (frame.current != null) {
+      cancelAnimationFrame(frame.current);
+      frame.current = null;
+    }
+    if (held.current.size === 0) return;
+    const batch = held.current;
+    held.current = new Map();
+    setStreams((prev) => {
+      const next = { ...prev };
+      for (const [cardId, add] of batch) {
+        const cur = next[cardId] ?? { text: "", thinking: "" };
+        next[cardId] = {
+          ...cur,
+          text: add.text ? (cur.text + add.text).slice(-2000) : cur.text,
+          thinking: add.thinking ? (cur.thinking + add.thinking).slice(-2000) : cur.thinking,
+        };
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (frame.current != null) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
+
   const consume = useCallback((u: RunUpdate) => {
     // Deltas live outside the transcript: they are replaced by the final
     // text, and would otherwise be one log line per token.
     if (u.kind === "delta" || u.kind === "thinking") {
       if (!u.text) return;
       const key = u.kind === "delta" ? "text" : "thinking";
-      setStreams((prev) => {
-        const cur = prev[u.card_id] ?? { text: "", thinking: "" };
-        return {
-          ...prev,
-          [u.card_id]: { ...cur, [key]: (cur[key] + u.text).slice(-2000) },
-        };
-      });
+      const cur = held.current.get(u.card_id) ?? { text: "", thinking: "" };
+      held.current.set(u.card_id, { ...cur, [key]: cur[key] + u.text });
+      if (frame.current == null) {
+        frame.current = requestAnimationFrame(() => {
+          frame.current = null;
+          flush();
+        });
+      }
       return;
     }
+
+    // Tudo o que não é um token assenta o que estava pendente primeiro: um
+    // `text` que limpasse o stream antes de os últimos tokens lá chegarem
+    // deixá-los-ia a aparecer depois de a execução ter acabado.
+    flush();
     if (u.kind === "turns") {
       // Live progress toward the ceiling: turns counted per assistant
       // message. Cleared when the run ends (text/done/failed below).
@@ -205,14 +249,18 @@ export function useRunFeed(): RunFeed {
       ...prev,
       [u.card_id]: [...(prev[u.card_id] ?? []), line].slice(-MAX_LINES),
     }));
-  }, []);
+  }, [flush]);
 
   const reset = useCallback((cardId: string) => {
+    // O que ainda não assentou é da execução anterior, e assentaria por cima
+    // desta.
+    held.current.delete(cardId);
     setOutputs((prev) => ({ ...prev, [cardId]: [] }));
     setStreams((prev) => ({ ...prev, [cardId]: { text: "", thinking: "" } }));
   }, []);
 
   const clear = useCallback(() => {
+    held.current.clear();
     setOutputs({});
     setStreams({});
   }, []);

@@ -77,7 +77,9 @@ jobs:
         run: |
           pnpm exec tsc --noEmit
           pnpm run check:styles
+          pnpm run check:store
           cargo test --workspace
+          pnpm run test:sidecar
 
       - uses: tauri-apps/tauri-action@v0
         env:

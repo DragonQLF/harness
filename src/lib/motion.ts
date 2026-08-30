@@ -27,9 +27,15 @@ export const rise = (duration: number): Transition => ({ duration, ease: RISE })
 
 /** Os atrasos que o `.stagger` tinha escritos à mão, um por `nth-child`, com o
  *  último a valer para tudo o que venha a seguir: um quadro comprido não pode
- *  entrar a rastejar. */
-const ROW_DELAYS = [0.01, 0.05, 0.09, 0.13, 0.17, 0.21, 0.24, 0.27, 0.3, 0.33, 0.35, 0.37];
-const ROW_CAP = 0.39;
+ *  entrar a rastejar.
+ *
+ *  A rampa era o dobro disto — 0,37s de atraso sobre 0,38s de duração, ou seja
+ *  a última linha assentava 0,77s depois da primeira ter começado. Um escalonar
+ *  serve para dizer *em que ordem* as coisas chegaram, e isso lê-se muito antes
+ *  disso; o resto do tempo o ecrã está só a fazer esperar quem já sabe o que
+ *  quer clicar. A ordem mantém-se, o compasso é que encolheu. */
+const ROW_DELAYS = [0, 0.028, 0.05, 0.068, 0.083, 0.095, 0.105, 0.113, 0.12, 0.126, 0.131, 0.135];
+const ROW_CAP = 0.14;
 
 /** Uma linha de lista a chegar. Passa-lhe o índice em `custom`. */
 export const rowIn: Variants = {
@@ -37,11 +43,11 @@ export const rowIn: Variants = {
   shown: (i = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { ...rise(0.38), delay: ROW_DELAYS[i as number] ?? ROW_CAP },
+    transition: { ...rise(0.26), delay: ROW_DELAYS[i as number] ?? ROW_CAP },
   }),
 };
 
-const COL_DELAYS = [0.02, 0.07, 0.12, 0.17, 0.22];
+const COL_DELAYS = [0, 0.035, 0.07, 0.1, 0.13];
 
 /** Uma coluna do quadro a chegar. Passa-lhe o índice em `custom`. */
 export const colIn: Variants = {
@@ -49,7 +55,7 @@ export const colIn: Variants = {
   shown: (i = 0) => ({
     opacity: 1,
     y: 0,
-    transition: { ...rise(0.42), delay: COL_DELAYS[i as number] ?? 0.22 },
+    transition: { ...rise(0.3), delay: COL_DELAYS[i as number] ?? 0.13 },
   }),
 };
 

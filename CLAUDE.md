@@ -36,6 +36,7 @@ v0.3.5 parou nas duas plataformas exactamente assim. **Verificar contra uma
 ```
 pnpm exec tsc --noEmit
 pnpm run check:styles      # nenhum style={{}} feito só de literais
+pnpm run check:store       # nenhum campo do store fora das deps do useMemo
 cargo test --workspace
 pnpm run test:sidecar
 ```

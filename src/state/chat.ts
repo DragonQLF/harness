@@ -8,7 +8,7 @@
  *  pertence cada turno e devolve-a.
  */
 
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../lib/ipc";
 import type { Conversation, RunLogLine, RunUpdate, SlashCommand } from "../lib/types";
 
@@ -283,29 +283,97 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     }
   }, []);
 
-  const consume = useCallback((u: RunUpdate): boolean => {
-    const appendToDirector = (text: string) =>
+  const appendToDirector = useCallback(
+    (text: string) =>
       setChat((cs) => {
         const last = cs[cs.length - 1];
         if (last && last.role === "agent") {
           return [...cs.slice(0, -1), { ...last, text: last.text + text }];
         }
         return [...cs, { role: "agent", text, ts: Date.now() }];
-      });
+      }),
+    [],
+  );
 
+  /** O que chegou desde o último quadro e ainda não foi para o estado.
+   *
+   *  Um `delta` é um token, e um token era um `setChat`: a janela inteira
+   *  re-renderizava dezenas de vezes por segundo, com o markdown de cada balão
+   *  a ser reanalisado de cada vez. O texto acumula-se aqui e assenta uma vez
+   *  por quadro — nenhum modelo escreve mais depressa do que 60 fps, portanto
+   *  não se perde nada da escrita ao vivo, e o resto da app deixa de pagar por
+   *  ela.
+   *
+   *  Qualquer outro evento esvazia isto primeiro: um recibo de ferramenta que
+   *  chegasse à frente do texto que o anunciou trocaria a ordem da transcrição,
+   *  que é a única coisa que ela promete. */
+  const held = useRef({ text: "", thinking: "", clearThinking: false });
+  const frame = useRef<number | null>(null);
+
+  const flush = useCallback(() => {
+    if (frame.current != null) {
+      cancelAnimationFrame(frame.current);
+      frame.current = null;
+    }
+    const { text, thinking, clearThinking } = held.current;
+    held.current = { text: "", thinking: "", clearThinking: false };
+    if (clearThinking) setChatThinking("");
+    else if (thinking) setChatThinking((t) => (t + thinking).slice(-600));
+    if (text) appendToDirector(text);
+  }, [appendToDirector]);
+
+  /** Deitar fora o que ainda não assentou.
+   *
+   *  Trocar de conversa é a fronteira que isto protege: os tokens que estavam
+   *  à espera do próximo quadro pertencem à conversa que saiu do ecrã, e
+   *  assentariam por cima da que entrou. */
+  const drop = useCallback(() => {
+    if (frame.current != null) {
+      cancelAnimationFrame(frame.current);
+      frame.current = null;
+    }
+    held.current = { text: "", thinking: "", clearThinking: false };
+  }, []);
+
+  const schedule = useCallback(() => {
+    if (frame.current != null) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      flush();
+    });
+  }, [flush]);
+
+  // Uma janela escondida não corre `requestAnimationFrame`. O que ficar por
+  // assentar assenta no primeiro evento que não seja um token — e `done` é
+  // sempre um deles —, por isso nada se perde por não estar a olhar.
+  useEffect(
+    () => () => {
+      if (frame.current != null) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
+
+  const consume = useCallback((u: RunUpdate): boolean => {
     // A conversation streams under its own id. `DIRECTOR` is the id older
     // builds published chat on; kept so nothing from before is orphaned.
     if (u.card_id !== chatRef.current && u.card_id !== DIRECTOR) return false;
 
+    if (u.kind !== "thinking" && u.kind !== "delta") flush();
+
     switch (u.kind) {
       case "thinking":
-        if (u.text) setChatThinking((t) => (t + u.text).slice(-600));
+        if (u.text) {
+          held.current.thinking += u.text;
+          schedule();
+        }
         break;
       case "delta":
         if (u.text) {
           streamedRef.current = true;
-          setChatThinking("");
-          appendToDirector(u.text);
+          held.current.thinking = "";
+          held.current.clearThinking = true;
+          held.current.text += u.text;
+          schedule();
         }
         break;
       case "tool_use": {
@@ -419,7 +487,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         break;
     }
     return true;
-  }, []);
+  }, [appendToDirector, flush, schedule]);
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -527,6 +595,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         setChatThinking("");
         setChatBusy(false);
         streamedRef.current = false;
+        drop();
         await refreshConversations();
       } catch (e) {
         fail(e, "Could not open that conversation");
@@ -534,7 +603,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         setChatLoading(false);
       }
     },
-    [fail, refreshConversations, settle],
+    [drop, fail, refreshConversations, settle],
   );
 
   /** A direct, persistent conversation with one profile. Resumes the last one
@@ -569,7 +638,8 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     setChatBusy(false);
     setChatLoading(false);
     streamedRef.current = false;
-  }, []);
+    drop();
+  }, [drop]);
 
   const renameConversation = useCallback(
     async (id: string, title: string) => {
