@@ -22,6 +22,7 @@ import type {
   ActivityRow,
   AttachmentPreview,
   BrowserOffer,
+  SkillOffer,
   AgentProfile,
   AgentStats,
   Bootstrap,
@@ -77,6 +78,9 @@ export const api = {
 
   // ---- the crew ----
   agentsGet: () => invoke<AgentProfile[]>("agents_get"),
+  skillOffers: () => invoke<SkillOffer[]>("skill_offers"),
+  skillGrant: (agentId: string, skillId: string) =>
+    invoke<AgentProfile[]>("skill_grant", { agentId, skillId }),
   browserOffers: () => invoke<BrowserOffer[]>("browser_offers"),
   browserGrant: (agentId: string, browserId: string) =>
     invoke<AgentProfile[]>("browser_grant", { agentId, browserId }),

@@ -54,6 +54,53 @@ pub async fn browser_offers() -> Result<Vec<BrowserOffer>, String> {
         .collect())
 }
 
+/// One of the skills Relay ships, described for the screen that offers it.
+#[derive(Debug, Serialize)]
+pub struct SkillOffer {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub note: String,
+}
+
+/// The skills an agent can be given with one click.
+#[tauri::command]
+pub async fn skill_offers() -> Result<Vec<SkillOffer>, String> {
+    use harness_app::skills::Skill;
+    Ok([Skill::Cli]
+        .into_iter()
+        .map(|s| SkillOffer {
+            id: s.id().to_string(),
+            name: s.name().to_string(),
+            description: s.description().to_string(),
+            note: s.note().to_string(),
+        })
+        .collect())
+}
+
+/// Give one agent one of them.
+///
+/// The Director can do this himself with `install_skill` — that is the point of
+/// him holding the skill. This is the operator's own path to the same place.
+#[tauri::command]
+pub async fn skill_grant(
+    agent_id: String,
+    skill_id: String,
+    ws: Shared<'_>,
+) -> Result<Vec<AgentProfile>, String> {
+    use harness_ports::ClockPort;
+    let which = harness_app::skills::Skill::from_id(&skill_id)
+        .ok_or_else(|| format!("there is no skill called {skill_id}"))?;
+    let grant = harness_app::skills::grant(which, crate::workspace::SystemClock.now_millis());
+    let mut crew = ws.agents().await;
+    let slot = crew
+        .iter_mut()
+        .find(|a| a.id == agent_id)
+        .ok_or_else(|| format!("there is no agent called {agent_id}"))?;
+    harness_app::grants::upsert_skill(&mut slot.granted_skills, grant);
+    ws.set_agents(crew).await
+}
+
 /// Give one agent one of the browsers.
 ///
 /// A one-click grant rather than a form, because every field of it is decided

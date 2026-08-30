@@ -639,6 +639,21 @@ pub fn normalise(mut agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
             if !agent.can_delegate {
                 agent.can_delegate = true;
             }
+            // Saber que a linha de comandos existe é conhecimento, não alcance:
+            // ele já tem `Shell` desde sempre, e isto só lhe diz que a tem, o
+            // que o guardo recusa, e que a pode passar a outro agente. Entra
+            // uma vez e é removível como qualquer outra concessão — mesma
+            // disciplina do `can_delegate` acima: vem ligado, e quem não o
+            // quiser tira-o no ecrã de Agentes.
+            if !agent
+                .granted_skills
+                .iter()
+                .any(|s| s.name == crate::skills::Skill::Cli.id())
+            {
+                agent
+                    .granted_skills
+                    .push(crate::skills::grant(crate::skills::Skill::Cli, 0));
+            }
         }
     }
 

@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod browsers;
+pub mod skills;
 pub mod allow;
 pub mod approvals;
 pub mod attachments;

@@ -381,6 +381,15 @@ export interface BrowserOffer {
   note: string;
 }
 
+/** One of the skills Relay ships. A skill is prose that enters an agent's
+ *  prompt: it grants no reach on its own, which is what `note` says out loud. */
+export interface SkillOffer {
+  id: string;
+  name: string;
+  description: string;
+  note: string;
+}
+
 export interface CreatedCard {
   card_id: string;
   run_id: string | null;

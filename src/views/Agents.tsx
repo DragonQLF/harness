@@ -17,6 +17,7 @@ import {
   tone,
   type AgentProfile,
   type BrowserOffer,
+  type SkillOffer,
   type CatalogModel,
   type McpTransport,
   type Reviewer,
@@ -187,6 +188,87 @@ function Granted({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** As skills que o Relay traz, um clique cada.
+ *
+ *  Uma skill é prosa que entra no prompt: não concede alcance nenhum por si.
+ *  A frase por baixo diz isso em voz alta, porque o contrário — pensar que
+ *  conceder a skill do terminal dá terminal a alguém — é o engano caro. Quem
+ *  dá alcance é a lista de ferramentas acima. */
+function Skills({ agent }: { agent: AgentProfile }) {
+  const { saveAgents, toast } = useStore();
+  const [offers, setOffers] = useState<SkillOffer[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .skillOffers()
+      .then((list) => alive && setOffers(list))
+      .catch(() => alive && setOffers([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const give = async (id: string) => {
+    setBusy(id);
+    try {
+      await saveAgents(await api.skillGrant(agent.id, id));
+    } catch (e) {
+      toast("bad", "Could not grant that skill", reason(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (offers != null && offers.length === 0) return null;
+  return (
+    <div>
+      <Eyebrow className="block pb-2">SKILLS RELAY SHIPS</Eyebrow>
+      <div className="flex flex-col gap-1.5">
+        {(offers ?? []).map((k) => {
+          const has = agent.granted_skills.some((g) => g.name === k.id);
+          const canShell = agent.permissions.includes("Shell");
+          return (
+            <div
+              key={k.id}
+              className="rounded-md border border-line2 bg-surface px-3 py-2 dark:border-line2-d dark:bg-surface-d"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-text1 dark:text-text1-d">{k.name}</span>
+                <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>{k.id}</span>
+                <div className="flex-1" />
+                {has ? (
+                  <span className={cx(mono, "text-xs text-ok dark:text-ok-d")}>granted</span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy != null}
+                    onClick={() => give(k.id)}
+                    className={cx(CHIP, "px-2.5 py-1 text-xs font-normal text-text2 disabled:opacity-50 dark:text-text2-d")}
+                  >
+                    {busy === k.id ? "granting…" : "Grant"}
+                  </button>
+                )}
+              </div>
+              <div className="pt-1 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                {k.note}
+              </div>
+              {/* O caso que faz a concessão não valer nada, dito onde se vê. */}
+              {has && k.id === "cli" && !canShell && (
+                <div className="pt-1 text-xs font-normal leading-normal text-warn dark:text-warn-d">
+                  {agent.name} does not have Shell, so this only describes a tool it cannot reach.
+                  Tick Shell above.
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1144,6 +1226,7 @@ export function Agents({
                 </div>
               </div>
               <Granted agent={agent} patch={patch} />
+              <Skills agent={agent} />
               <Browsers agent={agent} />
               <div>
                 <Eyebrow className="block pb-2">MCP AND SKILLS ARE PER AGENT</Eyebrow>

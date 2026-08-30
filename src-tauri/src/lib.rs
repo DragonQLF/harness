@@ -225,6 +225,8 @@ pub fn run() {
             commands::system::close_now,
             commands::project::curator_run,
             commands::crew::model_catalog,
+            commands::crew::skill_offers,
+            commands::crew::skill_grant,
             commands::crew::browser_offers,
             commands::crew::browser_grant,
             commands::updates::updates_list,

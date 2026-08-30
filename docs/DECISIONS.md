@@ -33,6 +33,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 102 | A revisão automática deixa de ser um segundo Director; o #98 reforma-se |
 | 2026-08-30 | 103 | Os agentes falam uns com os outros a meio do trabalho |
 | 2026-08-30 | 104 | Dois browsers por agente: um que não guarda nada e um que guarda |
+| 2026-08-30 | 106 | A linha de comandos é uma skill, e o Director tem-na |
 | 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
@@ -2385,3 +2386,34 @@ discordar do que o comando realmente faz.
 limitariam o persistente aos sítios que interessam. Não é sandbox — a própria
 documentação o diz — mas é a diferença entre um agente que chega ao painel de
 uma conta e um que chega ao email dela.
+
+### 106. A linha de comandos passa a ser uma skill, e o Director tem-na
+Um agente que não sabe que a máquina já tem uma ferramenta pede que se construa
+outra. A `Shell` sempre esteve na lista de permissões e o Director sempre a
+teve; o que faltava era ele saber que a tem, saber onde o guardo pára, e saber
+que a pode passar adiante.
+
+**Prosa, não permissão.** Uma skill entra no prompt e não concede alcance
+nenhum — quem concede é a lista de ferramentas do perfil. O ecrã di-lo em voz
+alta, e diz mais: se o agente tiver a skill e não tiver `Shell`, a linha por
+baixo avisa que aquilo descreve uma ferramenta que ele não alcança. O engano
+caro aqui é o inverso — pensar que conceder a skill dá terminal a alguém.
+
+**O corpo diz onde o guardo pára, e há teste que o prende.** Ler fora da
+worktree passa; escrever é recusado, e com ele a redirecção, a substituição de
+comandos e o `find -exec`. Um agente que leia aqui que pode escrever fora ia
+bater numa recusa sem perceber porquê, por isso o teste compara o texto com a
+regra que o `pathguard.mjs` aplica de facto. Se uma das metades mudar, a outra
+parte a compilação.
+
+**O Director recebe-a pelo `normalise`**, com a mesma disciplina do
+`can_delegate` logo acima: vem ligada, entra uma vez, e quem não a quiser
+remove-a no ecrã de Agentes. A alternativa — esperar que a operadora carregue
+num botão para o Director saber que tem terminal — deixava-o a recusar trabalho
+que já podia fazer.
+
+**Passar adiante está escrito na própria skill**, e não numa instrução à parte:
+o texto que ele tem diz-lhe que outro agente a pode receber com `install_skill`
+e que o que esse agente também vai precisar é da permissão `Shell`. A
+consciência da ferramenta e a maneira de a distribuir viajam juntas, porque
+separá-las é como se perde uma das duas.
