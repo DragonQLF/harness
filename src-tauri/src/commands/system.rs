@@ -321,10 +321,9 @@ pub async fn sidecar_install(app: AppHandle, ws: Shared<'_>) -> Result<String, S
 // ---- terminals ----
 
 fn open_terminal_in(dir: &Path, argv: &[&str]) -> Result<(), String> {
-    let dir_str = dir.to_string_lossy().to_string();
-
     #[cfg(windows)]
     {
+        let dir_str = dir.to_string_lossy().to_string();
         let mut wt_args: Vec<&str> = vec!["-d", &dir_str];
         wt_args.extend_from_slice(argv);
         if std::process::Command::new("wt").args(&wt_args).spawn().is_ok() {

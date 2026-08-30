@@ -87,13 +87,8 @@ pub struct ProjectRuntime {
     pub run_log: Arc<JsonlRunLog>,
 }
 
-/// The last look at Relay's own repository, kept whole.
-///
-/// Two readers want different halves of the same finding and neither should
-/// rebuild the other's: the Director's prompt wants the sentence, and the
-/// window wants the numbers. Keeping both together means the sentence the
-/// operator is shown a piece of is the same sentence the Director received,
-/// not one written again later against a different clock.
+/// Tudo o que os comandos precisam: os projectos, um engine por cada um, e o
+/// telefone para os dois actores que guardam o resto (`registry`, `chats`).
 pub struct Workspace {
     app: AppHandle,
     pub paths: AppPaths,
@@ -114,10 +109,6 @@ pub struct Workspace {
     /// Improvement proposals waiting on the operator, plus the mark of the
     /// last end-of-day look.
     inbox: Mutex<InboxState>,
-    /// What the last look at Relay's own repository found: commits that never
-    /// went through a card. Held here so the Director's next turn receives it
-    /// rather than having to know to ask — and so the window can come and get
-    /// it, which the startup emit cannot promise (see [`Finding`]).
     /// O que `/` sabe fazer. Publicado por cada sessão que abre e guardado no
     /// disco porque o evento que o traz é efémero: sem isto, reiniciar a app
     /// deixava o compositor sem menu até ao turno seguinte, que é precisamente
@@ -158,8 +149,6 @@ impl Workspace {
             paths::read_json_or_default(&paths.conversations_file());
         let chats = ConversationsHandle::spawn(app.clone(), paths.clone(), conversations);
         let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
-        // Verdicts filed while the window was shut. Absent on an old install
-        // and unreadable on a bad day; both open empty rather than refusing.
         let sidecar_dir = sidecar::prepare(&app, &paths);
         // A missing transcript directory must not stop the app opening: an
         // in-memory conversation is still better than no window.
@@ -1042,12 +1031,6 @@ impl Workspace {
         self.inbox().awaiting_action().into_iter().cloned().collect()
     }
 
-    /// Verdicts his automatic reviewer reached since he was last told, and
-    /// forget them. Taken rather than read: delivered once, then past, which
-    /// is `outside_work`'s discipline — the board in his prompt already
-    /// carries the standing state of every card. The forgetting is written to
-    /// disk with the take, so a restart in between does not say it twice.
- 
     /// The last thing the look at Relay's own repository found, if anything,
     /// as the Director's prompt wants it: one paragraph.
     pub async fn outside_work(&self) -> Option<String> {

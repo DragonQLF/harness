@@ -664,7 +664,6 @@ pub fn find<'a>(agents: &'a [AgentProfile], id: &str) -> Option<&'a AgentProfile
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn a_drafted_agent_cannot_arrive_holding_tools() {

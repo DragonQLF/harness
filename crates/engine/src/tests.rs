@@ -104,9 +104,6 @@ enum FakeMode {
     Complete,
     WaitCancelled,
     NeedsApproval,
-    DirectApprove,
-    DirectReject,
-    Garbage,
 }
 
 /// O revisor, agora do lado de fora.
@@ -224,48 +221,6 @@ impl AgentPort for FakeAgent {
                     .await;
                 drop(tx);
                 Ok(RunOutcome::completed(None, Some(0.0)))
-            }),
-            FakeMode::DirectApprove => Box::pin(async move {
-                let _ = tx
-                    .send(RunEvent::Done {
-                        session_id: None,
-                        cost_usd: Some(0.0),
-                        turns: None,
-                        result: Some("{\"decision\":\"approve\",\"reason\":\"fine\"}".into()),
-                        error: None,
-                    })
-                    .await;
-                drop(tx);
-                Ok(RunOutcome::completed(None, Some(0.0)))
-            }),
-            FakeMode::DirectReject => Box::pin(async move {
-                let _ = tx
-                    .send(RunEvent::Done {
-                        session_id: None,
-                        cost_usd: Some(0.0),
-                        turns: None,
-                        result: Some(
-                            "sure thing: {\"decision\":\"reject\",\"reason\":\"not good enough\"}"
-                                .into(),
-                        ),
-                        error: None,
-                    })
-                    .await;
-                drop(tx);
-                Ok(RunOutcome::completed(None, Some(0.0)))
-            }),
-            FakeMode::Garbage => Box::pin(async move {
-                let _ = tx
-                    .send(RunEvent::Done {
-                        session_id: None,
-                        cost_usd: None,
-                        turns: None,
-                        result: Some("I could not decide".into()),
-                        error: None,
-                    })
-                    .await;
-                drop(tx);
-                Ok(RunOutcome::completed(None, None))
             }),
         }
     }
@@ -596,7 +551,6 @@ struct Rig {
     /// Os pedidos de revisão que o engine fez. O que antes se verificava
     /// olhando para um segundo agente verifica-se agora aqui: o engine pede,
     /// e quem responde está do lado de fora.
-    #[allow(dead_code)]
     reviews: Reviews,
 }
 
@@ -1384,6 +1338,13 @@ async fn a_human_reviewer_keeps_the_card_in_review() {
     .await;
     tokio::time::sleep(Duration::from_millis(120)).await;
     assert_eq!(status_of(&r.handle, &id).await, Some(Status::Review));
+    // O revisor deste rig aprovaria; o que prende a regra é ele nunca ter sido
+    // chamado. Sem isto, um `dispatch_review` que pedisse na mesma e ignorasse
+    // a resposta passava o teste — e o espião existia sem ninguém o ler.
+    assert!(
+        r.reviews.seen().is_empty(),
+        "reviewer: you não pede revisão a ninguém"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1807,7 +1768,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
 /// — and the Code screen — look.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_commit_subject_is_the_card_title() {
-    let mut r = rig_with(
+    let r = rig_with(
         FakeMode::Complete,
         ReviewMode::Unused,
         None,
@@ -1879,7 +1840,7 @@ async fn a_reported_summary_becomes_the_commit_body_and_the_last_one_wins() {
 
     let id = CardId::new("c_report");
     card_ready(&handle, &id).await;
-    let run_id = handle
+    handle
         .start_run(id.clone(), "work".into(), profile())
         .await
         .unwrap();
@@ -2359,7 +2320,7 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
     let mut config = test_config();
     let _ = &mut config;
     let _ = updates_placeholder;
-    let (handle, _e, mut runs, id, git2) = {
+    let (handle, _e, runs, id, git2) = {
         let git2 = git.clone();
         let (handle, e, r) = Engine::spawn(
             EngineDeps {

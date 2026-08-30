@@ -23,7 +23,6 @@ use harness_ports::{
     AgentPort, ClockPort, RunLogPort, StorePort,
 };
 use harness_store_jsonl::{JsonlRunLog, JsonlStore};
-use tokio_util::sync::CancellationToken;
 
 struct SystemClock;
 

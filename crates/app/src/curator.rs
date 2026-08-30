@@ -4,7 +4,6 @@
 //! the judging layer (contradictions, obsolescence, reorganisation) is a later,
 //! model-driven pass that edits these same files.
 
-use std::path::Path;
 
 use harness_domain::{Card, Event, Status};
 use harness_ports::StoredEvent;

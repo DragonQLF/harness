@@ -12,6 +12,8 @@ const TAB: char = '\t';
 /// console window for each process, and one screen can run a dozen git commands
 /// — so the flag that suppresses it belongs in exactly one place.
 fn git_command() -> Command {
+    // `mut` só é preciso no Windows, onde a linha seguinte lhe põe a flag.
+    #[allow(unused_mut)]
     let mut cmd = Command::new("git");
     #[cfg(windows)]
     {

@@ -962,7 +962,7 @@ pub fn triage(
 #[cfg(test)]
 mod triage_tests {
     use super::*;
-    use harness_domain::{Actor, CardId, Review, RunOutcome};
+    use harness_domain::{Actor, CardId, Review};
 
     fn card(id: &str, status: Status) -> Card {
         Card {

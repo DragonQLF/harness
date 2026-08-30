@@ -896,7 +896,6 @@ impl Engine {
 /// it lives in its own task; the engine hears the verdict as a message.
 /// Green counts only when the expected artefact exists on disk.
 async fn run_build(build: &crate::BuildSpec, worktree: &std::path::Path) -> (bool, String) {
-    use tokio::io::AsyncReadExt;
     let mut cmd = tokio::process::Command::new(&build.program);
     cmd.args(&build.args)
         .current_dir(worktree)
