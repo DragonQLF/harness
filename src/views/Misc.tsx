@@ -346,6 +346,20 @@ const PROVIDER_INPUT =
 /** O painel de definições traz margem por baixo; o último não. */
 const SECTION = cx(PANEL, "mb-3");
 
+/** O nome de um grupo de definições.
+ *
+ *  O ecrã eram oito painéis sem nome, um a seguir ao outro, e a única maneira
+ *  de encontrar uma definição era ler todas as linhas até dar com ela. Um
+ *  cabeçalho não acrescenta definição nenhuma: diz a que assunto pertence o
+ *  painel que vem a seguir, que é o que faltava para o poder saltar. */
+function Heading({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="mb-2 mt-6.5 text-sm font-bold uppercase tracking-[.08em] text-text3 first:mt-0 dark:text-text3-d">
+      {children}
+    </h2>
+  );
+}
+
 /** Where the updater lives when there is nothing to say — the design's own
  *  words for it. The version, whatever the feed last answered and the one
  *  toggle; the four sheets take over the moment there is a release. */
@@ -452,7 +466,29 @@ export function Settings() {
         Applies to new runs. Anything already running keeps the profile it started with.
       </p>
 
+      <Heading>You</Heading>
       <div className={SECTION}>
+        <Row
+          name="Your name"
+          note="How Relay greets you on Home, and the name the Director is given when it writes to you. It defaults to Operator, and until now there was nowhere to change it."
+        >
+          <input
+            // Uncontrolled, com `key` no valor guardado: um `value` ligado ao
+            // estado escreveria no disco a cada tecla, e sem a `key` o campo
+            // não seguiria uma mudança vinda de fora.
+            key={settings.user_name}
+            defaultValue={settings.user_name}
+            placeholder="Operator"
+            aria-label="Your name"
+            onBlur={(e) => {
+              // Em branco é o pedido de voltar ao que o backend usa por
+              // omissão, não um nome vazio.
+              const next = e.target.value.trim() || "Operator";
+              if (next !== settings.user_name) saveSettings({ user_name: next });
+            }}
+            className={cx(PROVIDER_INPUT, "w-[180px] font-sans")}
+          />
+        </Row>
         <Row name="Appearance" note="Light by day, dark for late sessions" last>
           <div className="flex items-center gap-2.5">
             {ACCENTS.map((a) => {
@@ -481,6 +517,7 @@ export function Settings() {
         </Row>
       </div>
 
+      <Heading>This machine</Heading>
       <div className={SECTION}>
         <Row
           name="Work on Relay itself"
@@ -512,6 +549,7 @@ export function Settings() {
         </Row>
       </div>
 
+      <Heading>Where agents run</Heading>
       <div className={SECTION}>
         <Row
           name="Model endpoints"
@@ -584,6 +622,7 @@ export function Settings() {
         ))}
       </div>
 
+      <Heading>Agents and runs</Heading>
       <div className={SECTION}>
         <Row
           name="Node sidecar"
@@ -644,6 +683,7 @@ export function Settings() {
         </Row>
       </div>
 
+      <Heading>What Relay needs to be up</Heading>
       <div className={SECTION}>
         <Row
           name="Claude"
@@ -697,59 +737,64 @@ export function Settings() {
       </div>
 
       {settings.always_allow.length > 0 && (
-        <div className={SECTION}>
-          <Row
-            name="Standing allowances"
-            note="Calls Relay stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
-            last
-          >
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {settings.always_allow.map((rule) => {
-                const label = ruleLabel(rule);
-                // An unscoped shell rule from an older build. It authorises
-                // nothing now; it is shown so it can be seen and removed.
-                const revoked = ruleIsRevoked(rule);
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    title={
-                      revoked
-                        ? "This allowed every command, so it no longer allows any. Approve once more to record a scoped rule."
-                        : "Stop allowing this"
-                    }
-                    onClick={() =>
-                      saveSettings({
-                        always_allow: settings.always_allow.filter(
-                          (x) => ruleLabel(x) !== label,
-                        ),
-                      })
-                    }
-                    className={cx(
-                      DANGER,
-                      "flex items-center gap-1.5 px-3 py-1.5 font-mono text-sm",
-                      revoked
-                        ? "text-text3 line-through dark:text-text3-d"
-                        : "text-text2 no-underline dark:text-text2-d",
-                    )}
-                  >
-                    {label}
-                    {revoked && (
-                      <span className="font-sans text-xs font-bold text-warn no-underline dark:text-warn-d">
+        <>
+          <Heading>Permissions</Heading>
+          <div className={SECTION}>
+            <Row
+              name="Standing allowances"
+              note="Calls Relay stops asking about. Each one is scoped to the command it came from, so allowing git push does not allow every shell command. Click one to take it back."
+              last
+            >
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {settings.always_allow.map((rule) => {
+                  const label = ruleLabel(rule);
+                  // An unscoped shell rule from an older build. It authorises
+                  // nothing now; it is shown so it can be seen and removed.
+                  const revoked = ruleIsRevoked(rule);
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      title={
                         revoked
-                      </span>
-                    )}
-                    <span>&#10005;</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Row>
-        </div>
+                          ? "This allowed every command, so it no longer allows any. Approve once more to record a scoped rule."
+                          : "Stop allowing this"
+                      }
+                      onClick={() =>
+                        saveSettings({
+                          always_allow: settings.always_allow.filter(
+                            (x) => ruleLabel(x) !== label,
+                          ),
+                        })
+                      }
+                      className={cx(
+                        DANGER,
+                        "flex items-center gap-1.5 px-3 py-1.5 font-mono text-sm",
+                        revoked
+                          ? "text-text3 line-through dark:text-text3-d"
+                          : "text-text2 no-underline dark:text-text2-d",
+                      )}
+                    >
+                      {label}
+                      {revoked && (
+                        <span className="font-sans text-xs font-bold text-warn no-underline dark:text-warn-d">
+                          revoked
+                        </span>
+                      )}
+                      <span>&#10005;</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Row>
+          </div>
+        </>
       )}
 
+      <Heading>Updates</Heading>
       <UpdateRow />
 
+      <Heading>Data</Heading>
       <div className={PANEL}>
         <div className="flex flex-col gap-2.5 p-4.5">
           <div className="flex items-center justify-between gap-3.5">

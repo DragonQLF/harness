@@ -556,7 +556,6 @@ function Shell() {
     const screens: View[] = [
       ...NAV_VIEWS,
       "review",
-      "agents",
       "activity",
       "trees",
       "projects",
@@ -708,7 +707,7 @@ function Shell() {
       )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar view={view} go={go} openChat={openChat} />
+        <Sidebar view={view} go={go} openAgent={openAgent} />
 
         {/* The pane. Every screen scrolls inside it against an inner canvas
             floor of 880–960px, so nothing collapses and nothing gets a private

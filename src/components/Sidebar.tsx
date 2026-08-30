@@ -103,11 +103,11 @@ function CrewState({ state }: { state: { label: string; kind: string } }) {
 export function Sidebar({
   view,
   go,
-  openChat,
+  openAgent,
 }: {
   view: View;
   go: (v: View) => void;
-  openChat: (conversationId?: string) => void;
+  openAgent: (id: string) => void;
 }) {
   const {
     project,
@@ -267,13 +267,19 @@ export function Sidebar({
             No profiles yet. The crew is who can be given a card.
           </div>
         )}
+        {/* Uma linha da tripulação abre o perfil dessa pessoa, não uma conversa.
+            Abria: `openChat()` sem argumento abre a conversa que já estava no
+            ecrã — clicar no Scout dava a última conversa do Director —, e para
+            quem tinha o chat desligado caía no ecrã de Agentes sem escolher
+            ninguém. A tripulação é a lista de *quem existe e o que pode fazer*;
+            falar com alguém é o separador Chat, e o perfil tem lá o botão. */}
         {agents.map((a) => (
           <Row
             key={a.id}
             label={a.name}
             icon={<UserRound {...AGENT_ICON} />}
             on={false}
-            onClick={() => (a.chat_enabled ? openChat() : go("agents"))}
+            onClick={() => openAgent(a.id)}
             right={<CrewState state={crewState(a.id)} />}
           />
         ))}

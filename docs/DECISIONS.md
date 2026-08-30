@@ -29,7 +29,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-28 | 88–89 | O aviso de trabalho fora do quadro ganha ecrã; a derivação do RightNow auditada |
 | 2026-08-28 | 90–92 | O aviso leva os factos, sobrevive ao arranque, e a máquina de estados deixa de estar em duplicado |
 | 2026-08-28 | 93–96 | Skills e MCP por agente em runtime: plugin do Relay, declaração em vez de comando, auto-elevação recusada |
-| 2026-08-30 | 99 | O token deixa de ser uma unidade de render |
+| 2026-08-30 | 99–101 | O token deixa de ser uma unidade de render; Agentes ganha lugar na barra; as Definições ganham secções |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2117,3 +2117,29 @@ depois de a primeira começar. Um escalonar serve para dizer em que ordem as
 coisas chegaram, e isso lê-se muito antes disso. A ordem manteve-se, o compasso
 encolheu para cerca de metade (`lib/motion.ts`).
 
+### 100. O ecrã de Agentes ganha o sexto lugar na barra, e a tripulação abre perfis
+O `views.ts` reservava `agents` como sexto lugar da nav e deixava-o de fora
+"until its design lands". O desenho aterrou há muito: o ecrã edita um perfil
+inteiro — modelo, endpoint, ferramentas, skills, servidores MCP, a quem
+responde, o orçamento, o revisor — e era, para várias dessas coisas, o *único*
+sítio onde existem. Chegava-se lá pela paleta, ou clicando num membro da
+tripulação que por acaso tivesse o chat desligado. Um ecrã que é o único sítio
+onde uma definição existe não é um ecrã que se encontra por acaso.
+
+**E a linha da tripulação passa a abrir o perfil dessa pessoa.** Abria
+`openChat()` sem argumento, que abre a conversa *que já estava no ecrã* — clicar
+no Scout dava a última conversa do Director. A barra lateral é a lista de quem
+existe e do que pode fazer; falar com alguém é o separador Chat, e o perfil tem
+lá o botão.
+
+### 101. As Definições ganham secções, e o nome do operador ganha um campo
+Eram oito painéis sem nome, um a seguir ao outro: para mudar uma coisa era
+preciso ler todas as linhas até dar com ela. Os cabeçalhos não acrescentam
+definição nenhuma — dizem a que assunto pertence o painel seguinte, que é o que
+faltava para o poder saltar.
+
+**O `user_name` passou a ter onde ser escrito.** O campo existe no `Settings`
+desde sempre, o Home saúda com ele e a barra lateral assina com ele, e não havia
+em lado nenhum maneira de lhe tocar: toda a gente era "Operator" para sempre. Em
+branco volta ao valor por omissão do backend, que é o que "apagar o nome"
+quer dizer — e não um nome vazio.
