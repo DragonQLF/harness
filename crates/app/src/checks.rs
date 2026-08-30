@@ -146,10 +146,7 @@ pub fn run_card_checks(
     }
 }
 
-
-
 /// Run the configured checks and remember how they went.
-
 pub fn run_check(root: &Path, mut check: CheckRow) -> CheckRow {
     let started = std::time::Instant::now();
     let (program, args): (&str, Vec<&str>) = if cfg!(windows) {

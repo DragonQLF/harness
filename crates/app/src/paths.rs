@@ -78,11 +78,6 @@ impl AppPaths {
         self.root.join("inbox.json")
     }
 
-    /// Verdicts his automatic reviewer reached that he has not been told about
-    /// yet. Beside the inbox and workspace level for the same reason: a review
-    /// belongs to a project, but being told is the Director's, and he is one
-    /// across every board.
-
     /// The last commit of the mirror repository Relay knows about, so it can
     /// tell when its own source moved without a card behind it. App data, not
     /// the operator's repository: Relay's files never live inside one.

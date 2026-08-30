@@ -110,7 +110,9 @@ pub fn runner(
 /// never as a panic or a silent no-op.
 ///
 /// `pinned_project` is the project this conversation can read; a call may name
-
+/// another one. `delegating` is whether this profile may change a board at all,
+/// and `caller` is the profile asking — which is what the self-elevation guard
+/// in `grants` compares against its target.
 pub async fn run(
     ws: &Arc<Workspace>,
     app: &AppHandle,
