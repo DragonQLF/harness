@@ -966,7 +966,7 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
             message: None,
-            git,
+            git: git.clone(),
             approver: None,
             run_log: None,
         },
@@ -975,17 +975,106 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
         history,
     );
 
-    wait_for("recovery marks the run failed", async || {
+    // The crashed run left a dirty worktree behind. Recovery commits it the
+    // way `shutdown` commits a cancelled run, and because there is now a diff
+    // nobody has read, the card lands in Review instead of a Ready that would
+    // hide it forever.
+    wait_for("recovery commits the wip and sends the card to review", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+    assert!(
+        git.calls().iter().any(|c| c == "wip"),
+        "recovery should commit whatever the crashed run left behind"
+    );
+    let events = store.events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::RunFinished {
+                outcome: DomainOutcome::Failed,
+                ..
+            }
+        )),
+        "the run itself is still recorded as failed"
+    );
+    assert!(
+        matches!(
+            events.last(),
+            Some(Event::CardOverridden {
+                to: Status::Review,
+                ..
+            })
+        ),
+        "the override to review is the last thing recovery does"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interrupted_run_recovery_honours_commit_wip_on_close() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::new());
+    let id = CardId::new("c5b");
+    let policy = EnginePolicy {
+        director_reviews_first: true,
+        commit_wip_on_close: false,
+    };
+
+    {
+        let (handle, _e, _r) = Engine::spawn(
+            EngineDeps {
+                store: store.clone(),
+                clock: Arc::new(FixedClock),
+                agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
+                review: None,
+                message: None,
+                git: git.clone(),
+                approver: None,
+                run_log: None,
+            },
+            test_config(),
+            policy.clone(),
+            vec![],
+        );
+        card_ready(&handle, &id).await;
+        handle
+            .start_run(id.clone(), "work".into(), profile())
+            .await
+            .unwrap();
+        wait_for("card is running", async || {
+            status_of(&handle, &id).await == Some(Status::Running)
+        })
+        .await;
+    }
+
+    let history = store.read_all().unwrap();
+    let (handle, _e, _r) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
+            message: None,
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        policy,
+        history,
+    );
+
+    // With the policy off, recovery must not commit anything — the same
+    // promise `commit_wip_on_close = false` already makes for a graceful
+    // shutdown.
+    wait_for("recovery marks the run failed without committing", async || {
         status_of(&handle, &id).await == Some(Status::Ready)
     })
     .await;
-    assert!(matches!(
-        store.events().last(),
-        Some(Event::RunFinished {
-            outcome: DomainOutcome::Failed,
-            ..
-        })
-    ));
+    assert!(
+        !git.calls().iter().any(|c| c == "wip"),
+        "commit_wip_on_close = false must skip the recovery commit too"
+    );
 }
 
 async fn driven_to_review(worker: FakeMode, review: ReviewMode) -> (Rig, CardId) {

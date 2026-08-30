@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use harness_domain::{Board, Card, CardId, Command, Event, RunId, RunOutcome};
+use harness_domain::{Board, Card, CardId, Command, Event, RunId, RunOutcome, Status};
 use harness_ports::{
     AgentPort, Approver, ClockPort, GitPort, RunEvent, RunLogLine, RunLogPort, RunProfile,
     StorePort, StoredEvent, WorktreeMode, WorktreePath,
@@ -493,10 +493,14 @@ impl Engine {
         }
 
         // Anything still marked Running belongs to a process that died with us.
-        let interrupted: Vec<(CardId, RunId)> = board
+        let interrupted: Vec<(CardId, RunId, Option<String>)> = board
             .cards()
             .into_iter()
-            .filter_map(|c| c.current_run.clone().map(|r| (c.id.clone(), r)))
+            .filter_map(|c| {
+                c.current_run
+                    .clone()
+                    .map(|r| (c.id.clone(), r, c.worktree.clone()))
+            })
             .collect();
 
         let (logged_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
@@ -528,7 +532,26 @@ impl Engine {
             runs_tx,
         };
 
-        for (card_id, run_id) in interrupted {
+        for (card_id, run_id, worktree) in interrupted {
+            // The crash gave nobody a chance to do what `shutdown` does for a
+            // cancelled run: commit whatever the agent left behind. Do it here,
+            // before the card is marked Ready, or a passing build becomes an
+            // untracked worktree the instant this loop finishes.
+            let committed = if engine.policy.commit_wip_on_close {
+                worktree.as_deref().and_then(|wt| {
+                    let path = WorktreePath(PathBuf::from(wt));
+                    match engine.git.commit_wip(&path) {
+                        Ok(sha) => sha,
+                        Err(e) => {
+                            eprintln!("recovery commit failed for {card_id}: {e}");
+                            None
+                        }
+                    }
+                })
+            } else {
+                None
+            };
+
             let events = engine.board.decide(&Command::FinishRun {
                 card_id: card_id.clone(),
                 run_id: run_id.clone(),
@@ -539,6 +562,28 @@ impl Engine {
             if let Ok(events) = events {
                 if let Err(e) = engine.persist_sync(events) {
                     eprintln!("recovery persist failed: {e}");
+                }
+            }
+
+            // A commit landed: there is a diff nobody has read. FinishRun just
+            // put the card in Ready, indistinguishable from one nobody ever
+            // touched, so a reviewer would never think to look. `OverrideCard`
+            // is the one command built for moving a card somewhere the normal
+            // transitions do not reach — use it to send this one to Review
+            // instead, with a reason that says why it got there.
+            if committed.is_some() {
+                match engine.board.decide(&Command::OverrideCard {
+                    card_id: card_id.clone(),
+                    to: Status::Review,
+                    reason: "recovered: the app closed mid-run and left committed work behind"
+                        .to_string(),
+                }) {
+                    Ok(events) => {
+                        if let Err(e) = engine.persist_sync(events) {
+                            eprintln!("recovery override persist failed: {e}");
+                        }
+                    }
+                    Err(e) => eprintln!("recovery override rejected for {card_id}: {e}"),
                 }
             }
         }
