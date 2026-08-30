@@ -65,9 +65,6 @@ test("both harness servers construct and route calls through the bridge", async 
 
   const reply = await report.cb({ summary: "fixed the retry", memory_notes: ["note"] });
   assert.equal(reply.text, "bridge-ok");
-
-  const request = builders ? undefined : undefined; // placeholder removed below
-  assert.ok(true);
 });
 
 test("the worker's report reaches the bridge bound to its run id", async () => {
@@ -145,4 +142,50 @@ test("board tools route with their own run id", async () => {
   const request = recorded.find((m) => m.type === "tool_request");
   assert.equal(request.run_id, "run-director");
   assert.equal(request.name, "move_card");
+});
+
+/** Every tool name the Rust dispatch answers, in either of the two shapes it
+ *  uses: a `match` arm, and the handful checked before a project is resolved. */
+function answeredByRust() {
+  const dispatch = fs.readFileSync(
+    path.join(here, "..", "src-tauri", "src", "director_tools", "mod.rs"),
+    "utf8",
+  );
+  const arms = [...dispatch.matchAll(/"([a-z_]+)"(?: \| "([a-z_]+)")? =>/g)].flatMap((m) =>
+    [m[1], m[2]].filter(Boolean),
+  );
+  const early = [...dispatch.matchAll(/call\.name == "([a-z_]+)"/g)].map((m) => m[1]);
+  return new Set([...arms, ...early]);
+}
+
+/** The other half of the wiring, and the half that only breaks at runtime.
+ *
+ *  A tool declared here is a tool the model is told it has. Whether anything
+ *  answers it is decided a language away, in the Rust dispatch — and the miss
+ *  is silent from the sidecar's side: the model calls it, and gets back
+ *  "Relay has no tool called X" as if it had made the name up. This is exactly
+ *  the class of bug that splitting `director_tools.rs` into modules could
+ *  introduce, which is why the guard arrived with the split. */
+test("every declared board tool has an arm in the Rust dispatch", () => {
+  const { builders } = loadBuilders();
+  const declared = builders.harnessTools("run-director").tools.map((t) => t.name);
+  assert.ok(declared.length >= 8, "the board tools are all registered");
+
+  const answered = answeredByRust();
+  const orphans = declared.filter((name) => !answered.has(name));
+  assert.deepEqual(orphans, [], `declared to the model, answered by nobody: ${orphans}`);
+});
+
+/** And the reverse, which is cheaper to get wrong: an arm nobody can reach.
+ *  `report_work` and `message_director` are the worker's, not the board's. */
+test("the Rust dispatch answers nothing the model was never offered", () => {
+  const { builders } = loadBuilders();
+  const board = builders.harnessTools("run-director").tools.map((t) => t.name);
+  const worker = builders
+    .reportWorkTool("run-worker", builders.callFor("run-worker"))
+    .tools.map((t) => t.name);
+  const offered = new Set([...board, ...worker]);
+
+  const dead = [...answeredByRust()].filter((name) => !offered.has(name));
+  assert.deepEqual(dead, [], `answered by Relay, offered to nobody: ${dead}`);
 });
