@@ -10,6 +10,7 @@ import { cx } from "../lib/cx";
 import { paneIn, rowIn } from "../lib/motion";
 import {
   ALL_PERMISSIONS,
+  modelLabel,
   MODELS,
   REVIEWERS,
   WORKTREE_MODES,
@@ -19,7 +20,6 @@ import {
   type McpTransport,
   type Reviewer,
   type WorktreeMode,
-  type Provider,
 } from "../lib/types";
 import { useStore } from "../state/store";
 import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
@@ -318,11 +318,18 @@ function caveatOf(m: CatalogModel): string | null {
  *  cannot hold the repository. Both look like Relay being broken. So the ones
  *  that can do the job are listed first and the rest say why not. */
 function ModelPicker({
-  endpoint,
+  providerId,
+  baseUrl,
+  aliases,
   chosen,
   onPick,
 }: {
-  endpoint: Provider;
+  providerId: string;
+  baseUrl: string;
+  /** Os apelidos que este endpoint aceita, fixados no topo. Só o login da
+   *  Claude tem — e são uma escolha a sério, não um atalho: um perfil em
+   *  `opus` sobe de versão sozinho, um perfil em `claude-opus-4-8` não. */
+  aliases?: { id: string; name: string; hint: string }[];
   chosen: string;
   onPick: (id: string) => void;
 }) {
@@ -335,13 +342,13 @@ function ModelPicker({
     setModels(null);
     setError(null);
     api
-      .modelCatalog(endpoint.id, endpoint.base_url)
+      .modelCatalog(providerId, baseUrl)
       .then((rows) => alive && setModels(rows))
       .catch((e) => alive && setError(reason(e)));
     return () => {
       alive = false;
     };
-  }, [endpoint.id, endpoint.base_url]);
+  }, [providerId, baseUrl]);
 
   const needle = find.trim().toLowerCase();
   const shown = (models ?? []).filter(
@@ -374,6 +381,44 @@ function ModelPicker({
           Nothing to list for this endpoint. A local Ollama reports only what has been
           pulled onto this machine — `ollama pull qwen3.5` and it appears here.
         </p>
+      )}
+
+      {/* Os apelidos primeiro, e separados. Um perfil em `opus` e um perfil em
+          `claude-opus-4-8` não são a mesma escolha — o primeiro segue as
+          versões novas, o segundo fica onde está —, e a lista não deve fazer
+          parecer que são duas maneiras de dizer o mesmo. */}
+      {aliases && aliases.length > 0 && !needle && (
+        <div className="mt-2 overflow-hidden rounded-md border border-line2 dark:border-line2-d">
+          {aliases.map((a) => {
+            const picked = a.id === chosen;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => onPick(a.id)}
+                className={cx(
+                  ROW,
+                  "flex w-full items-baseline gap-2.5 border-b border-line2 px-3 py-2.5 text-left dark:border-line2-d",
+                  picked ? "bg-accentSoft dark:bg-accentSoft-d" : "bg-transparent",
+                )}
+              >
+                <span
+                  className={cx(
+                    mono,
+                    "flex-none text-sm",
+                    picked ? "text-accent dark:text-accent-d" : "text-text1 dark:text-text1-d",
+                  )}
+                >
+                  {a.id}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs text-text3 dark:text-text3-d">
+                  {a.hint}
+                </span>
+                <span className="flex-none text-xs text-text4 dark:text-text4-d">follows releases</span>
+              </button>
+            );
+          })}
+        </div>
       )}
 
       <div
@@ -439,6 +484,51 @@ function ModelPicker({
           }}
           className={cx(FIELD, "min-w-0 flex-1 px-2.5 py-2 font-mono text-sm")}
         />
+      </div>
+    </div>
+  );
+}
+
+/** Um mosaico que é uma escolha de uma lista.
+ *
+ *  Era um `Knob` que ciclava: para chegar ao terceiro endpoint de quatro
+ *  clicava-se três vezes, sem nunca ver quais eram os outros, e passar do fim
+ *  ao princípio dava a volta sem avisar. Uma lista de escolhas quer-se vista
+ *  toda de uma vez — e o `select` nativo já é o que o resto deste ecrã usa para
+ *  "reports to" e "escalates to", portanto é também o que aqui não introduz um
+ *  padrão novo. */
+function KnobPick({
+  label,
+  hint,
+  value,
+  options,
+  onPick,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  options: { id: string; name: string }[];
+  onPick: (id: string) => void;
+}) {
+  return (
+    <div className="bg-surface px-3.5 py-3 text-left dark:bg-surface-d">
+      <div className="text-xs font-normal tracking-[.08em] text-text4 dark:text-text4-d">
+        {label}
+      </div>
+      <select
+        value={value}
+        aria-label={label}
+        onChange={(e) => onPick(e.target.value)}
+        className="mt-1 w-full cursor-pointer truncate border-none bg-transparent p-0 text-md font-semibold text-text1 outline-none dark:text-text1-d"
+      >
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <div className="mt-1 text-xs font-normal leading-snug text-text4 dark:text-text4-d">
+        {hint}
       </div>
     </div>
   );
@@ -588,64 +678,54 @@ export function Agents({
   };
   const budgets = [0.25, 0.5, 1, 2, 5, null];
 
-  // An endpoint that is not Anthropic's names its models differently — qwen3.5
-  // on Ollama, anthropic/claude-opus-5 on OpenRouter — so the fixed three stop
-  // being a menu and the field has to be typed.
+  // O login incorporado da Claude é um endpoint como os outros para efeitos de
+  // escolha; o que o distingue é aceitar apelidos além dos nomes exactos.
   const providers = settings?.providers ?? [];
   const endpoint = providers.find((p) => p.id === agent.provider);
-  const knobs = [
+  const ALIAS_HINTS: Record<string, string> = {
+    opus: "Deepest reasoning, highest cost",
+    sonnet: "The everyday worker",
+    haiku: "Fast and cheap, for lookups",
+  };
+
+  // Escolhas de uma lista: vêem-se todas de uma vez em vez de se ciclar até
+  // acertar. As duas que restam em `Knob` são um número de 1 a 4 e seis
+  // orçamentos, onde ciclar é mais rápido do que abrir uma lista.
+  const picks = [
     {
       label: "RUNS ON",
-      value: endpoint?.name ?? "Anthropic",
-      hint: endpoint
-        ? endpoint.base_url
-        : "The Claude login this machine already has",
-      onCycle: () =>
-        patch({
-          provider: cycle(
-            ["", ...providers.map((p) => p.id)],
-            agent.provider ?? "",
-          ),
-        }),
-    },
-    {
-      label: "MODEL",
-      value: endpoint
-        ? agent.model || "not set"
-        : MODELS.find((m) => m.id === agent.model)?.name ?? "auto",
-      hint: endpoint
-        ? "Typed below — this endpoint has its own names"
-        : MODELS.find((m) => m.id === agent.model)?.hint ?? "Claude picks one",
-      onCycle: endpoint
-        ? undefined
-        : () => patch({ model: cycle(MODELS.map((m) => m.id), agent.model ?? "sonnet") }),
+      value: agent.provider ?? "",
+      hint: endpoint ? endpoint.base_url : "The Claude login this machine already has",
+      options: [
+        { id: "", name: "Claude login" },
+        ...providers.map((p) => ({ id: p.id, name: p.name })),
+      ],
+      onPick: (id: string) =>
+        // Trocar de endpoint invalida o modelo: `opus` não quer dizer nada num
+        // Ollama, e `qwen3.5` não quer dizer nada na Anthropic. Limpar é mais
+        // honesto do que deixar lá um nome que vai falhar a meio de um run.
+        patch({ provider: id, model: id === (agent.provider ?? "") ? agent.model : null }),
     },
     {
       label: "REVIEWER",
-      value: REVIEWERS.find((r) => r.id === agent.reviewer)!.name,
-      hint:
-        agent.reviewer === "director"
-          ? "Reads the diff before you do"
-          : agent.reviewer === "human"
-            ? "Every run lands in your queue"
-            : "Finished runs go straight to Done",
-      onCycle: () =>
-        patch({
-          // The generated vocabulary types ids as strings; the profile wants
-          // the narrowed enum. The cast is safe because the list is written
-          // from the Rust enum itself.
-          reviewer: cycle(REVIEWERS.map((r) => r.id), agent.reviewer) as Reviewer,
-        }),
+      value: agent.reviewer,
+      hint: REVIEWERS.find((r) => r.id === agent.reviewer)!.hint,
+      options: REVIEWERS.map((r) => ({ id: r.id, name: r.name })),
+      // The generated vocabulary types ids as strings; the profile wants the
+      // narrowed enum. The cast is safe because the list is written from the
+      // Rust enum itself.
+      onPick: (id: string) => patch({ reviewer: id as Reviewer }),
     },
     {
       label: "WORKTREE",
-      value: WORKTREE_MODES.find((w) => w.id === agent.worktree)!.name,
+      value: agent.worktree,
       hint: WORKTREE_MODES.find((w) => w.id === agent.worktree)!.hint,
-      onCycle: () =>
-        patch({
-          worktree: cycle(WORKTREE_MODES.map((w) => w.id), agent.worktree) as WorktreeMode,
-        }),
+      options: WORKTREE_MODES.map((w) => ({ id: w.id, name: w.name })),
+      onPick: (id: string) => patch({ worktree: id as WorktreeMode }),
     },
+  ];
+
+  const knobs = [
     {
       label: "AT ONCE",
       value: plural(agent.max_concurrent, "card"),
@@ -727,7 +807,7 @@ export function Agents({
                       <span
                         className={cx(mono, truncate, "block text-xs text-text4 dark:text-text4-d")}
                       >
-                        {a.title} · {a.model ?? "auto"}
+                        {a.title} · {modelLabel(a.model).label}
                       </span>
                     </span>
                     <span className={cx("text-xs font-medium", state.fg)}>{state.label}</span>
@@ -827,6 +907,9 @@ export function Agents({
             variants={rowIn}
             className="grid grid-cols-[repeat(5,minmax(0,1fr))] gap-px overflow-hidden rounded-md border border-line bg-line dark:border-line-d dark:bg-line-d"
           >
+            {picks.map((k) => (
+              <KnobPick key={k.label} {...k} />
+            ))}
             {knobs.map((k) => (
               <Knob key={k.label} {...k} />
             ))}
@@ -866,13 +949,27 @@ export function Agents({
                   )}
                 />
               </div>
-              {endpoint && (
-                <ModelPicker
-                  endpoint={endpoint}
-                  chosen={agent.model ?? ""}
-                  onPick={(id) => patch({ model: id || null })}
-                />
-              )}
+              {/* Sempre um selector, e para o login da Claude também. Era um
+                  mosaico que ciclava entre "Opus", "Sonnet" e "Haiku", que não
+                  são modelos — são apelidos, e nenhum deles diz em que Opus o
+                  agente vai correr. O catálogo dá os nomes a sério (models.dev
+                  para os hospedados, a própria máquina para um Ollama local) e
+                  os apelidos ficam no topo, ditos como o que são. */}
+              <ModelPicker
+                providerId={endpoint ? endpoint.id : "anthropic"}
+                baseUrl={endpoint ? endpoint.base_url : ""}
+                aliases={
+                  endpoint
+                    ? undefined
+                    : MODELS.map((m) => ({
+                        id: m.id,
+                        name: m.name,
+                        hint: ALIAS_HINTS[m.id] ?? m.hint,
+                      }))
+                }
+                chosen={agent.model ?? ""}
+                onPick={(id) => patch({ model: id || null })}
+              />
 
               <div>
                 <Eyebrow className="block pb-2">TOOLS IT MAY USE</Eyebrow>
