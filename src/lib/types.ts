@@ -516,6 +516,50 @@ export function toneName(name: string | undefined): ToneName {
 
 
 
+/** Os apelidos que o login da Claude aceita. Não são modelos: são "seja qual
+ *  for o Opus de hoje", e é por isso que continuam a valer a pena — um perfil
+ *  posto em `opus` sobe de versão sozinho. Mas também é por isso que dizer só
+ *  "opus" num ecrã não diz nada: há muitos Opus, e este não escolhe nenhum. */
+export const MODEL_ALIASES: Record<string, string> = {
+  opus: "Opus",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+};
+
+/** Como se diz, num ecrã, em que modelo uma coisa corre.
+ *
+ *  Três casos e três frases diferentes, porque são três factos diferentes:
+ *  nada escolhido, um apelido que segue a versão mais recente, e um modelo
+ *  fixado. Antes eram todos a mesma palavra solta — "opus" — que não dizia
+ *  qual dos Opus nem que era um apelido, e o vazio dizia-se com o nome de
+ *  outra coisa qualquer. */
+export function modelLabel(model: string | null | undefined): {
+  /** O que a pastilha mostra. Curto. */
+  label: string;
+  /** O que o `title` explica. Uma frase. */
+  hint: string;
+  /** Verdadeiro quando ninguém escolheu — a pastilha diz "default". */
+  isDefault: boolean;
+} {
+  const id = (model ?? "").trim();
+  if (!id) {
+    return {
+      label: "default",
+      hint: "No model chosen: the Claude login picks one for every run.",
+      isDefault: true,
+    };
+  }
+  const alias = MODEL_ALIASES[id.toLowerCase()];
+  if (alias) {
+    return {
+      label: `${alias} · latest`,
+      hint: `An alias, not a model: whichever ${alias} is current when the run starts. It follows new releases on its own.`,
+      isDefault: false,
+    };
+  }
+  return { label: id, hint: `Pinned to ${id}. It stays on this one until you change it.`, isDefault: false };
+}
+
 // The backend's own vocabulary, passed through so a screen imports every
 // list from one place whether it is generated or drawn here.
 export { ALL_PERMISSIONS, MODELS, REVIEWERS, STATUSES, WORKTREE_MODES };

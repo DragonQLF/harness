@@ -9,10 +9,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Plus, Square } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { ago, bytes, money, num } from "../lib/format";
+import { ago, bytes, money, num, shortAgo } from "../lib/format";
 import { cx } from "../lib/cx";
 import { paneIn, popover, rowIn } from "../lib/motion";
 import {
+  modelLabel,
   ruleLabel,
   STATUS_NAME,
   type AllowRule,
@@ -333,6 +334,109 @@ function Total({ label, value }: { label: string; value: ReactNode }) {
  *  An em-dash where the answer is genuinely missing — a thread recorded before
  *  usage was logged has no token count, and inventing one is worse than the
  *  dash. Re-read when the turn ends, which is when the numbers moved. */
+/** As conversas que existem, e o botão que faz mais uma.
+ *
+ *  Não havia nenhum dos dois em lado nenhum do ecrã de Chat. Criar uma conversa
+ *  era o ⌘K ou o menu do sistema; trocar de conversa era o ⌘K e saber o título
+ *  de cor. Uma app de conversas em que a lista de conversas não está visível
+ *  esconde a coisa de que é feita — e um `+` que só existe numa paleta é um `+`
+ *  que ninguém encontra.
+ *
+ *  A que está aberta marca-se; um rascunho é o estado sem id, e diz-se como
+ *  tal em vez de se desenhar uma linha que ainda não existe. */
+function Threads() {
+  const { conversations, conversationId, agents, newConversation, openConversation, draftProfile } =
+    useStore();
+  const [showArchived, setShowArchived] = useState(false);
+
+  const shown = conversations.filter((c) => (showArchived ? true : !c.archived));
+  const archived = conversations.filter((c) => c.archived).length;
+  const draft = conversationId == null;
+
+  return (
+    <div className="flex-none rounded-lg border border-line bg-surface px-4 py-3.75 dark:border-line-d dark:bg-surface-d">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1 text-md font-bold text-ink dark:text-ink-d">Chats</div>
+        <button
+          type="button"
+          title="Start a new chat — nothing is written until you send the first message"
+          aria-label="New chat"
+          onClick={() => newConversation()}
+          className="flex flex-none cursor-pointer items-center gap-1 rounded-full border-none bg-primary px-2.5 py-1 text-xs font-bold text-white transition-colors duration-150 hover:bg-primaryDeep dark:bg-primary-d"
+        >
+          <Plus size={11} strokeWidth={3} aria-hidden="true" />
+          New
+        </button>
+      </div>
+
+      {/* Um rascunho não é uma linha da lista: não tem id, não está no disco, e
+          desenhá-lo lá em cima fingia uma conversa que ainda não existe. */}
+      {draft && (
+        <div className="mt-3 rounded-9px border border-dashed border-line2 px-2.5 py-2 dark:border-line2-d">
+          <div className="truncate text-body font-semibold text-ink dark:text-ink-d">
+            New chat with {agents.find((a) => a.id === (draftProfile ?? "director"))?.name ?? "the Director"}
+          </div>
+          <div className={cx(mono, "mt-0.5 text-xs text-faint dark:text-faint-d")}>
+            draft · saved when you send
+          </div>
+        </div>
+      )}
+
+      {shown.length === 0 && !draft && (
+        <div className="mt-3 text-body leading-[1.55] text-muted dark:text-muted-d">
+          No chats yet. Anything you ask starts one, and it is kept.
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-col">
+        {shown.map((c) => {
+          const on = c.id === conversationId;
+          const who = agents.find((a) => a.id === c.profile_id)?.name ?? c.profile_id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-current={on ? "true" : undefined}
+              onClick={() => openConversation(c.id)}
+              className={cx(
+                "cursor-pointer rounded-9px border-none px-2.5 py-1.75 text-left transition-colors duration-150",
+                on
+                  ? "bg-primarySoft dark:bg-primarySoft-d"
+                  : "bg-transparent hover:bg-hovered dark:hover:bg-hovered-d",
+              )}
+            >
+              <div
+                className={cx(
+                  "truncate text-body",
+                  on
+                    ? "font-semibold text-ink dark:text-ink-d"
+                    : "font-medium text-ink2 dark:text-ink2-d",
+                )}
+              >
+                {c.title}
+              </div>
+              <div className={cx(mono, "mt-0.5 truncate text-xs text-faint dark:text-faint-d")}>
+                {who} · {shortAgo(c.updated_ms)}
+                {c.archived && " · archived"}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {archived > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowArchived((v) => !v)}
+          className="mt-2 cursor-pointer border-none bg-transparent p-0 text-xs text-faint underline-offset-2 hover:underline dark:text-faint-d"
+        >
+          {showArchived ? "hide archived" : `${archived} archived`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ThreadTotals() {
   const { conversation, chatBusy } = useStore();
   const conversationId = conversation?.id ?? null;
@@ -767,7 +871,10 @@ export function Chat() {
     [take],
   );
 
-  const facts = [speaker?.model, speaker?.title].filter(Boolean).join(" · ");
+  const modelOf = modelLabel(speaker?.model);
+  const facts = [modelOf.isDefault ? null : modelOf.label, speaker?.title]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <motion.div
@@ -1118,8 +1225,12 @@ export function Chat() {
                 <Plus size={12} strokeWidth={3} aria-hidden="true" />
               </button>
 
-              <span className={cx(PILL, "flex-none")} title="The model this profile runs on">
-                {speaker?.model ?? "model chosen by Claude"}
+              {/* Diz o que está activo, e diz quando não está escolhido nada.
+                  Mostrava `speaker.model` cru — "opus" —, que não diz qual dos
+                  Opus nem que é um apelido que anda sozinho, e dizia o vazio
+                  com uma frase que parecia um nome de modelo. */}
+              <span className={cx(PILL, "flex-none")} title={`${modelOf.hint} Change it in this profile, on the Agents screen.`}>
+                {modelOf.isDefault ? "model · default" : modelOf.label}
               </span>
 
               {/* Per message, and it says so. Effort binds the request rather
@@ -1130,7 +1241,11 @@ export function Chat() {
                 <button
                   type="button"
                   aria-expanded={pickEffort}
-                  title="How hard to think, from this message on. Change it any time; a model without the level you pick is downgraded by the engine."
+                  title={
+                    effort
+                      ? `Thinking at ${effort}, from this message on. A model without that level is downgraded by the engine.`
+                      : "Default: whatever the model does on its own, which is what it does when nobody asks. Pick a level to push it harder."
+                  }
                   onClick={() => setPickEffort((v) => !v)}
                   className={cx(
                     PILL,
@@ -1139,7 +1254,7 @@ export function Chat() {
                       "border-primaryLine bg-primarySoft text-primary dark:border-primaryLine-d dark:bg-primarySoft-d dark:text-primary-d",
                   )}
                 >
-                  {effort ? `thinking · ${effort}` : "thinking"}
+                  {`thinking · ${effort ?? "default"}`}
                 </button>
                 <AnimatePresence>
                   {pickEffort && (
@@ -1162,6 +1277,11 @@ export function Chat() {
                         >
                           <span className="min-w-0 flex-1 truncate text-md font-medium text-ink2 dark:text-ink2-d">
                             {level.name}
+                            {level.id === null && (
+                              <span className="pl-1.5 text-xs font-normal text-faint dark:text-faint-d">
+                                what the model does on its own
+                              </span>
+                            )}
                           </span>
                           {level.id === effort && (
                             <span className={cx(mono, "text-xs text-primary dark:text-primary-d")}>
@@ -1268,6 +1388,7 @@ export function Chat() {
         </div>
 
         <div className="flex min-h-0 w-[286px] flex-none flex-col gap-3.25 overflow-auto">
+          <Threads />
           <Touched />
           <ThreadTotals />
         </div>
