@@ -78,8 +78,8 @@ async fn main() {
         PathBuf::from("sidecar/index.mjs"),
     ));
     // The review step is deliberately human: this proves the queue, not the
-    // Director, and keeps the cost of the check to exactly one run.
-    let director = worker.clone();
+    // Director, and keeps the cost of the check to exactly one run. No review
+    // hook, for the same reason — nobody takes it, and the card waits.
 
     let mut config = EngineConfig::new("e2e", repo.clone());
     config.base_branch = "main".into();
@@ -88,9 +88,9 @@ async fn main() {
             store: store.clone() as Arc<dyn StorePort>,
             clock: Arc::new(SystemClock),
             agent: worker.clone() as Arc<dyn AgentPort>,
-            director: director as Arc<dyn AgentPort>,
             git: git.clone(),
             approver: None,
+            review: None,
             run_log: Some(run_log.clone() as Arc<dyn RunLogPort>),
         },
         config,

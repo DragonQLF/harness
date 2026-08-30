@@ -63,9 +63,6 @@ impl AppPaths {
     /// yet. Beside the inbox and workspace level for the same reason: a review
     /// belongs to a project, but being told is the Director's, and he is one
     /// across every board.
-    pub fn verdicts_file(&self) -> PathBuf {
-        self.root.join("verdicts.json")
-    }
 
     /// The last commit of the mirror repository Relay knows about, so it can
     /// tell when its own source moved without a card behind it. App data, not

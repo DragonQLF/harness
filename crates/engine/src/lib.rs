@@ -85,10 +85,6 @@ pub struct EngineConfig {
     /// Fallbacks used when an agent profile leaves them unset.
     pub permission_mode: String,
     pub worker_allowed_tools: Vec<String>,
-    pub director_allowed_tools: Vec<String>,
-    pub director_model: Option<String>,
-    /// Where the Director's own model lives, when it is not Anthropic's.
-    pub director_provider: Option<harness_ports::ModelProvider>,
     /// When the stored log reaches this many events, startup folds it into a
     /// single `BoardSnapshot` so the *next* startup replays one event instead
     /// of thousands. Zero disables compaction.
@@ -126,9 +122,6 @@ impl EngineConfig {
                 "Grep".into(),
                 "Bash(git *)".into(),
             ],
-            director_allowed_tools: vec!["Read".into(), "Glob".into(), "Grep".into()],
-            director_model: None,
-            director_provider: None,
             compact_at: 1000,
             post_build: None,
         }
@@ -244,11 +237,6 @@ enum Msg {
         tail: String,
         /// Where the build ran: the artefact lives inside it until copied.
         worktree: std::path::PathBuf,
-    },
-    DirectorDone {
-        card_id: CardId,
-        outcome: Box<harness_ports::RunOutcome>,
-        verdict: Option<String>,
     },
 }
 
@@ -418,8 +406,8 @@ pub struct Engine {
     store: Arc<dyn StorePort>,
     clock: Arc<dyn ClockPort>,
     agent: Arc<dyn AgentPort>,
-    director: Arc<dyn AgentPort>,
     approver: Option<Approver>,
+    review: Option<harness_ports::ReviewHook>,
     git: Arc<dyn GitPort>,
     run_log: Option<Arc<dyn RunLogPort>>,
     config: EngineConfig,
@@ -445,9 +433,11 @@ pub struct EngineDeps {
     pub store: Arc<dyn StorePort>,
     pub clock: Arc<dyn ClockPort>,
     pub agent: Arc<dyn AgentPort>,
-    pub director: Arc<dyn AgentPort>,
     pub git: Arc<dyn GitPort>,
     pub approver: Option<Approver>,
+    /// Who reads a finished diff when the reviewer is the Director. `None`
+    /// leaves those cards waiting for the operator — see `ReviewHook`.
+    pub review: Option<harness_ports::ReviewHook>,
     pub run_log: Option<Arc<dyn RunLogPort>>,
 }
 
@@ -494,8 +484,8 @@ impl Engine {
             store: deps.store,
             clock: deps.clock,
             agent: deps.agent,
-            director: deps.director,
             approver: deps.approver,
+            review: deps.review,
             git: deps.git,
             run_log: deps.run_log,
             config,
@@ -722,13 +712,6 @@ impl Engine {
                 } => {
                     self.build_done(card_id, run_id, *profile, commit_sha, ok, tail, worktree)
                         .await;
-                }
-                Msg::DirectorDone {
-                    card_id,
-                    outcome,
-                    verdict,
-                } => {
-                    self.handle_director_done(card_id, *outcome, verdict).await;
                 }
             }
         }
@@ -976,16 +959,6 @@ impl Engine {
             }
         }
     }
-}
-
-/// Pull a JSON object out of a model reply that may be wrapped in prose.
-pub(crate) fn extract_json_object(s: &str) -> Option<String> {
-    let start = s.find('{')?;
-    let end = s.rfind('}')?;
-    if end < start {
-        return None;
-    }
-    Some(s[start..=end].to_string())
 }
 
 pub(crate) fn worktree_label(mode: WorktreeMode) -> &'static str {

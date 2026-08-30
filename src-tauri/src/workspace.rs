@@ -114,13 +114,6 @@ pub struct Workspace {
     /// Improvement proposals waiting on the operator, plus the mark of the
     /// last end-of-day look.
     inbox: Mutex<InboxState>,
-    /// Verdicts the automatic review reached while nobody was talking to the
-    /// Director. Held on this side on purpose: the engine that produces them
-    /// has no notion of conversation (#19) and does not get one back — it goes
-    /// on persisting board events, and the chat side comes and gets them.
-    /// On disk, because the likeliest moment for one to arrive is a moment
-    /// nobody is there to hear it.
-    verdicts: Arc<Mutex<harness_app::verdicts::Store>>,
     /// What the last look at Relay's own repository found: commits that never
     /// went through a card. Held here so the Director's next turn receives it
     /// rather than having to know to ask — and so the window can come and get
@@ -132,6 +125,14 @@ pub struct Workspace {
     closing: std::sync::atomic::AtomicBool,
     /// Cancelled when the operator refuses to wait for the close sequence.
     closing_token: CancellationToken,
+    /// Este mesmo workspace, para quem precisa de o passar adiante como `Arc`.
+    ///
+    /// O gancho de revisão é entregue ao engine e tem de sobreviver à chamada
+    /// que o criou; `&self` não chega e mudar a assinatura de `runtime` para
+    /// `self: &Arc<Self>` partiria os dois chamadores internos que já estão
+    /// dentro de métodos `&self`. Fraca de propósito: uma cópia forte aqui é o
+    /// workspace a segurar-se a si próprio, que é um ciclo que nunca liberta.
+    me: std::sync::OnceLock<std::sync::Weak<Workspace>>,
 }
 
 impl Workspace {
@@ -152,7 +153,6 @@ impl Workspace {
         let inbox: InboxState = paths::read_json_or_default(&paths.inbox_file());
         // Verdicts filed while the window was shut. Absent on an old install
         // and unreadable on a bad day; both open empty rather than refusing.
-        let verdicts = harness_app::verdicts::Store::open(paths.verdicts_file());
         let sidecar_dir = sidecar::prepare(&app, &paths);
         // A missing transcript directory must not stop the app opening: an
         // in-memory conversation is still better than no window.
@@ -200,11 +200,12 @@ impl Workspace {
             chats,
             chat_log,
             inbox: Mutex::new(inbox),
-            verdicts: Arc::new(Mutex::new(verdicts)),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
+            me: std::sync::OnceLock::new(),
         });
+        let _ = workspace.me.set(Arc::downgrade(&workspace));
         // Persist the normalised crew and settings so the files on disk match
         // what we are actually running.
         let _ = workspace.registry.save_agents().await;
@@ -333,6 +334,12 @@ impl Workspace {
 
 
     // ---- conversations ----
+
+    /// Este workspace como `Arc`, para o entregar a quem lhe sobreviva.
+    /// `None` só enquanto o `load` não acabou, e nada corre antes disso.
+    pub fn arc(&self) -> Option<Arc<Workspace>> {
+        self.me.get().and_then(|w| w.upgrade())
+    }
 
     pub async fn conversations(&self, include_archived: bool) -> Vec<Conversation> {
         self.chats.list(include_archived).await
@@ -826,32 +833,18 @@ impl Workspace {
 
         let script = sidecar::script_in(&self.sidecar_dir);
         let worker: Arc<dyn AgentPort> = Arc::new(SwitchingAgent {
-            sidecar: Arc::new(SidecarAgent::new("node", script.clone())),
-            cli: Arc::new(ClaudeCliAgent::new("claude")),
-            settings: Arc::clone(&self.settings),
-        });
-        let director: Arc<dyn AgentPort> = Arc::new(SwitchingAgent {
             sidecar: Arc::new(SidecarAgent::new("node", script)),
             cli: Arc::new(ClaudeCliAgent::new("claude")),
             settings: Arc::clone(&self.settings),
         });
+        // O engine já não levanta um Director: a revisão corre na conversa
+        // dele, pelo `crate::review`, com o modelo e as ferramentas do perfil
+        // que essa conversa já usa. Um segundo porto aqui era o ghost.
 
         let settings = self.settings();
-        // Uma leitura só do perfil do Director: três idas ao registo dariam
-        // três respostas que podiam já não concordar entre si.
-        let director_profile = self.agent(agents::DIRECTOR_ID).await;
         let mut config = EngineConfig::new(&project.id, root);
         config.base_branch = project.base_branch.clone();
         config.permission_mode = settings.permission_mode.clone();
-        config.director_model = director_profile
-            .as_ref()
-            .and_then(|d| d.model.clone());
-        config.director_provider = director_profile
-            .as_ref()
-            .and_then(|d| {
-                harness_app::providers::find(&settings.providers, &d.provider).cloned()
-            })
-            .and_then(|p| p.resolve());
         // Mirror mode: this project is the orchestrator itself, so a finished
         // run is followed by an engine-owned build. The artefact waits in
         // appdata; installing it is nobody's decision but the operator's.
@@ -863,22 +856,17 @@ impl Workspace {
                 artifact: "target/release/relay.exe".into(),
             });
         }
-        if let Some(director_profile) = director_profile.as_ref() {
-            let tools = director_profile.allowed_tools();
-            if !tools.is_empty() {
-                config.director_allowed_tools = tools;
-            }
-        }
-
         let history = store.read_all().map_err(|e| e.to_string())?;
         let (engine, mut events_rx, mut runs_rx) = Engine::spawn(
             EngineDeps {
                 store: store.clone() as Arc<dyn StorePort>,
                 clock: Arc::new(SystemClock),
                 agent: worker,
-                director,
                 git: git.clone(),
                 approver: Some(self.router.approver_for(&project.id)),
+                // A revisão automática corre na conversa do Director, não num
+                // segundo Director sem sessão. Ver `crate::review`.
+                review: self.arc().as_ref().map(crate::review::hook),
                 run_log: Some(run_log.clone() as Arc<dyn RunLogPort>),
             },
             config,
@@ -889,37 +877,8 @@ impl Workspace {
         let app = self.app.clone();
         let check_engine = engine.clone();
         let check_paths = self.paths.clone();
-        let verdicts = Arc::clone(&self.verdicts);
         tauri::async_runtime::spawn(async move {
             while let Ok(envelope) = events_rx.recv().await {
-                // The verdict of an automatic review, on its way past. The
-                // engine already writes who decided and why; nothing here is
-                // asked of it, and it learns nothing about conversations. We
-                // simply keep the fact until a turn comes for it (#12, #19).
-                if let Some(verdict) = harness_app::verdicts::from_event(
-                    &envelope.project_id,
-                    "",
-                    &envelope.event,
-                ) {
-                    // The title is worth one snapshot: a card id alone reads
-                    // as an id. Only director verdicts get this far, so this
-                    // is rare rather than per-event.
-                    let title = check_engine
-                        .snapshot()
-                        .await
-                        .ok()
-                        .and_then(|s| {
-                            s.cards
-                                .into_iter()
-                                .find(|c| c.id.as_str() == verdict.card_id)
-                                .map(|c| c.title)
-                        })
-                        .unwrap_or_default();
-                    verdicts.lock().unwrap().record(harness_app::verdicts::Verdict {
-                        title,
-                        ..verdict
-                    });
-                }
                 // A completed run is the moment a card's checks mean
                 // something: the work is committed, it sits in that card's own
                 // worktree, and nothing will touch it before the review. Off
@@ -1061,10 +1020,7 @@ impl Workspace {
     /// is `outside_work`'s discipline — the board in his prompt already
     /// carries the standing state of every card. The forgetting is written to
     /// disk with the take, so a restart in between does not say it twice.
-    pub fn take_review_verdicts(&self) -> Vec<harness_app::verdicts::Verdict> {
-        self.verdicts.lock().unwrap().take()
-    }
-
+ 
     /// The last thing the look at Relay's own repository found, if anything,
     /// as the Director's prompt wants it: one paragraph.
     pub async fn outside_work(&self) -> Option<String> {

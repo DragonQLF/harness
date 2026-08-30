@@ -266,7 +266,6 @@ async fn send_message(
     let accepted_proposals = ws.accepted_proposals();
     // What his own reviewer decided while nobody was talking to him. Taken,
     // not read: this is the news, and the boards below carry the state.
-    let review_verdicts = ws.take_review_verdicts();
     // A versão só se diz quando mudou. Numa sessão retomada nada mais lho
     // contaria: as ferramentas aparecem-lhe na lista sem explicação, e deduzir
     // uma actualização pelo efeito é a pior maneira de a saber.
@@ -297,7 +296,6 @@ async fn send_message(
             // and at the close, never on a turn the operator is waiting for.
             outside_work: outside_work.as_deref(),
             accepted_proposals: &accepted_proposals,
-            review_verdicts: &review_verdicts,
             new_version,
         },
         &message,

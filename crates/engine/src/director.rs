@@ -1,243 +1,79 @@
-//! The project side of the Director: reading the diff a finished run produced
-//! and deciding whether it holds up. Conversation lives at workspace level, in
-//! `harness_app::director` — one Director watches every board.
+//! The project side of the Director: asking for the diff a finished run
+//! produced to be read. Conversation lives at workspace level, in
+//! `harness_app::director` — one Director watches every board, and since the
+//! review moved into that conversation there is exactly one of him.
 
 use std::sync::Arc;
 
-use harness_domain::{Actor, CardId, Command, RunId};
-use harness_ports::{RunEvent, RunSpec, WorktreePath};
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
+use harness_domain::{CardId, RunId};
+use harness_ports::RunEvent;
 
-use crate::{extract_json_object, Engine, Msg};
+use crate::Engine;
 
 impl Engine {
-    /// Read the diff a finished run produced and approve it or send it back.
-    /// Everything slow happens in the spawned task: reading the diff is git
-    /// work, and the actor must not sit still behind it.
+    /// Ask whoever the shell nominated to read the diff this run produced.
+    ///
+    /// This used to spawn a second Director here — a fresh session with no
+    /// memory of the conversation, `dontAsk`, and no inbox — which read the
+    /// diff and moved the card on its own. Two Directors existed, and only one
+    /// of them was the one the operator was talking to; the other worked
+    /// invisibly, which is why finished work kept leaving Review with nobody
+    /// apparently doing anything.
+    ///
+    /// Now the engine only asks. The shell runs the review inside the
+    /// Director's own conversation, where the operator can watch it happen and
+    /// where it still remembers what they have been discussing. Nothing here
+    /// knows any of that: this sends four facts down a hook and takes a yes or
+    /// a no.
     pub(crate) async fn run_director_review(&mut self, card_id: CardId, run_id: RunId) {
-        let Some(session) = self.sessions.get(&card_id) else {
-            return;
-        };
-        let worktree = session.worktree.clone();
-
-        let title = self
-            .board
-            .get(&card_id)
-            .map(|c| c.title.clone())
-            .unwrap_or_else(|| card_id.to_string());
-
-        let git = Arc::clone(&self.git);
-        let wt = WorktreePath(worktree.clone());
-        let base = self.config.base_branch.clone();
-        let director = Arc::clone(&self.director);
-        let model = self.config.director_model.clone();
-        let provider = self.config.director_provider.clone();
-        let allowed_tools = self.config.director_allowed_tools.clone();
-
-        let self_tx = self.self_tx.clone();
-        let runs_tx = self.runs_tx.clone();
-        let clock = Arc::clone(&self.clock);
-        let project_id = self.config.project_id.clone();
-        let review_card = card_id;
-        let review_run = run_id;
-
-        tokio::spawn(async move {
-            // Announced only once the review is genuinely under way: an
-            // announcement before the spawn would leave the card waiting on
-            // a notice for a review that never started.
-            let ts_ms = clock.now_millis();
-            let notice = RunEvent::Notice {
-                text: "director is reading the diff".into(),
-            };
-            let _ = runs_tx.send(crate::RunUpdate {
-                project_id: project_id.clone(),
-                card_id: review_card.clone(),
-                run_id: review_run.clone(),
-                ts_ms,
-                event: notice,
-            });
-            let diff = tokio::task::spawn_blocking(move || git.diff_summary(&wt, &base))
-                .await
-                .unwrap_or_else(|_| Err(harness_ports::GitError::Git("task lost".into())))
-                .unwrap_or_else(|_| "(diff unavailable)".to_string());
-
-            let prompt = format!(
-                "You are the Director reviewing work done for the card '{title}' ({review_card}).\n\n\
-                 Judge whether the diff below fulfils the task. Be strict about scope: work that \
-                 widens permissions, touches unrelated files or skips tests should be sent back.\n\n\
-                 Respond with ONLY a JSON object, no other text:\n\
-                 {{\"decision\": \"approve\"|\"reject\", \"reason\": \"<one short sentence>\"}}\n\n\
-                 DIFF:\n{diff}"
-            );
-
-            let spec = RunSpec {
-                prompt,
-                cwd: worktree,
-                provider,
-                model,
-                allowed_tools: Some(allowed_tools),
-                max_budget_usd: None,
-                permission_mode: Some("dontAsk".to_string()),
-                approver: None,
-                resume_session: None,
-                tools: None,
-                // Nobody is typing at a review; only a conversation has an
-                // operator mid-run.
-                inbox: None,
-                thinking_tokens: None,
-                // A review reads one diff; no fan-out, and no report — the
-                // commit it reviews was already written by the worker's run.
-                subagents: false,
-                report_work: false,
-                // A revisão corre no porto do Director, que já foi construído
-                // com as concessões dele. Vazio aqui quer dizer "usa as do
-                // porto" — pôr as do worker daria ao revisor as ferramentas de
-                // quem ele está a rever.
-                grants: harness_ports::Grants::default(),
-                // A review is read by Relay, not by a person: its answer is
-                // parsed for a verdict. Whatever the operator likes to read
-                // has no say here.
-                output_style: None,
-                effort: None,
-            };
-
-            let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
-            let fut = director.run(spec, ev_tx, CancellationToken::new());
-
-            let last_result = Arc::new(std::sync::Mutex::new(None::<String>));
-            let lr = Arc::clone(&last_result);
-
-            let forward = async {
-                while let Some(ev) = ev_rx.recv().await {
-                    match &ev {
-                        RunEvent::Done { result: Some(r), .. } => {
-                            *lr.lock().unwrap() = Some(r.clone());
-                        }
-                        RunEvent::Text { text } => {
-                            let _ = runs_tx.send(crate::RunUpdate {
-                                project_id: project_id.clone(),
-                                card_id: review_card.clone(),
-                                run_id: review_run.clone(),
-                                ts_ms: clock.now_millis(),
-                                event: RunEvent::Notice {
-                                    text: format!("director: {text}"),
-                                },
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            };
-            let (res, _) = tokio::join!(fut, forward);
-            let outcome = res.unwrap_or_else(|e| harness_ports::RunOutcome::Failed {
-                message: e,
-                cost_usd: None,
-                turns: None,
-            });
-            let verdict = last_result.lock().unwrap().clone();
-            let _ = self_tx
-                .send(Msg::DirectorDone {
-                    card_id: review_card,
-                    outcome: Box::new(outcome),
-                    verdict,
-                })
-                .await;
-        });
-    }
-
-    pub(crate) async fn handle_director_done(
-        &mut self,
-        card_id: CardId,
-        outcome: harness_ports::RunOutcome,
-        verdict: Option<String>,
-    ) {
-        let run_id = self
-            .sessions
-            .get(&card_id)
-            .and_then(|s| s.run_id.clone())
-            .unwrap_or_else(|| RunId("review".into()));
-
-        if !matches!(outcome, harness_ports::RunOutcome::Completed { .. }) {
+        let Some(hook) = self.review.clone() else {
+            // Nobody to ask. Better a card that waits than a card moved by
+            // something the operator cannot see.
             self.emit_run(
                 &card_id,
                 &run_id,
                 RunEvent::Notice {
-                    text: "director could not finish the review; card stays in review".into(),
+                    text: "no reviewer is available, so the card is waiting for you".into(),
                 },
             );
             return;
-        }
-
-        let parsed = verdict
-            .as_deref()
-            .and_then(extract_json_object)
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| {
-                let decision = v.get("decision")?.as_str()?.to_ascii_lowercase();
-                let reason = v
-                    .get("reason")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                Some((decision, reason))
-            });
-
-        let (cmd, note) = match parsed {
-            Some((d, reason)) if d == "approve" => {
-                let reason = if reason.is_empty() {
-                    "the diff matches the card".to_string()
-                } else {
-                    reason
-                };
-                (
-                    Command::ApproveCard {
-                        card_id: card_id.clone(),
-                        by: Actor::Director,
-                        reason: reason.clone(),
-                        hunks: Vec::new(),
-                    },
-                    format!("director approved: {reason}"),
-                )
-            }
-            Some((d, reason)) if d == "reject" => {
-                let reason = if reason.is_empty() {
-                    "the diff does not match the card".to_string()
-                } else {
-                    reason
-                };
-                (
-                    Command::RejectCard {
-                        card_id: card_id.clone(),
-                        reason: reason.clone(),
-                        by: Actor::Director,
-                        hunks: Vec::new(),
-                    },
-                    format!("director sent it back: {reason}"),
-                )
-            }
-            _ => {
-                self.emit_run(
-                    &card_id,
-                    &run_id,
-                    RunEvent::Notice {
-                        text: "director verdict was unreadable; card stays in review".into(),
-                    },
-                );
-                return;
-            }
+        };
+        let Some(session) = self.sessions.get(&card_id) else {
+            return;
+        };
+        let request = harness_ports::ReviewRequest {
+            card_id: card_id.to_string(),
+            run_id: run_id.to_string(),
+            title: self
+                .board
+                .get(&card_id)
+                .map(|c| c.title.clone())
+                .unwrap_or_else(|| card_id.to_string()),
+            worktree: session.worktree.to_string_lossy().into_owned(),
         };
 
-        match self.board.decide(&cmd) {
-            Ok(events) => {
-                if let Err(e) = self.persist(events).await {
-                    eprintln!("director persist failed for {card_id}: {e}");
-                    return;
-                }
-                self.emit_run(&card_id, &run_id, RunEvent::Notice { text: note });
+        // Off the actor: handing the review over means waiting for a
+        // conversation to accept it, and the board must not stand still for
+        // that.
+        let runs_tx = self.runs_tx.clone();
+        let clock = Arc::clone(&self.clock);
+        let project_id = self.config.project_id.clone();
+        tokio::spawn(async move {
+            let taken = hook(request).await;
+            // Only the refusal is worth a line. When it is taken, the review
+            // itself is the announcement — it happens in front of the operator.
+            if !taken {
+                let _ = runs_tx.send(crate::RunUpdate {
+                    project_id,
+                    card_id,
+                    run_id,
+                    ts_ms: clock.now_millis(),
+                    event: RunEvent::Notice {
+                        text: "the Director could not take the review, so it is waiting for you"
+                            .into(),
+                    },
+                });
             }
-            Err(e) => eprintln!("director decision rejected for {card_id}: {e}"),
-        }
+        });
     }
 }

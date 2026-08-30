@@ -30,6 +30,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-28 | 90–92 | O aviso leva os factos, sobrevive ao arranque, e a máquina de estados deixa de estar em duplicado |
 | 2026-08-28 | 93–96 | Skills e MCP por agente em runtime: plugin do Relay, declaração em vez de comando, auto-elevação recusada |
 | 2026-08-30 | 99–101 | O token deixa de ser uma unidade de render; Agentes ganha lugar na barra; as Definições ganham secções |
+| 2026-08-30 | 102 | A revisão automática deixa de ser um segundo Director; o #98 reforma-se |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2143,3 +2144,60 @@ desde sempre, o Home saúda com ele e a barra lateral assina com ele, e não hav
 em lado nenhum maneira de lhe tocar: toda a gente era "Operator" para sempre. Em
 branco volta ao valor por omissão do backend, que é o que "apagar o nome"
 quer dizer — e não um nome vazio.
+
+### 102. A revisão automática deixa de ser um segundo Director e passa a ser um turno do primeiro
+O #12 fez do `reviewer` um campo do perfil e o engine passou a saber rever
+sozinho: quando um run acabava e o revisor era o Director, o engine levantava
+ali mesmo um Director novo — sessão nova, `permission_mode: dontAsk`, `inbox:
+None` — que lia o diff, devolvia uma linha de JSON e movia o cartão.
+
+Funcionava, e era um fantasma. Existiam dois Directors, só um deles era aquele
+com quem o operador estava a falar, e o outro trabalhava onde ninguém o via.
+Da cadeira do operador isso lê-se como trabalho a desaparecer da coluna Review
+sem que nada aconteça — e o Director da conversa não sabia responder por uma
+decisão que nunca tinha tomado. O #98 tratou metade do problema: fez o veredicto
+chegar-lhe no turno seguinte. Tratou o silêncio, não o fantasma.
+
+**O engine deixa de rever.** Passa a *pedir*, por um porto novo (`ReviewHook`):
+diz que uma revisão é precisa, entrega quatro factos, e recebe um sim ou um não.
+Continua sem saber que existem conversas (#19) — quem sabe isso é a casca.
+
+**A casca corre-a na conversa do Director**, pelo `chat::queue`, que é o mesmo
+caminho do compositor: se ele já tem um turno no ar, o pedido entra no inbox
+desse turno e ele lê-o na leitura seguinte; se não tem, começa um turno normal.
+Nos dois casos é a **sessão dele**, portanto mantém o fio que o operador estava
+a seguir, e nos dois casos a resposta sai no `engine://run` com o id da
+conversa — que é dizer, no ecrã.
+
+**Não há canal de veredicto nenhum.** Ele tem `read_diff`, `approve_card` e
+`reject_card`, e o veredicto é qual deles chama: uma chamada de ferramenta é um
+evento do quadro com o nome dele em cima, onde o JSON era um segundo relato da
+mesma decisão — e dois relatos de uma decisão podem discordar.
+
+**Consequência aceite, e é uma mudança de comportamento:** `approve_card` não é
+uma ferramenta de leitura, portanto passa pela folha de permissões. A revisão
+deixa de ser silenciosa e passa a pedir uma confirmação. É mais um clique do que
+antes e muito menos do que ler o diff; quem não quiser o clique tem a regra
+permanente, que é onde essa escolha deve ser feita — uma vez, e à vista.
+
+**Nada pega, o cartão espera.** Sem Director que possa conversar, ou com a
+conversa a recusar, o gancho devolve `false` e o cartão fica em Review para o
+operador. Melhor um cartão parado do que um cartão movido por algo que ele não
+viu acontecer, que é precisamente o defeito que isto fecha.
+
+**E o #98 reforma-se.** A premissa dele era "o veredicto não tinha para onde
+ir". Passou a ter: vai para a conversa, como a revisão em si, à frente do
+operador. Mantê-lo dizia ao Director "a tua revisão automática correu enquanto
+não estavas a olhar" sobre uma decisão que ele acabara de tomar e de narrar —
+o mesmo defeito de dois relatos, agora entre o prompt e a transcrição. Saem o
+`verdicts.rs`, o campo do `ChatContext` e o ficheiro `verdicts.json`.
+
+**Também sai o porto `director` do engine**, e com ele `director_model`,
+`director_provider` e `director_allowed_tools` do `EngineConfig`: existiam só
+para levantar o fantasma. A revisão corre agora com o modelo e as ferramentas do
+perfil que a conversa já usa, que é a única resposta que nunca pode divergir do
+que o operador vê no ecrã de Agentes.
+
+**Fica por fazer, e é o passo seguinte:** um revisor especializado. Enquanto o
+trabalho não se amontoar, o Director chega; quando chegar a altura, o `ReviewHook`
+é exactamente o sítio onde outro nome se encaixa sem o engine dar por isso.

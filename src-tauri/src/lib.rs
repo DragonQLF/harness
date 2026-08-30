@@ -9,6 +9,7 @@ mod director_tools;
 mod menu;
 mod reflection;
 mod registry;
+mod review;
 #[cfg(unix)]
 mod shellpath;
 mod sidecar;

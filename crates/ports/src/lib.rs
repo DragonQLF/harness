@@ -131,6 +131,38 @@ pub struct ApprovalRequest {
 pub type Approver =
     Arc<dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
+/// A finished run the Director is meant to read.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewRequest {
+    pub card_id: String,
+    pub run_id: String,
+    /// The card's own words. The engine has them; whoever runs the review
+    /// would otherwise have to go and ask the board for them again.
+    pub title: String,
+    /// Where the work is, so the diff can be read against the base branch.
+    pub worktree: String,
+}
+
+/// Who reads a finished diff when the reviewer is the Director.
+///
+/// The engine used to answer this itself, by spawning a second, headless
+/// Director with no session, no inbox and `dontAsk` — a stranger that read the
+/// diff and moved the card while the Director the operator was talking to knew
+/// nothing about it. It was the same *role* run by a different *instance*, and
+/// from the operator's chair that is a ghost: work vanished from Review with
+/// nobody visibly doing anything.
+///
+/// So the engine stops answering it. It states that a review is wanted and
+/// hands over the facts; **where** that review happens — which conversation,
+/// whose session, whether anybody is watching — is the shell's business, and
+/// the engine still learns nothing about conversations (#19).
+///
+/// `false` means nobody took it. The card then waits for the operator, which
+/// is the honest outcome: better a card sitting in Review than a card moved by
+/// something the operator cannot see.
+pub type ReviewHook =
+    Arc<dyn Fn(ReviewRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
 /// A tool the agent calls that Relay itself implements — moving a card,
 /// opening a screen, reading a diff. The adapter forwards the call; the shell
 /// carries it out. Like any other tool the agent does not already hold, it goes

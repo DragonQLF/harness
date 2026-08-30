@@ -122,13 +122,7 @@ pub struct ChatContext<'a> {
     /// permission nobody tells him about is a permission that does nothing.
     pub accepted_proposals: &'a [crate::inbox::Proposal],
     /// Verdicts his own automatic reviewer reached while nobody was talking to
-    /// him. Same road as `outside_work` and the field above — a fact stored by
-    /// the shell and fetched here — because the engine that produces them has
-    /// no notion of conversation and must not be given one. Their shape is not
-    /// a proposal's, so they are a second field rather than a second
-    /// mechanism.
-    pub review_verdicts: &'a [crate::verdicts::Verdict],
-    /// A versão que está a correr, **apenas quando mudou** desde o último turno
+     /// A versão que está a correr, **apenas quando mudou** desde o último turno
     /// desta conversa. Um facto, como os boards — e não uma regra.
     pub new_version: Option<&'a str>,
 }
@@ -286,40 +280,6 @@ fn accepted(proposals: &[crate::inbox::Proposal]) -> String {
     out
 }
 
-/// What his own reviewer decided while nobody was talking to him.
-///
-/// He is told once, and the board he is handed carries the standing state
-/// afterwards. Same both-branches rule as `accepted` above, and for the same
-/// reason: a review finishes between turns, and a live conversation is the
-/// most likely place for the verdict to matter.
-fn verdicts(list: &[crate::verdicts::Verdict]) -> String {
-    if list.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from(
-        "Your automatic review ran while you were not looking. These are its verdicts, not the \
-         operator's — the diff was read on your behalf and the card was moved. Say so rather \
-         than letting them find out from the board, and if one reads wrong to you, that is worth \
-         raising:\n",
-    );
-    for v in list {
-        out.push_str(&format!(
-            "- {} ({}) in {}: {} — {}\n",
-            harness_domain::one_line(&v.title),
-            v.card_id,
-            v.project_id,
-            if v.approved { "approved" } else { "sent back" },
-            if v.reason.is_empty() {
-                "no reason given"
-            } else {
-                &v.reason
-            }
-        ));
-    }
-    out.push('\n');
-    out
-}
-
 /// The opening for a conversation. On a resumed native session this is only
 /// what changed since; on a fresh one it is the whole identity.
 /// Is this message a slash command rather than something to say?
@@ -376,7 +336,6 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
                  this build — check before you claim either way.)\n\n"
             ));
         }
-        prompt.push_str(&verdicts(ctx.review_verdicts));
         prompt.push_str(&accepted(ctx.accepted_proposals));
         prompt.push_str(ctx.user_name.trim());
         prompt.push_str(": ");
@@ -570,7 +529,6 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         prompt.push_str("\n\n");
     }
 
-    prompt.push_str(&verdicts(ctx.review_verdicts));
     prompt.push_str(&accepted(ctx.accepted_proposals));
 
     prompt.push_str(&how_harness_works(ctx));
@@ -713,6 +671,24 @@ pub fn daily_look_prompt(outside_work: Option<&str>) -> String {
     out
 }
 
+/// What he is told when a finished run needs his eyes.
+///
+/// It arrives in his own conversation, in the middle of whatever else he is
+/// doing, which is the whole point: the operator watches it happen and he
+/// still has the thread they were on. So it is written as an interruption to a
+/// person who is already in the room — not as a briefing to a stranger, which
+/// is what the headless review used to get.
+///
+/// He is not asked for JSON. He has `read_diff`, `approve_card` and
+/// `reject_card`, and the verdict is whichever one he calls: a tool call is a
+/// board event with him named on it, where a parsed string was a second thing
+/// that could disagree with the first.
+pub fn review_prompt(card_id: &str, title: &str) -> String {
+    format!(
+        "A run just finished on {card_id} — \"{title}\" — and it is waiting in Review for you.\n\n         Call read_diff for {card_id} and judge whether the work does what the card asked. Be          strict about scope: work that widens permissions, touches unrelated files or skips tests          should go back. Then call approve_card or reject_card for {card_id}; sending it back          needs a reason the agent can act on.\n\n         Say in one or two sentences what you found and what you did, so the operator reading          this thread can see the decision rather than only its result. If the diff is not          something you should decide alone, say so and leave the card where it is."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -752,48 +728,9 @@ mod tests {
             global_memory: "",
             outside_work: None,
             accepted_proposals: &[],
-            review_verdicts: &[],
         }
     }
 
-    /// O verdicto da revisão automática morria dentro do engine: o #12 tornou
-    /// `reviewer` política configurável, o #19 tirou ao engine a noção de
-    /// conversa — e o silêncio entre os dois não foi decidido por ninguém.
-    /// Chega-lhe agora pela mesma estrada do `outside_work`, e nos dois ramos,
-    /// porque uma revisão acaba **entre** turnos.
-    #[test]
-    fn his_own_reviewers_verdict_reaches_him_on_both_branches() {
-        let judged = [crate::verdicts::Verdict {
-            project_id: "_harness".into(),
-            card_id: "c_7b30".into(),
-            title: "widen the pathguard\n\nbody nobody needs here".into(),
-            approved: false,
-            reason: "it widens permissions the card never asked for".into(),
-        }];
-        for resumed in [false, true] {
-            let mut c = ctx(&[]);
-            c.resumed = resumed;
-            c.review_verdicts = &judged;
-            let prompt = chat_prompt(&c, "hey");
-            assert!(prompt.contains("c_7b30"), "resumed={resumed}: {prompt}");
-            assert!(prompt.contains("sent back"), "resumed={resumed}");
-            assert!(
-                prompt.contains("widens permissions the card never asked for"),
-                "resumed={resumed}: the reasoning travels with the verdict"
-            );
-            assert!(
-                !prompt.contains("body nobody needs here"),
-                "resumed={resumed}: one line per card, like the board"
-            );
-        }
-    }
-
-    /// Nada revisto, nada dito.
-    #[test]
-    fn no_verdict_says_nothing() {
-        let prompt = chat_prompt(&ctx(&[]), "hey");
-        assert!(!prompt.contains("automatic review ran"), "{prompt}");
-    }
 
     /// Aceitar acontece entre turnos, num ecrã que ele não vê. Se a permissão
     /// não lhe chegar ao prompt, aceitar não desbloqueia nada — e o ramo

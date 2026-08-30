@@ -109,6 +109,70 @@ enum FakeMode {
     Garbage,
 }
 
+/// O revisor, agora do lado de fora.
+///
+/// O engine deixou de rever: pede, e quem responde é o shell — na app, uma
+/// vez na conversa do Director. Aqui é um gancho que aprova, recusa ou não
+/// pega, e que precisa do `EngineHandle` para responder. Daí o `OnceLock`: o
+/// gancho entra na construção do engine e a resposta só é possível depois
+/// dela, que é exactamente a ordem que a app também tem.
+#[derive(Clone, Copy, PartialEq)]
+enum ReviewMode {
+    Approve,
+    Reject,
+    /// Ninguém pegou. O cartão fica em Review à espera do operador.
+    Refuse,
+    /// Não devia ser chamado de todo; se for, o teste vê-o em `seen`.
+    Unused,
+}
+
+#[derive(Clone, Default)]
+struct Reviews(Arc<Mutex<Vec<harness_ports::ReviewRequest>>>);
+
+impl Reviews {
+    fn seen(&self) -> Vec<harness_ports::ReviewRequest> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+fn fake_reviewer(
+    mode: ReviewMode,
+    handle: Arc<std::sync::OnceLock<EngineHandle>>,
+    seen: Reviews,
+) -> harness_ports::ReviewHook {
+    Arc::new(move |request: harness_ports::ReviewRequest| {
+        seen.0.lock().unwrap().push(request.clone());
+        let handle = Arc::clone(&handle);
+        Box::pin(async move {
+            let approving = match mode {
+                ReviewMode::Approve => true,
+                ReviewMode::Reject => false,
+                ReviewMode::Refuse | ReviewMode::Unused => return false,
+            };
+            let Some(engine) = handle.get().cloned() else {
+                return false;
+            };
+            let card_id = CardId::new(request.card_id);
+            let cmd = if approving {
+                Command::ApproveCard {
+                    card_id,
+                    by: Actor::Director,
+                    reason: "fine".into(),
+                    hunks: Vec::new(),
+                }
+            } else {
+                Command::RejectCard {
+                    card_id,
+                    reason: "not good enough".into(),
+                    by: Actor::Director,
+                    hunks: Vec::new(),
+                }
+            };
+            engine.execute(cmd).await.is_ok()
+        })
+    })
+}
+
 struct FakeAgent(FakeMode);
 
 type PinBox<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>>;
@@ -529,24 +593,29 @@ struct Rig {
     events: broadcast::Receiver<Envelope>,
     runs: broadcast::Receiver<RunUpdate>,
     log: Arc<MemRunLog>,
+    /// Os pedidos de revisão que o engine fez. O que antes se verificava
+    /// olhando para um segundo agente verifica-se agora aqui: o engine pede,
+    /// e quem responde está do lado de fora.
+    #[allow(dead_code)]
+    reviews: Reviews,
 }
 
-fn rig(worker: FakeMode, director: FakeMode) -> Rig {
-    rig_with(worker, director, None, EnginePolicy::default())
+fn rig(worker: FakeMode, review: ReviewMode) -> Rig {
+    rig_with(worker, review, None, EnginePolicy::default())
 }
 
 fn rig_with(
     worker: FakeMode,
-    director: FakeMode,
+    review: ReviewMode,
     approver: Option<harness_ports::Approver>,
     policy: EnginePolicy,
 ) -> Rig {
-    rig_full(worker, director, approver, policy, FakeGit::new())
+    rig_full(worker, review, approver, policy, FakeGit::new())
 }
 
 fn rig_full(
     worker: FakeMode,
-    director: FakeMode,
+    review: ReviewMode,
     approver: Option<harness_ports::Approver>,
     policy: EnginePolicy,
     fake_git: FakeGit,
@@ -554,20 +623,25 @@ fn rig_full(
     let store = Arc::new(MemStore::default());
     let git = Arc::new(fake_git);
     let log = Arc::new(MemRunLog::default());
+    // O gancho precisa do handle para responder, e o handle só existe depois
+    // de o engine arrancar. Mesma ordem que a app tem.
+    let later = Arc::new(std::sync::OnceLock::<EngineHandle>::new());
+    let reviews = Reviews::default();
     let (handle, events, runs) = Engine::spawn(
         EngineDeps {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(worker)),
-            director: Arc::new(FakeAgent(director)),
             git: git.clone(),
             approver,
+            review: Some(fake_reviewer(review, Arc::clone(&later), reviews.clone())),
             run_log: Some(log.clone()),
         },
         test_config(),
         policy,
         vec![],
     );
+    let _ = later.set(handle.clone());
     Rig {
         handle,
         store,
@@ -575,6 +649,7 @@ fn rig_full(
         events,
         runs,
         log,
+        reviews,
     }
 }
 
@@ -608,7 +683,7 @@ async fn status_of(handle: &EngineHandle, id: &CardId) -> Option<Status> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn accepted_commands_persist_and_update_state() {
-    let mut r = rig(FakeMode::Complete, FakeMode::Complete);
+    let mut r = rig(FakeMode::Complete, ReviewMode::Unused);
     let id = CardId::new("c1");
 
     let seq = r
@@ -644,7 +719,7 @@ async fn accepted_commands_persist_and_update_state() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn rejected_commands_leave_no_trace() {
-    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let r = rig(FakeMode::Complete, ReviewMode::Unused);
     let id = CardId::new("nope");
 
     let err = r
@@ -681,7 +756,7 @@ async fn rejected_commands_leave_no_trace() {
 async fn a_finished_run_commits_with_trailers_and_records_cost() {
     let mut r = rig_with(
         FakeMode::Complete,
-        FakeMode::Complete,
+        ReviewMode::Unused,
         None,
         EnginePolicy {
             director_reviews_first: false,
@@ -748,7 +823,7 @@ async fn a_finished_run_commits_with_trailers_and_records_cost() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cancelled_run_returns_card_to_ready_and_commits_wip() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let id = CardId::new("c3");
     card_ready(&r.handle, &id).await;
 
@@ -778,7 +853,7 @@ async fn cancelled_run_returns_card_to_ready_and_commits_wip() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_cancels_running_work_and_leaves_a_wip_commit() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let id = CardId::new("c4");
     card_ready(&r.handle, &id).await;
     r.handle
@@ -816,7 +891,7 @@ async fn shutdown_waits_for_the_agent_before_the_single_wip_commit() {
             agent: Arc::new(SlowCancelAgent {
                 order: Arc::clone(&order),
             }),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -865,7 +940,7 @@ async fn shutdown_without_commit_policy_leaves_nothing_behind() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -905,7 +980,7 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
                 store: store.clone(),
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
-                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                review: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -931,7 +1006,7 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git,
             approver: None,
             run_log: None,
@@ -954,8 +1029,8 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
     ));
 }
 
-async fn driven_to_review(worker: FakeMode, director: FakeMode) -> (Rig, CardId) {
-    let r = rig(worker, director);
+async fn driven_to_review(worker: FakeMode, review: ReviewMode) -> (Rig, CardId) {
+    let r = rig(worker, review);
     let id = CardId::new("c6");
     card_ready(&r.handle, &id).await;
     r.handle
@@ -967,7 +1042,7 @@ async fn driven_to_review(worker: FakeMode, director: FakeMode) -> (Rig, CardId)
 
 #[tokio::test(flavor = "multi_thread")]
 async fn director_approval_moves_card_to_done() {
-    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::DirectApprove).await;
+    let (r, id) = driven_to_review(FakeMode::Complete, ReviewMode::Approve).await;
     wait_for("director approves", async || {
         status_of(&r.handle, &id).await == Some(Status::Done)
     })
@@ -998,7 +1073,7 @@ async fn director_approval_moves_card_to_done() {
 /// it left behind at every stage.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_card_goes_from_ready_to_done_and_leaves_its_work_behind() {
-    let r = rig(FakeMode::Complete, FakeMode::DirectApprove);
+    let r = rig(FakeMode::Complete, ReviewMode::Approve);
     let id = CardId::new("c_cycle");
     card_ready(&r.handle, &id).await;
 
@@ -1104,7 +1179,7 @@ async fn two_cards_with_different_profiles_each_get_only_their_own_grants() {
             store,
             clock: Arc::new(FixedClock),
             agent: Arc::new(GrantSpy { seen: seen.clone() }),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git,
             approver: None,
             run_log: None,
@@ -1181,7 +1256,7 @@ async fn two_cards_with_different_profiles_each_get_only_their_own_grants() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn director_rejection_sends_card_back_to_ready_with_a_reason() {
-    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::DirectReject).await;
+    let (r, id) = driven_to_review(FakeMode::Complete, ReviewMode::Reject).await;
     wait_for("director rejects", async || {
         status_of(&r.handle, &id).await == Some(Status::Ready)
     })
@@ -1200,9 +1275,13 @@ async fn director_rejection_sends_card_back_to_ready_with_a_reason() {
     assert_eq!(review.reason, "not good enough");
 }
 
+/// Ninguém pegou na revisão — não há Director com quem falar, ou a conversa
+/// recusou-a. O cartão fica em Review à espera do operador, que é a única
+/// saída honesta: melhor um cartão parado do que um cartão movido por algo
+/// que o operador não viu acontecer.
 #[tokio::test(flavor = "multi_thread")]
-async fn unreadable_verdict_leaves_the_card_in_review() {
-    let (r, id) = driven_to_review(FakeMode::Complete, FakeMode::Garbage).await;
+async fn a_review_nobody_takes_leaves_the_card_in_review() {
+    let (r, id) = driven_to_review(FakeMode::Complete, ReviewMode::Refuse).await;
     wait_for("card reaches review", async || {
         status_of(&r.handle, &id).await == Some(Status::Review)
     })
@@ -1213,7 +1292,7 @@ async fn unreadable_verdict_leaves_the_card_in_review() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reviewerless_agent_closes_its_own_card() {
-    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let r = rig(FakeMode::Complete, ReviewMode::Unused);
     let id = CardId::new("c7");
     card_ready(&r.handle, &id).await;
     let mut p = profile();
@@ -1244,7 +1323,7 @@ async fn a_reviewerless_agent_closes_its_own_card() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_human_reviewer_keeps_the_card_in_review() {
-    let r = rig(FakeMode::Complete, FakeMode::DirectApprove);
+    let r = rig(FakeMode::Complete, ReviewMode::Approve);
     let id = CardId::new("c8");
     card_ready(&r.handle, &id).await;
     let mut p = profile();
@@ -1261,7 +1340,7 @@ async fn a_human_reviewer_keeps_the_card_in_review() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_read_only_agent_runs_in_the_checkout_and_never_commits() {
-    let r = rig(FakeMode::Complete, FakeMode::Complete);
+    let r = rig(FakeMode::Complete, ReviewMode::Unused);
     let id = CardId::new("c9");
     card_ready(&r.handle, &id).await;
     let mut p = profile();
@@ -1281,7 +1360,7 @@ async fn a_read_only_agent_runs_in_the_checkout_and_never_commits() {
 async fn shared_worktree_is_created_once_and_reused() {
     let r = rig_with(
         FakeMode::Complete,
-        FakeMode::Complete,
+        ReviewMode::Unused,
         None,
         EnginePolicy {
             director_reviews_first: false,
@@ -1322,7 +1401,7 @@ async fn the_approver_sees_the_request_id_the_adapter_minted() {
 
     let r = rig_with(
         FakeMode::NeedsApproval,
-        FakeMode::Complete,
+        ReviewMode::Unused,
         Some(approver),
         EnginePolicy {
             director_reviews_first: false,
@@ -1345,7 +1424,7 @@ async fn the_approver_sees_the_request_id_the_adapter_minted() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_run_on_the_same_card_is_refused() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let id = CardId::new("c11");
     card_ready(&r.handle, &id).await;
     r.handle
@@ -1365,7 +1444,7 @@ async fn a_second_run_on_the_same_card_is_refused() {
 /// that would exceed it.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_at_its_limit_refuses_another_card() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let first = CardId::new("c13a");
     let second = CardId::new("c13b");
     card_ready(&r.handle, &first).await;
@@ -1403,8 +1482,8 @@ async fn an_agent_at_its_limit_refuses_another_card() {
 async fn a_commit_that_fails_is_reported_and_skips_review() {
     let mut r = rig_full(
         FakeMode::Complete,
-        // The director would approve if it were ever asked; it must not be.
-        FakeMode::DirectApprove,
+        // The reviewer would approve if it were ever asked; it must not be.
+        ReviewMode::Approve,
         None,
         EnginePolicy::default(),
         FakeGit::refusing_commits("Author identity unknown"),
@@ -1484,7 +1563,7 @@ async fn a_long_log_is_compacted_into_a_snapshot_on_startup() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1525,7 +1604,7 @@ async fn a_card_session_survives_a_restart() {
                 store: store.clone(),
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
-                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                review: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -1564,7 +1643,7 @@ async fn a_card_session_survives_a_restart() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1604,7 +1683,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
                 store: store.clone(),
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
-                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                review: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -1629,7 +1708,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(ResumeSpy { seen: Arc::clone(&spy.seen) }),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1677,7 +1756,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
 async fn the_commit_subject_is_the_card_title() {
     let mut r = rig_with(
         FakeMode::Complete,
-        FakeMode::Complete,
+        ReviewMode::Unused,
         None,
         EnginePolicy {
             director_reviews_first: false,
@@ -1731,7 +1810,7 @@ async fn a_reported_summary_becomes_the_commit_body_and_the_last_one_wins() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(ReportingAgent),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1804,7 +1883,7 @@ async fn a_reported_summary_becomes_the_commit_body_and_the_last_one_wins() {
 async fn silence_still_commits_with_a_generic_body_and_a_notice() {
     let r = rig_with(
         FakeMode::Complete,
-        FakeMode::Complete,
+        ReviewMode::Unused,
         None,
         EnginePolicy {
             director_reviews_first: false,
@@ -1870,7 +1949,7 @@ async fn a_rejected_card_keeps_its_work_report_in_the_log() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(ReportingAgent),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1922,7 +2001,7 @@ async fn a_rejected_card_keeps_its_work_report_in_the_log() {
 /// under an agent that is about to start.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_starts_for_one_card_build_exactly_one_worktree() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let id = CardId::new("c_race");
     card_ready(&r.handle, &id).await;
 
@@ -1962,7 +2041,7 @@ async fn two_starts_for_one_card_build_exactly_one_worktree() {
 /// what runs — so the loser never builds a checkout at all. Nothing to orphan.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_loser_of_the_agent_limit_never_builds() {
-    let r = rig(FakeMode::WaitCancelled, FakeMode::Complete);
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
     let a = CardId::new("c_lim_a");
     let b = CardId::new("c_lim_b");
     card_ready(&r.handle, &a).await;
@@ -2013,7 +2092,7 @@ async fn a_card_discarded_mid_start_leaves_no_checkout_behind() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2079,20 +2158,26 @@ async fn a_green_build_writes_a_manifest_with_the_commit_sha() {
     });
     let store = Arc::new(MemStore::default());
     let git = Arc::new(FakeGit::default());
+    let later = Arc::new(std::sync::OnceLock::<EngineHandle>::new());
     let (handle, _e, _r) = Engine::spawn(
         EngineDeps {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::DirectApprove)),
             git: git.clone(),
             approver: None,
+            review: Some(fake_reviewer(
+                ReviewMode::Approve,
+                Arc::clone(&later),
+                Reviews::default(),
+            )),
             run_log: None,
         },
         config,
         EnginePolicy::default(),
         vec![],
     );
+    let _ = later.set(handle.clone());
 
     let id = CardId::new("c_build_ok");
     card_ready(&handle, &id).await;
@@ -2140,7 +2225,7 @@ async fn a_failed_build_leaves_no_artifact_behind() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2223,7 +2308,7 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
                 store: store.clone(),
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(WritesThenFailsAgent),
-                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                review: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -2340,7 +2425,7 @@ async fn a_failed_worktree_leaves_the_card_alone() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: Arc::new(fake_git),
             approver: None,
             run_log: None,
@@ -2376,7 +2461,7 @@ async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
                 store: store.clone(),
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
-                director: Arc::new(FakeAgent(FakeMode::Complete)),
+                review: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -2408,7 +2493,7 @@ async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2451,7 +2536,7 @@ async fn a_partial_rejection_lands_the_rest_and_survives_a_restart() {
             store: store.clone(),
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
-            director: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
             git: git.clone(),
             approver: None,
             run_log: None,
