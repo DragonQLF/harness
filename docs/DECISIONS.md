@@ -33,6 +33,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 102 | A revisão automática deixa de ser um segundo Director; o #98 reforma-se |
 | 2026-08-30 | 103 | Os agentes falam uns com os outros a meio do trabalho |
 | 2026-08-30 | 104 | Dois browsers por agente: um que não guarda nada e um que guarda |
+| 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -871,6 +872,112 @@ de isenção: leituras (`Read/Glob/Grep/NotebookRead/LS`) e as ferramentas nossa
 válido), e um cwd não-resolvível devolve razão distinta em vez de acusar a raiz do
 run como caminho culpado. Teste novo: uma ferramenta MCP desconhecida com
 `{path: "/etc/passwd"}` é recusada com o caminho na mensagem.
+
+### 105. A casca reparte-se por dono, e a política que estava dentro dela sai
+Passagem de estrutura, não de funcionalidade: **nenhum nome de comando, nenhum
+nome de evento, nenhuma forma de resposta e nenhum formato em disco mudou**. O
+que mudou foi onde as coisas vivem e o que se pode testar.
+
+**A auditoria começou por confirmar o que já estava certo, e é a metade mais
+importante do resultado.** O `lib.rs` são 240 linhas que constroem o builder,
+registam plugins, estado e comandos e tratam do ciclo de vida — sem uma linha
+de negócio. Os `#[tauri::command]` são, quase todos, três linhas: recebem, vão
+buscar o estado, chamam, devolvem. As crates `domain`/`ports`/`engine`/`app`
+não importam `tauri` em lado nenhum. A separação por portos e adaptadores
+**já cumpria** o que uma reestruturação por *feature slices* teria ido buscar,
+e converter `crates/` numa árvore `features/` era desfazer cento e quatro
+decisões para chegar ao mesmo sítio por outro caminho. Não se fez, e o que se
+aplicou foram os princípios — coesão, dono único, fronteira fina — dentro da
+forma que já existe.
+
+Onde o corte vertical **pagou** foi exactamente nos dois sítios onde a
+arquitectura não chegava: os ficheiros que a casca acumulou porque nada os
+obrigava a ter um assunto.
+
+**O `director_tools.rs` era um `match` de mil linhas.** Passa a cinco módulos
+por dono do que muda — `board`, `crew`, `grants`, `projects`, `knowledge` — com
+o `mod.rs` a ficar com o guardo da delegação, a escolha do projecto e a tabela.
+A mensagem "there is no agent called X. The crew is: …" estava escrita seis
+vezes; é agora o `crew::slot_of`.
+
+**O `commands/system.rs` era "tudo o que não é quadro nem projecto"**: doze
+assuntos que não se conhecem. Passa a `crew`, `approvals`, `inbox`, `updates`
+e um `system` de 266 linhas que fala da própria shell.
+
+**E três pedaços de política saíram da caixa do Tauri**, que é onde o CLAUDE.md
+diz que não devem estar e onde nenhum teste lhes chega: a passagem do Curador
+(`curator::run`), a regra que decide se um endpoint é local e se a cache serve
+(`catalog`), e a dobra dos números de um agente por vários projectos
+(`insights`). Sete testes novos, e um deles apanhou um defeito que ninguém
+tinha visto: o índice do Curador era construído pela ordem do `read_dir`, que é
+a do sistema de ficheiros — duas passagens sem promoções podiam reescrevê-lo
+por outra ordem.
+
+**O `me: OnceLock<Weak<Workspace>>` desapareceu, e com ele um silêncio.** A
+razão escrita ao lado dele dizia que `self: &Arc<Self>` partiria dois
+chamadores internos; um deles já era `self: &Arc<Self>` desde o #87 e o outro é
+chamado uma vez. Mudaram-se os três e nenhum dos trinta chamadores externos
+precisou de tocar — um `State<'_, Arc<Workspace>>` resolve sozinho. O que isso
+apaga é o `arc() -> Option`, que fazia o `spawn_runtime` escrever
+`review: self.arc().as_ref().map(hook)`: um `None` ali era o engine a nascer
+**sem revisão automática**, com os cartões a acumularem-se em Review e nada em
+lado nenhum a dizer porquê. Inalcançável, sim — mas uma defesa a esconder uma
+invariante em vez de a afirmar.
+
+**Os nomes dos canais passam a constantes (`events.rs`).** Treze literais em
+sete ficheiros, com o `engine://run` em quatro deles. Uma letra trocada não
+parte nada de visível: o `emit` devolve `Ok`, o `listen` fica calado, o ecrã não
+se mexe. Ficam de fora o `menu://picked`, que já era constante pelo mesmo
+argumento, e os dois do splash, que são duas janelas do frontend a falar uma
+com a outra.
+
+**No frontend, três regras que estavam escritas duas vezes.** A lista de shells
+do `allow.rs` estava em três cópias — a gerada, que o `ruleIsRevoked` usa bem, e
+duas escritas à mão no `Chat.tsx`, que é onde se decide o que uma permissão
+permanente cobre. O `toolName` era dois, e o do `events.ts` só tirava o prefixo
+do *nosso* servidor MCP: uma ferramenta de um servidor concedido lia-se
+`mcp__figma__export` no feed e `export` no chat. E o `Review.tsx` ainda decidia
+a cor de um veredicto por `label.startsWith("Approved")`, quando a
+`ActivityRow` traz um campo `approved` cujo próprio doc explica porque é que
+ler o prefixo é errado.
+
+**Doze *casts* saíram do redutor de eventos.** O `RunUpdate` e o `RunLogLine`
+escritos à mão estavam atrás do `RunEvent`, e o código lia os campos que
+faltavam com `(u as RunUpdate & { ok?: boolean }).ok` — o compilador a ser dito
+para não olhar, num ficheiro cuja promessa é que se pode olhar. Os campos estão
+declarados; os *casts* desapareceram por consequência.
+
+**O `Misc.tsx` eram três ecrãs.** "Worktrees, Activity and Settings": três
+valores do `View`, três destinos da barra lateral, zero estado partilhado. O
+que os juntava eram quatro `const` de classes, que são agora do `ui.tsx`.
+
+**O `ipc.ts` fica um ficheiro, e isso é uma decisão.** Repartido por
+funcionalidade poupava importações e custava a única coisa que dá: a lista
+completa do que a janela pode pedir, ao lado do `invoke_handler`. É por essa
+lista que se vê que seis comandos registados no Rust não têm porta nenhuma —
+e foi ela que os apontou. Ganhou os cabeçalhos que lhe faltavam.
+
+**E dois testes novos atravessam a fronteira que nenhum compilador atravessa.**
+Uma ferramenta declarada ao modelo no `sidecar/index.mjs` e sem braço no
+despacho do Rust falha em silêncio: o modelo chama-a e ouve "Relay has no tool
+called X", como se tivesse inventado o nome. É a classe de erro que partir o
+`director_tools.rs` podia introduzir, e não havia nada a apanhá-la. Os dois
+lêem o despacho e comparam-no com o que é declarado, nos dois sentidos.
+
+**O que se recusou apagar, e é o achado mais útil da passagem.** O
+`ProjectPage` são 474 linhas que nada importa desde o `6bc7309`. Não é código
+morto: é um ecrã que perdeu a estrada. É o único sítio da app que mostra o
+detalhe de um projecto e o único consumidor de `project_detail`,
+`project_checks`, `project_set_checks` e `project_run_checks`. O README diz que
+o ecrã de Código mostra "branches, languages and checks" — não mostra checks
+nenhuns, e ninguém mostra. Apagá-lo tirava a única implementação de uma
+funcionalidade documentada para arrumar um aviso do compilador.
+
+**Também se recusou:** unificar os cinco valores em que o `custom()` do ecrã de
+Agentes discorda do `AgentProfile::default()`. Não é descuido — um perfil que o
+Director cria vai trabalhar, um que sai daquele botão é um rascunho sem
+worktree e revisto pelo operador. A razão passou a estar escrita lá; o `tsc` já
+garante que a *forma* não diverge.
 
 ## POR DECIDIR
 
