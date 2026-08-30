@@ -1,5 +1,19 @@
 /** Every call into the backend, in one place and typed.
- *  Nothing else in the frontend imports `invoke`. */
+ *  Nothing else in the frontend imports `invoke`.
+ *
+ *  Fica um ficheiro, e isso é uma escolha e não inércia. Um `api` por
+ *  funcionalidade poupava algumas linhas de importação e custava a única coisa
+ *  que este ficheiro dá: **a lista completa do que a janela pode pedir**, numa
+ *  página que se lê de cima a baixo ao lado do `invoke_handler` do `lib.rs`.
+ *  É assim que se vê que um comando registado no Rust não tem porta cá — e é
+ *  isso que aponta os que hoje não têm ecrã nenhum (`DEBT.md`). Repartido por
+ *  ecrã, um comando sem porta deixa de ser uma ausência visível e passa a ser
+ *  um ficheiro que ninguém abriu.
+ *
+ *  O que faltava eram os cabeçalhos: metade dos membros vivia numa corrida sem
+ *  título nenhum, e os três que existiam tinham deixado de corresponder ao que
+ *  estava por baixo. São a mesma divisão por dono que os módulos de comandos
+ *  do Rust têm. */
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -53,12 +67,15 @@ import type {
 export const tzOffsetMinutes = () => new Date().getTimezoneOffset();
 
 export const api = {
+  // ---- the shell: what the window opens with ----
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
   status: () => invoke<SystemStatus>("status"),
 
+  // ---- settings ----
   settingsGet: () => invoke<Settings>("settings_get"),
   settingsUpdate: (settings: Settings) => invoke<Settings>("settings_update", { settings }),
 
+  // ---- the crew ----
   agentsGet: () => invoke<AgentProfile[]>("agents_get"),
   browserOffers: () => invoke<BrowserOffer[]>("browser_offers"),
   browserGrant: (agentId: string, browserId: string) =>
@@ -67,6 +84,7 @@ export const api = {
   agentsStats: () =>
     invoke<AgentStats[]>("agents_stats", { tzOffsetMinutes: tzOffsetMinutes() }),
 
+  // ---- projects ----
   projects: () =>
     invoke<ProjectView[]>("projects_list", { tzOffsetMinutes: tzOffsetMinutes() }),
   pickFolder: () => invoke<string | null>("project_pick_folder"),
@@ -84,6 +102,7 @@ export const api = {
     invoke<ProjectDetail>("project_detail", { projectId, commitLimit }),
   projectStats: (projectId: string) =>
     invoke<ProjectStats>("project_stats", { projectId, tzOffsetMinutes: tzOffsetMinutes() }),
+  // ---- checks ----
   checks: (projectId: string) => invoke<CheckRow[]>("project_checks", { projectId }),
   setChecks: (projectId: string, checks: CheckRow[]) =>
     invoke<CheckRow[]>("project_set_checks", { projectId, checks }),
@@ -97,11 +116,13 @@ export const api = {
   cardRunChecks: (projectId: string, cardId: string) =>
     invoke<CardChecks>("card_run_checks", { projectId, cardId }),
 
+  // ---- worktrees ----
   worktrees: (projectId: string) => invoke<WorktreeRow[]>("worktrees", { projectId }),
   removeWorktree: (projectId: string, path: string) =>
     invoke<void>("remove_worktree", { projectId, path }),
   reveal: (path: string) => invoke<void>("reveal_path", { path }),
 
+  // ---- the board, and the runs it starts ----
   snapshot: (projectId: string) => invoke<Snapshot>("snapshot", { projectId }),
   createCard: (projectId: string, title: string, agentId: string, start: boolean, ready: boolean) =>
     invoke<CreatedCard>("create_card", { projectId, title, agentId, start, ready }),
@@ -127,12 +148,14 @@ export const api = {
   /** Copy run transcripts into a folder the operator picks. `runIds` omitted
    *  takes every transcript the project has; null comes back when the picker
    *  was dismissed. */
+  // ---- sessions ----
   exportTranscripts: (projectId: string, runIds?: string[]) =>
     invoke<TranscriptExport | null>("export_transcripts", {
       projectId,
       runIds: runIds ?? null,
     }),
   /** What a card changed against the base branch, read from its worktree. */
+  // ---- review ----
   cardDiff: (projectId: string, cardId: string) =>
     invoke<CardDiff>("card_diff", { projectId, cardId }),
   reviewQueue: (projectId: string) => invoke<QueueRow[]>("review_queue", { projectId }),
@@ -149,6 +172,7 @@ export const api = {
   /** Finished runs across the last 38 weeks: the heatmap, the three window
    *  tiles, the per-actor spend and the day's line counts. `actor` is the
    *  heatmap's own tab and narrows the run counts, never the money. */
+  // ---- numbers ----
   runStats: (projectId: string, actor: ActorFilter = "all") =>
     invoke<RunStats>("run_stats", {
       projectId,
@@ -199,14 +223,19 @@ export const api = {
       reason: reason ?? null,
     }),
 
+  // ---- the analyst, on demand ----
   analystAsk: (projectId: string | null) => invoke<string>("analyst_ask", { projectId }),
   /** Stop waiting for the close sequence; the window goes as soon as it can. */
+  // ---- closing ----
   closeNow: () => invoke<void>("close_now"),
   /** What models an endpoint offers. Cached a day behind the scenes. */
+  // ---- model endpoints ----
   modelCatalog: (providerId: string, baseUrl: string, refresh = false) =>
     invoke<CatalogModel[]>("model_catalog", { providerId, baseUrl, refresh }),
+  // ---- updates ----
   updatesList: () => invoke<PendingUpdate[]>("updates_list"),
   updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),
+  // ---- conversations: the live turn ----
   chatStop: (conversationId: string) => invoke<void>("chat_stop", { conversationId }),
   // ---- conversations ----
   /** Every chat, newest first. Archived ones only when asked for. */
@@ -269,14 +298,17 @@ export const api = {
 
   /** Profiles you can create from. Fetched on request: a template is a menu
    *  entry, never something Relay installs by itself. */
+  // ---- crew templates ----
   agentTemplates: () => invoke<AgentProfile[]>("agent_templates"),
   agentCreateFromTemplate: (templateId: string) =>
     invoke<AgentProfile>("agent_create_from_template", { templateId }),
   agentDuplicate: (agentId: string) => invoke<AgentProfile>("agent_duplicate", { agentId }),
   agentRemove: (agentId: string) => invoke<AgentProfile[]>("agent_remove", { agentId }),
+  // ---- activity ----
   activity: (projectId: string, limit = 200) =>
     invoke<ActivityRow[]>("activity", { projectId, limit }),
 
+  // ---- approvals ----
   approvalsPending: () => invoke<PendingApproval[]>("approvals_pending"),
   /** Answer a permission request. With `always`, the returned label is the
    *  scoped rule that was recorded — null when the call could not be scoped
@@ -294,6 +326,7 @@ export const api = {
   inboxDismiss: (proposalId: string) =>
     invoke<Proposal>("inbox_dismiss", { proposalId }),
 
+  // ---- the machine: sidecar, menu, terminals ----
   sidecarInstall: () => invoke<string>("sidecar_install"),
   /** Keep the three describing lines in the macOS menu bar true. The wording
    *  is settled here, where the window already formats the same facts. */
