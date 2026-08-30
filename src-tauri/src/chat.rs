@@ -375,9 +375,10 @@ async fn send_message(
         // o estilo é o que ela trouxe de origem, e é por isso que mudá-lo
         // não mexe na conversa que está no ecrã.
         output_style: profile.output_style.clone(),
-        // Quanto pensa, nesta mensagem e só nesta. Ao contrário do estilo,
-        // prende-se ao pedido — é o que permite escolhê-lo à mensagem, e é
-        // por isso que não vive no perfil.
+        // Quanto pensa. Ao contrário do estilo, prende-se ao pedido e não ao
+        // prompt de sistema — é o que permite mudá-lo a meio de uma conversa
+        // e a mensagem seguinte já sair no nível novo, sem sessão nova. Por
+        // isso viaja no run e não no perfil.
         effort,
     };
 

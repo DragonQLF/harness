@@ -478,8 +478,14 @@ export function Chat() {
   const [dragging, setDragging] = useState(false);
   const [pickProfile, setPickProfile] = useState(false);
   const [pickProject, setPickProject] = useState(false);
-  /** How hard to think about the message being written. Null is the model's
-   *  own default, and every message goes back to it once one is sent. */
+  /** How hard to think, from here on. Null is the model's own default.
+   *
+   *  Sticky rather than per-message: chosen when a problem needs it and kept
+   *  until it is changed, which is what makes it worth reaching for. It rides
+   *  on each request, so it can be changed mid-conversation and the next
+   *  message goes out at the new level — no new session, nothing to restart.
+   *  Held here rather than on the conversation because it is how the operator
+   *  is working, not what the thread is. */
   const [effort, setEffort] = useState<string | null>(null);
   const [pickEffort, setPickEffort] = useState(false);
   /** Whether the slash menu is welcome. Typing `/` opens it; Escape and a
@@ -536,9 +542,9 @@ export function Chat() {
     sendChat(body, attached, effort);
     setText("");
     setAttached([]);
-    // Chosen per message, so it does not survive one. Asking for more thinking
-    // about a hard question should not quietly bill every question after it.
-    setEffort(null);
+    // The choice stays until it is changed again. It is picked when a problem
+    // needs it, and a problem rarely needs it for exactly one message — having
+    // to re-pick it every turn would be the real cost.
     setSlashing(false);
   };
 
@@ -1064,7 +1070,7 @@ export function Chat() {
                 <button
                   type="button"
                   aria-expanded={pickEffort}
-                  title="How hard to think about this one message. A model without the level you pick is downgraded by the engine."
+                  title="How hard to think, from this message on. Change it any time; a model without the level you pick is downgraded by the engine."
                   onClick={() => setPickEffort((v) => !v)}
                   className={cx(
                     PILL,
@@ -1105,7 +1111,7 @@ export function Chat() {
                         </button>
                       ))}
                       <div className="px-2.5 pb-1 pt-1.5 text-xs leading-normal text-faint dark:text-faint-d">
-                        This message only. The next one goes back to the model's own default.
+                        Stays until you change it, this conversation and the next.
                       </div>
                     </motion.div>
                   )}

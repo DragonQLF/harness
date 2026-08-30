@@ -162,7 +162,8 @@ interface Store {
    *  queued into the turn in flight, shown as not yet read, and settles into
    *  an ordinary one when the backend says the model has it.
    *
-   *  `effort` binds this message only. */
+   *  `effort` is the level currently chosen. It binds the request, so a
+   *  change takes effect on the next message without a new session. */
   sendChat: (text: string, attachments?: string[], effort?: string | null) => Promise<void>;
   /** Put the screen into a draft. The row and its Claude session are created
    *  by the first message, so a draft nobody types into costs nothing. */

@@ -28,13 +28,30 @@ use harness_ports::ClockPort;
 /// tool call and two paragraphs; anything longer is wandering.
 const WALL_CLOCK: Duration = Duration::from_secs(120);
 
-/// Cheaper than any conversation: he reads one table, maybe one doc section,
-/// files at most a handful of proposals.
-const BUDGET_USD: f64 = 0.30;
+/// Sized for the model this actually runs on. The Director is an Opus profile
+/// with a $1.50 ceiling for a conversation; 30 cents was set as "cheaper than
+/// any conversation" and turned out to be less than one turn of it — the
+/// transcript for 2026-08-29 spent $0.3243 on `ToolSearch` and `self_report`
+/// and was cut before it could propose anything, having created 32k tokens of
+/// cache on the way in.
+///
+/// Still well under a conversation, because the shape of the work has not
+/// changed: one table, maybe one doc section, a handful of proposals. What
+/// changed is knowing what that costs.
+const BUDGET_USD: f64 = 1.00;
 
 /// The one name these conversations carry, so an unanswered one can be found
 /// again rather than duplicated.
 const LOOK_TITLE: &str = "End-of-day review";
+
+/// Did this run earn the day being marked done?
+///
+/// Only a look that both ran and ended on its own terms. `heard` alone is not
+/// enough — a budget cut emits events too, and treating those as a look banks
+/// the failure and buys a day of silence for it.
+fn counts_as_a_look(heard: bool, failed: bool) -> bool {
+    heard && !failed
+}
 
 /// Run the daily look if it is due. Returns what it said (for tests and logs);
 /// `None` when it was not due or could not start. Safe to call from several
@@ -164,6 +181,10 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     let forward = async move {
         let mut last_text = String::new();
         let mut heard = false;
+        // A `Done` can carry an error — a budget cut is the one that bit. It
+        // arrives on the same message as a success, so without reading it a
+        // failed look is indistinguishable from a quiet one.
+        let mut failed = false;
         while let Some(ev) = ev_rx.recv().await {
             heard = true;
             match &ev {
@@ -172,13 +193,18 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                 }
                 RunEvent::Text { text } => last_text = text.clone(),
                 RunEvent::Done {
-                    session_id, cost_usd, ..
+                    session_id,
+                    cost_usd,
+                    error,
+                    ..
                 } => {
                     if let Some(sid) = session_id {
                         ws_forward.record_chat_session(&conversation_id, sid).await;
                     }
                     ws_forward.record_chat_cost(&conversation_id, *cost_usd).await;
+                    failed = error.is_some();
                 }
+                RunEvent::Failed { .. } => failed = true,
                 _ => {}
             }
             if !ev.is_ephemeral() {
@@ -201,7 +227,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                 },
             );
         }
-        (last_text, heard)
+        (last_text, heard, failed)
     };
 
     // Whoever finishes first ends the wait: the answer, or the clock. Either
@@ -235,7 +261,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                 .map(str::to_string)
         }
     };
-    let (text, heard) = forward.await;
+    let (text, heard, failed) = forward.await;
 
     // A look that produced nothing at all — the agent never started, or the
     // app was closed out from under it — still says so. Silence in a
@@ -264,10 +290,13 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     }
 
     ws.finish_chat_turn(&conversation.id, Some(turn_id)).await;
-    // A look that found nothing is still a look, and a cut one retries tomorrow
-    // rather than tonight. One that never ran at all is not: marking it would
-    // buy a day of silence for a failure nobody saw.
-    if heard {
+    // A look that found nothing is still a look. One that never ran is not,
+    // and neither is one the budget cut before it reached the proposing —
+    // marking either buys a day of silence for a failure nobody saw. That is
+    // exactly what happened on 2026-08-29: the run died on its ceiling after
+    // two tool calls, `heard` was true because events had arrived, and the day
+    // was banked as done.
+    if counts_as_a_look(heard, failed) {
         ws.mark_daily_look();
     }
 
@@ -276,4 +305,38 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         (None, true) => String::from("(the end-of-day look ended without a closing word)"),
         (None, false) => text,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// O que aconteceu a 2026-08-29: o run morreu no tecto de $0.30 ao fim de
+    /// duas chamadas, o `heard` era verdade porque tinham chegado eventos, e o
+    /// dia ficou marcado como visto. Custou 32 cêntimos, não propôs nada, e
+    /// comprou vinte e quatro horas de silêncio para a própria falha.
+    #[test]
+    fn a_look_the_budget_cut_does_not_count_as_a_look() {
+        assert!(!counts_as_a_look(true, true));
+    }
+
+    #[test]
+    fn a_look_that_never_started_does_not_count_either() {
+        assert!(!counts_as_a_look(false, false));
+    }
+
+    /// Uma olhada que correu e não achou nada continua a ser uma olhada: o
+    /// silêncio dela é uma resposta, e repeti-la esta noite não muda nada.
+    #[test]
+    fn a_quiet_look_is_still_a_look() {
+        assert!(counts_as_a_look(true, false));
+    }
+
+    /// O tecto tem de dar para o modelo que o corre. O Director é um perfil
+    /// Opus com $1.50 para uma conversa; o antigo $0.30 era menos do que um
+    /// turno dele.
+    #[test]
+    fn the_budget_leaves_room_for_more_than_two_tool_calls() {
+        assert!(BUDGET_USD >= 1.0, "0.3243 foi gasto antes de propor seja o que for");
+    }
 }

@@ -449,9 +449,14 @@ pub struct RunSpec {
     /// whatever is set here — so this only ever decides how a *new* session
     /// sounds.
     pub output_style: Option<String>,
-    /// How hard to think on this one turn: `low`, `medium`, `high`, `xhigh`,
-    /// `max`. Unlike the style, this binds per request, which is why it can be
-    /// chosen per message rather than per conversation.
+    /// How hard to think on this turn: `low`, `medium`, `high`, `xhigh`,
+    /// `max`. Unlike the style, this binds the request rather than the system
+    /// prompt — so the operator can change it mid-conversation and the very
+    /// next message goes out at the new level, with no new session.
+    ///
+    /// It rides here, per run, precisely so it can be changed at any point.
+    /// What it is *set to* persists in the composer until changed; what this
+    /// field carries is only what was chosen when this one turn was sent.
     ///
     /// Not every model takes every level; the engine downgrades silently to
     /// what the chosen model supports. Relay does not second-guess that — a

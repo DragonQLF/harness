@@ -204,9 +204,10 @@ export interface ChatState {
    *  the message joins the run in flight and the model reads it at its next
    *  read, so a correction lands during the work instead of after it.
    *
-   *  `effort` is chosen per message and binds only that one — `low` through
-   *  `max`, or `null` for the model's own default. The engine downgrades a
-   *  level the model does not have. */
+   *  `effort` is whatever level is currently chosen — `low` through `max`, or
+   *  `null` for the model's own default. It binds the request, not the
+   *  session, so changing it takes effect on the very next message. The engine
+   *  downgrades a level the model does not have. */
   sendChat: (text: string, attachments?: string[], effort?: string | null) => Promise<void>;
   /** Put the screen into a draft. Nothing is written until the first message:
    *  the row, and the Claude session behind it, are born on send. */
