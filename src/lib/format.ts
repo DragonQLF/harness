@@ -69,16 +69,6 @@ export function greeting(): string {
   return "Good evening";
 }
 
-export function today(): string {
-  return new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
-
-export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-
 /** A file size a person reads at a glance: "312 KB", "1.4 MB". Whole numbers
  *  below a megabyte — nobody needs a tenth of a kilobyte. */
 export function bytes(n: number): string {
@@ -89,25 +79,6 @@ export function bytes(n: number): string {
 
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
-}
-
-/** Bar heights for a sparkline, as percentages with a visible floor. */
-export function barHeights(values: number[]): { h: string; opacity: number }[] {
-  const peak = Math.max(1, ...values);
-  return values.map((v) => ({
-    h: `${Math.max(6, Math.round((v / peak) * 100))}%`,
-    opacity: Number((0.3 + 0.7 * (v / peak)).toFixed(2)),
-  }));
-}
-
-export const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
-
-/** Weekday letters for the last seven days, oldest first. */
-export function weekLetters(): string[] {
-  const out: string[] = [];
-  const day = new Date().getDay();
-  for (let i = 6; i >= 0; i--) out.push(DAY_LETTERS[(day - i + 7) % 7]!);
-  return out;
 }
 
 /** O fim de um texto, e não o princípio.

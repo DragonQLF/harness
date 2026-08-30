@@ -28,7 +28,9 @@ import { Board } from "./views/Board";
 import { Sessions } from "./views/Sessions";
 import { Agents } from "./views/Agents";
 import { Projects } from "./views/Projects";
-import { Activity, Settings, Worktrees } from "./views/Misc";
+import { Activity } from "./views/Activity";
+import { Settings } from "./views/Settings";
+import { Worktrees } from "./views/Worktrees";
 import { NAV_VIEWS, VIEW_TITLES, type View } from "./views/views";
 import "./styles/app.css";
 

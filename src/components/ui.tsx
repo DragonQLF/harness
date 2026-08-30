@@ -58,6 +58,29 @@ function pickTone(t: ToneName | Tone | undefined, fallback: Tone = TONE.neutral)
 /** Uma linha que não pode crescer para lá do sítio onde está. */
 export const truncate = "min-w-0 truncate";
 
+/** O painel dos ecrãs de registo e de definições: linha de 1px, raio 20,
+ *  superfície. Estava escrito uma vez para os três ecrãs que o usam, num
+ *  ficheiro que eles partilhavam só por isto. */
+export const PANEL =
+  "overflow-hidden rounded-xl border border-line bg-surface dark:border-line-d dark:bg-surface-d";
+
+/** Uma linha de lista que responde ao ponteiro. */
+export const HOVER_ROW = "transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d";
+
+/** Um botão de contorno discreto. */
+export const QUIET =
+  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text focus-visible:bg-hovered focus-visible:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
+
+/** O mesmo botão quando desfaz alguma coisa. */
+export const DANGER =
+  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text3 transition-colors duration-150 hover:border-transparent hover:bg-badSoft hover:text-bad focus-visible:border-transparent focus-visible:bg-badSoft focus-visible:text-bad dark:border-line-d dark:text-text3-d dark:hover:bg-badSoft-d dark:hover:text-bad-d";
+
+/** Uma pastilha numa fila de escolhas. */
+export const CHOICE = "min-h-6 cursor-pointer rounded-full border-none transition-colors duration-150";
+export const CHOICE_ON = "bg-accent font-bold text-onAccent dark:bg-accent-d dark:text-onAccent-d";
+export const CHOICE_OFF =
+  "bg-transparent font-medium text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
+
 export const tabular = "tabular-nums";
 
 /** A voz de metadados em monoespaçada: ids, custos, ramos, horas. */

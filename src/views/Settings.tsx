@@ -1,276 +1,29 @@
-/** Worktrees, Activity and Settings. The Director now lives on the chat
- *  screen, so nothing here needs a page of its own. */
+/** Settings — como os agentes correm, as permissões permanentes, o aspecto, a
+ *  autenticação e onde ficam os dados.
+ *
+ *  Era o maior dos três inquilinos do `Misc.tsx`, e o único que ainda cresce.
+ */
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { cx } from "../lib/cx";
-import { ago, clock, money } from "../lib/format";
-import { ruleIsRevoked, ruleLabel, TONE, type Provider, type WorktreeRow } from "../lib/types";
+import { ago, money } from "../lib/format";
+import { ruleIsRevoked, ruleLabel, type Provider } from "../lib/types";
 import { useStore } from "../state/store";
 import { checkForUpdate, useAppVersion, useUpdater } from "../components/Updater";
-import { Loading, Switch, mono, tabular, truncate } from "../components/ui";
-
-/** O painel que estes três ecrãs repetem: linha de 1px, raio 20, superfície. */
-const PANEL = "overflow-hidden rounded-xl border border-line bg-surface dark:border-line-d dark:bg-surface-d";
-
-/** Uma linha de lista que responde ao ponteiro. */
-const HOVER_ROW = "transition-colors duration-150 hover:bg-hovered dark:hover:bg-hovered-d";
-
-/** Um botão de contorno discreto. */
-const QUIET =
-  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text focus-visible:bg-hovered focus-visible:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
-
-/** O mesmo botão quando desfaz alguma coisa. */
-const DANGER =
-  "min-h-6 cursor-pointer rounded-full border border-line bg-transparent font-semibold text-text3 transition-colors duration-150 hover:border-transparent hover:bg-badSoft hover:text-bad focus-visible:border-transparent focus-visible:bg-badSoft focus-visible:text-bad dark:border-line-d dark:text-text3-d dark:hover:bg-badSoft-d dark:hover:text-bad-d";
-
-/** Uma pastilha numa fila de escolhas. */
-const CHOICE =
-  "min-h-6 cursor-pointer rounded-full border-none transition-colors duration-150";
-const CHOICE_ON = "bg-accent font-bold text-onAccent dark:bg-accent-d dark:text-onAccent-d";
-const CHOICE_OFF =
-  "bg-transparent font-medium text-text2 hover:bg-hovered hover:text-text dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d";
-
-export function Worktrees() {
-  const { projectId, project, snapshot, toast } = useStore();
-  const [rows, setRows] = useState<WorktreeRow[] | null>(null);
-
-  const load = () => {
-    if (!projectId) return;
-    api
-      .worktrees(projectId)
-      .then(setRows)
-      .catch((e) => toast("bad", "Could not list worktrees", reason(e)));
-  };
-
-  useEffect(load, [projectId]);
-
-  if (!project) {
-    return (
-      <div className="px-6.5 py-5.5 text-md text-text3 dark:text-text3-d">
-        Add a git repository first.
-      </div>
-    );
-  }
-  if (!rows) return <Loading what="Listing worktrees" />;
-
-  const grid = "grid grid-cols-[1.5fr_1fr_90px_1.4fr_150px] gap-3.5";
-  const cardFor = (branch: string | null) => {
-    const id = branch?.split("/").slice(-1)[0] ?? "";
-    return snapshot?.cards.find((c) => c.id === id) ?? null;
-  };
-
-  return (
-    <div className="px-6.5 pb-7 pt-5.5">
-      <p className="mb-4 mt-0 text-md text-text2 dark:text-text2-d">
-        One branch per card, created under app data. Finished runs commit themselves and leave a
-        trailer pointing back at the card.
-      </p>
-      <div className={PANEL}>
-        <div
-          className={cx(
-            grid,
-            "border-b border-line px-4.5 py-3 text-sm font-bold uppercase tracking-[.08em] text-text3 dark:border-line-d dark:text-text3-d",
-          )}
-        >
-          <span>Branch</span>
-          <span>Card</span>
-          <span>State</span>
-          <span>Path</span>
-          <span />
-        </div>
-        {rows.map((w) => {
-          const card = cardFor(w.branch);
-          const st = w.dirty
-            ? { label: "dirty", tone: TONE.accent }
-            : { label: "clean", tone: TONE.ok };
-          return (
-            <div
-              key={w.path}
-              className={cx(
-                grid,
-                HOVER_ROW,
-                "items-center border-b border-line2 px-4.5 py-3 dark:border-line2-d",
-              )}
-            >
-              <span className={cx(truncate, "font-mono text-md font-medium")}>
-                {w.branch ?? "(detached)"}
-              </span>
-              <span
-                title={card?.title}
-                className={cx(truncate, "font-mono text-sm text-text3 dark:text-text3-d")}
-              >
-                {card?.id ?? "—"}
-              </span>
-              <span
-                className={cx(
-                  "justify-self-start rounded-full px-2.5 py-1 text-sm font-bold",
-                  st.tone.soft,
-                  st.tone.fg,
-                )}
-              >
-                {st.label}
-              </span>
-              <span title={w.path} className={cx(truncate, "text-md text-text2 dark:text-text2-d")}>
-                {w.path}
-              </span>
-              <span className="flex justify-self-end gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => api.reveal(w.path).catch(() => {})}
-                  className={cx(QUIET, "px-3.5 py-1.5 text-sm")}
-                >
-                  Open
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!projectId) return;
-                    api
-                      .removeWorktree(projectId, w.path)
-                      .then(() => {
-                        toast("ok", "Removed", w.branch ?? w.path);
-                        load();
-                      })
-                      .catch((e) => toast("bad", "Could not remove it", reason(e)));
-                  }}
-                  className={cx(DANGER, "px-3.5 py-1.5 text-sm")}
-                >
-                  Drop
-                </button>
-              </span>
-            </div>
-          );
-        })}
-        {rows.length === 0 && (
-          <div className="px-4.5 py-5.5 text-center text-md text-text3 dark:text-text3-d">
-            No worktrees in this project. Agents open one the moment a card starts.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const FILTERS = ["All", "Cards", "Runs", "Reviews"] as const;
-
-export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
-  const { activity, snapshot, project } = useStore();
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
-
-  if (!project) {
-    return (
-      <div className="px-6.5 py-5.5 text-md text-text3 dark:text-text3-d">
-        Add a git repository first.
-      </div>
-    );
-  }
-
-  const rows = activity.filter((r) =>
-    filter === "All"
-      ? true
-      : filter === "Cards"
-        ? r.kind === "card"
-        : filter === "Runs"
-          ? r.kind === "run"
-          : r.kind === "review" || r.kind === "approval",
-  );
-
-  return (
-    <div className="px-6.5 pb-7 pt-5.5">
-      <div className="mb-3.5 flex items-center gap-3.5">
-        {/* The chrome above already names the screen and what it lists. Every
-            other view leaves the heading to it; this one said it twice. */}
-        <div className="flex-1" />
-        <div className="flex gap-0.5 rounded-full border border-line bg-surface p-1 dark:border-line-d dark:bg-surface-d">
-          {FILTERS.map((f) => {
-            const on = filter === f;
-            return (
-              <button
-                key={f}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setFilter(f)}
-                className={cx(CHOICE, "px-4 py-2 text-md", on ? CHOICE_ON : CHOICE_OFF)}
-              >
-                {f}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className={PANEL}>
-        {rows.map((e, i) => {
-          // Events written before the envelope carried a timestamp deserialize
-          // to zero. Dating them 1 January 1970 is a confident wrong answer;
-          // saying they predate the record is the true one.
-          const undated = !e.ts_ms;
-          const day = undated ? "undated" : new Date(e.ts_ms).toDateString();
-          const prev = rows[i - 1];
-          const prevDay = !prev ? null : !prev.ts_ms ? "undated" : new Date(prev.ts_ms).toDateString();
-          const fresh = day !== prevDay;
-          const today = new Date().toDateString();
-          const dot =
-            e.kind === "run"
-              ? TONE.accent
-              : e.kind === "approval"
-                ? TONE.warn
-                : e.kind === "review"
-                  ? TONE.ok
-                  : TONE.info;
-          return (
-            <Fragment key={e.seq}>
-              {fresh && (
-                <div className="border-b border-line2 bg-recess px-4.5 pb-2 pt-2.5 text-xs font-semibold tracking-[.08em] text-text4 dark:border-line2-d dark:bg-recess-d dark:text-text4-d">
-                  {undated
-                    ? "BEFORE TIMES WERE RECORDED"
-                    : day === today
-                      ? "TODAY"
-                      : new Date(e.ts_ms)
-                          .toLocaleDateString(undefined, { day: "numeric", month: "long" })
-                          .toUpperCase()}
-                </div>
-              )}
-              <button
-                key={e.seq}
-                type="button"
-                onClick={() => openRun(e.card_id)}
-                className={cx(
-                  HOVER_ROW,
-                  "grid w-full animate-[fadeIn_.25s_ease_both] cursor-pointer grid-cols-[14px_190px_74px_1fr_60px] items-center gap-3.5 border-b border-line2 bg-transparent px-4.5 py-3 text-left text-md text-text dark:border-line2-d dark:text-text-d",
-                )}
-              >
-                <span className={cx("h-1.75 w-1.75 rounded-full", dot.solid)} />
-                <span className={cx(truncate, "font-semibold")}>{e.label}</span>
-                <span
-                  title={e.card_id}
-                  className={cx(truncate, "font-mono text-sm text-text3 dark:text-text3-d")}
-                >
-                  {e.card_id}
-                </span>
-                <span className={cx(truncate, "text-text2 dark:text-text2-d")}>
-                  {e.detail || snapshot?.cards.find((c) => c.id === e.card_id)?.title || ""}
-                </span>
-                <span
-                  className={cx(tabular, "text-right text-sm text-text3 dark:text-text3-d")}
-                >
-                  {undated ? "—" : clock(e.ts_ms)}
-                </span>
-              </button>
-            </Fragment>
-          );
-        })}
-        {rows.length === 0 && (
-          <div className="px-4.5 py-5.5 text-center text-md text-text3 dark:text-text3-d">
-            Nothing logged yet. Every card created, moved, run or reviewed in this
-            project lands here, newest first.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+import {
+  CHOICE,
+  CHOICE_OFF,
+  CHOICE_ON,
+  DANGER,
+  Loading,
+  PANEL,
+  QUIET,
+  Switch,
+  mono,
+  tabular,
+  truncate,
+} from "../components/ui";
 
 function Row({
   name,

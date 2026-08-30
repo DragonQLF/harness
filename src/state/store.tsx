@@ -1116,14 +1116,3 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
-
-/** Cards of the active project, or an empty board. */
-export function useCards() {
-  const { snapshot } = useStore();
-  return snapshot?.cards ?? [];
-}
-
-export function useAgent(id: string | null | undefined) {
-  const { agents } = useStore();
-  return agents.find((a) => a.id === id) ?? agents.find((a) => a.id === "builder") ?? agents[0];
-}
