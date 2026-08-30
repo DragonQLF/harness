@@ -162,6 +162,23 @@ function toChat(lines: RunLogLine[]): ChatMsg[] {
   return fold(lines.map(toChatMsg).filter((m): m is ChatMsg => m != null));
 }
 
+/** O modelo em que esta conversa correu de facto, da última vez que correu.
+ *
+ *  Medido, não deduzido. O perfil pode dizer `opus`, que é um apelido e não um
+ *  modelo: qual dos Opus é decidido pelo login da Claude no momento do run, e
+ *  o único sítio onde isso aparece é a linha de `usage` que o próprio turno
+ *  escreveu. Mostrar o apelido era mostrar a pergunta em vez da resposta.
+ *
+ *  `toChat` deita as linhas de `usage` fora — são contabilidade, não conversa —
+ *  por isso lê-se aqui, antes disso. A última ganha: uma conversa que caiu para
+ *  outro modelo a meio correu no que acabou. */
+function modelOfTranscript(lines: RunLogLine[]): string | null {
+  return lines.reduce<string | null>(
+    (found, l) => (l.kind === "usage" && l.model ? l.model : found),
+    null,
+  );
+}
+
 /** O que o chat precisa do resto do store: avisar o operador, e saber que
  *  projecto está em foco quando nasce uma conversa. */
 export interface ChatDeps {
@@ -185,6 +202,9 @@ export interface ChatState {
    *  here — a hardcoded list would be wrong the day a skill is granted. */
   commands: SlashCommand[];
   chat: ChatMsg[];
+  /** O modelo em que esta conversa correu de facto, ou `null` antes do
+   *  primeiro turno. Medido nas linhas de `usage`, nunca deduzido do perfil. */
+  chatModel: string | null;
   chatBusy: boolean;
   /** A stored transcript is being read off disk. Distinct from `chatBusy`,
    *  which is the model answering: an empty thread that is still loading and
@@ -236,6 +256,8 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatThinking, setChatThinking] = useState("");
+  /** Em que modelo esta conversa correu, das linhas de `usage` dela. */
+  const [chatModel, setChatModel] = useState<string | null>(null);
   // True while deltas are arriving for the current answer, so the final `text`
   // event is not appended on top of what was already streamed.
   const streamedRef = useRef(false);
@@ -290,7 +312,10 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         chatRef.current = lastConversation;
         api
           .conversationTranscript(lastConversation)
-          .then((lines) => setChat(toChat(lines)))
+          .then((lines) => {
+            setChat(toChat(lines));
+            setChatModel(modelOfTranscript(lines));
+          })
           .catch(() => {});
       }
     },
@@ -475,6 +500,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // Relay itself talking — a resume that could not be honoured.
         if (u.text) setChat((cs) => [...cs, { role: "notice", text: u.text!, ts: u.ts_ms }]);
         break;
+      case "usage":
+        // O turno diz em que modelo correu. É a única fonte honesta: o perfil
+        // guarda o que foi pedido, isto é o que respondeu.
+        if (u.model) setChatModel(u.model);
+        break;
       case "commands":
         // Documented as replace, not merge: a skill that went away should stop
         // being offered.
@@ -606,6 +636,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         const lines = await api.conversationTranscript(id);
         settle(conversation.id);
         setChat(toChat(lines));
+        setChatModel(modelOfTranscript(lines));
         setChatThinking("");
         setChatBusy(false);
         streamedRef.current = false;
@@ -648,6 +679,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     setDraftProfile(profileId ?? null);
     draftRef.current = profileId ?? null;
     setChat([]);
+    setChatModel(null);
     setChatThinking("");
     setChatBusy(false);
     setChatLoading(false);
@@ -731,6 +763,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     draftProfile,
     commands,
     chat,
+    chatModel,
     chatBusy,
     chatLoading,
     chatThinking,

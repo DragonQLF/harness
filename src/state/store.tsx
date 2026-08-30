@@ -126,6 +126,8 @@ interface Store {
   draftProfile: string | null;
   conversation: Conversation | null;
   chat: ChatMsg[];
+  /** O modelo em que a conversa aberta correu de facto. Ver `state/chat`. */
+  chatModel: string | null;
   chatBusy: boolean;
   /** A stored transcript is being read off disk — not the model answering. */
   chatLoading: boolean;
@@ -990,6 +992,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       draftProfile: chat.draftProfile,
       conversation: chat.conversations.find((c) => c.id === chat.conversationId) ?? null,
       chat: chat.chat,
+      chatModel: chat.chatModel,
       chatBusy: chat.chatBusy,
       chatLoading: chat.chatLoading,
       chatThinking: chat.chatThinking,
@@ -1052,6 +1055,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chat.archiveConversation,
       chat.chat,
       chat.chatBusy,
+      chat.chatModel,
       chat.chatLoading,
       chat.chatThinking,
       chat.chatWithProfile,

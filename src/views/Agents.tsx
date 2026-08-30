@@ -383,10 +383,10 @@ function ModelPicker({
         </p>
       )}
 
-      {/* Os apelidos primeiro, e separados. Um perfil em `opus` e um perfil em
-          `claude-opus-4-8` não são a mesma escolha — o primeiro segue as
-          versões novas, o segundo fica onde está —, e a lista não deve fazer
-          parecer que são duas maneiras de dizer o mesmo. */}
+      {/* Os apelidos primeiro, e separados. `opus` e `claude-opus-4-8` não são
+          a mesma escolha: o primeiro nomeia uma família e deixa a versão ao
+          login da Claude no momento do run, o segundo fixa uma. A lista não
+          deve fazer parecer que são duas maneiras de dizer o mesmo. */}
       {aliases && aliases.length > 0 && !needle && (
         <div className="mt-2 overflow-hidden rounded-md border border-line2 dark:border-line2-d">
           {aliases.map((a) => {
@@ -414,7 +414,9 @@ function ModelPicker({
                 <span className="min-w-0 flex-1 truncate text-xs text-text3 dark:text-text3-d">
                   {a.hint}
                 </span>
-                <span className="flex-none text-xs text-text4 dark:text-text4-d">follows releases</span>
+                <span className="flex-none text-xs text-text4 dark:text-text4-d">
+                  version picked at run time
+                </span>
               </button>
             );
           })}

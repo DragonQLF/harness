@@ -189,6 +189,10 @@ export interface RunUpdate {
   queue_id?: string;
   /** On a `commands` update: everything `/` can reach in this session. */
   commands?: SlashCommand[];
+  /** On a `usage` update: the model that spent those tokens — the only record
+   *  of what the turn actually ran on. The profile says what it *would* run on
+   *  today, which stops being the same question the moment it is edited. */
+  model?: string | null;
 }
 
 /** One thing `/` can mean. Handwritten beside `RunUpdate` because it only ever
@@ -530,38 +534,50 @@ export const MODEL_ALIASES: Record<string, string> = {
   haiku: "Haiku",
 };
 
-/** Como se diz, num ecrã, em que modelo uma coisa corre.
+/** Como se escreve, num ecrã, o modelo que está configurado.
  *
- *  Três casos e três frases diferentes, porque são três factos diferentes:
- *  nada escolhido, um apelido que segue a versão mais recente, e um modelo
- *  fixado. Antes eram todos a mesma palavra solta — "opus" — que não dizia
- *  qual dos Opus nem que era um apelido, e o vazio dizia-se com o nome de
- *  outra coisa qualquer. */
+ *  A regra é uma só: **o rótulo é literalmente o que lá está**. Um perfil posto
+ *  em `opus` mostra `opus`; um posto em `claude-opus-4-8` mostra
+ *  `claude-opus-4-8`; um que não tem nada mostra um travessão, como qualquer
+ *  outro valor que o backend não deu.
+ *
+ *  Nada de palavras inventadas para o estado — nem "default", nem "latest".
+ *  Não dizem qual é o modelo, que é a única coisa que a pergunta faz; obrigam a
+ *  saber o que significam; e "latest" era duplamente falso, porque quem escolhe
+ *  qual dos Opus é o login da Claude no momento do run, e não este ecrã.
+ *
+ *  O que aquilo *quer dizer* vai no `title`, que é onde uma explicação cabe sem
+ *  tomar o lugar do facto.
+ */
 export function modelLabel(model: string | null | undefined): {
-  /** O que a pastilha mostra. Curto. */
+  /** O que a pastilha mostra: o valor tal e qual, ou um travessão. */
   label: string;
   /** O que o `title` explica. Uma frase. */
   hint: string;
-  /** Verdadeiro quando ninguém escolheu — a pastilha diz "default". */
-  isDefault: boolean;
+  /** Um apelido — não escolhe versão nenhuma; o run é que a decide. */
+  isAlias: boolean;
 } {
   const id = (model ?? "").trim();
   if (!id) {
     return {
-      label: "default",
-      hint: "No model chosen: the Claude login picks one for every run.",
-      isDefault: true,
+      label: "—",
+      hint: "No model set on this profile: the Claude login picks one when a run starts.",
+      isAlias: false,
     };
   }
   const alias = MODEL_ALIASES[id.toLowerCase()];
   if (alias) {
     return {
-      label: `${alias} · latest`,
-      hint: `An alias, not a model: whichever ${alias} is current when the run starts. It follows new releases on its own.`,
-      isDefault: false,
+      label: id,
+      hint: `A family, not a version: which ${alias} runs is decided by the Claude login when the run starts.`,
+      isAlias: true,
     };
   }
-  return { label: id, hint: `Pinned to ${id}. It stays on this one until you change it.`, isDefault: false };
+  return {
+    label: id,
+    hint: `Every run on this profile uses ${id}, until you change it.`,
+    isAlias: false,
+  };
 }
 
 // The backend's own vocabulary, passed through so a screen imports every

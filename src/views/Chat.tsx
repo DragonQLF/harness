@@ -35,7 +35,7 @@ const PILL =
  *  first message of one. A level the model does not have is downgraded by the
  *  engine, so the worst case here is asking for more than exists. */
 const EFFORTS: { id: string | null; name: string }[] = [
-  { id: null, name: "Default" },
+  { id: null, name: "Model decides" },
   { id: "low", name: "Low" },
   { id: "medium", name: "Medium" },
   { id: "high", name: "High" },
@@ -685,6 +685,7 @@ function Attached({ path, remove }: { path: string; remove: () => void }) {
 export function Chat() {
   const {
     chat,
+    chatModel,
     chatBusy,
     chatLoading,
     chatThinking,
@@ -899,7 +900,7 @@ export function Chat() {
   );
 
   const modelOf = modelLabel(speaker?.model);
-  const facts = [modelOf.isDefault ? null : modelOf.label, speaker?.title]
+  const facts = [chatModel ?? (speaker?.model ? modelOf.label : null), speaker?.title]
     .filter(Boolean)
     .join(" · ");
 
@@ -1258,12 +1259,22 @@ export function Chat() {
                 <Plus size={12} strokeWidth={3} aria-hidden="true" />
               </button>
 
-              {/* Diz o que está activo, e diz quando não está escolhido nada.
-                  Mostrava `speaker.model` cru — "opus" —, que não diz qual dos
-                  Opus nem que é um apelido que anda sozinho, e dizia o vazio
-                  com uma frase que parecia um nome de modelo. */}
-              <span className={cx(PILL, "flex-none")} title={`${modelOf.hint} Change it in this profile, on the Agents screen.`}>
-                {modelOf.isDefault ? "model · default" : modelOf.label}
+              {/* O modelo em que esta conversa correu, medido na linha de
+                  `usage` do último turno — `claude-opus-5`, e não `opus`.
+                  O perfil guarda a pergunta ("um Opus qualquer"); isto é a
+                  resposta, e é a resposta que interessa a quem está a olhar.
+                  Antes do primeiro turno não há resposta nenhuma, e então
+                  mostra-se o que está configurado; se nem isso, um travessão,
+                  como qualquer outro valor que ninguém deu. */}
+              <span
+                className={cx(PILL, "flex-none")}
+                title={
+                  chatModel
+                    ? `The last turn here ran on ${chatModel}.`
+                    : `${modelOf.hint} Nothing has run in this chat yet.`
+                }
+              >
+                {chatModel ?? modelOf.label}
               </span>
 
               {/* Per message, and it says so. Effort binds the request rather
@@ -1277,7 +1288,7 @@ export function Chat() {
                   title={
                     effort
                       ? `Thinking at ${effort}, from this message on. A model without that level is downgraded by the engine.`
-                      : "Default: whatever the model does on its own, which is what it does when nobody asks. Pick a level to push it harder."
+                      : "Relay is not asking for a level, so the model thinks as much as it thinks. Pick one to push it harder."
                   }
                   onClick={() => setPickEffort((v) => !v)}
                   className={cx(
@@ -1287,7 +1298,7 @@ export function Chat() {
                       "border-primaryLine bg-primarySoft text-primary dark:border-primaryLine-d dark:bg-primarySoft-d dark:text-primary-d",
                   )}
                 >
-                  {`thinking · ${effort ?? "default"}`}
+                  {`thinking · ${effort ?? "model decides"}`}
                 </button>
                 <AnimatePresence>
                   {pickEffort && (
@@ -1310,11 +1321,6 @@ export function Chat() {
                         >
                           <span className="min-w-0 flex-1 truncate text-md font-medium text-ink2 dark:text-ink2-d">
                             {level.name}
-                            {level.id === null && (
-                              <span className="pl-1.5 text-xs font-normal text-faint dark:text-faint-d">
-                                what the model does on its own
-                              </span>
-                            )}
                           </span>
                           {level.id === effort && (
                             <span className={cx(mono, "text-xs text-primary dark:text-primary-d")}>
