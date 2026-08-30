@@ -65,7 +65,7 @@ impl Skill {
 /// The prose is adapted from HKUDS/CLI-Anything (Apache-2.0) — the catalogue,
 /// the `cli-hub` commands and the matrix workflow are theirs. What Relay adds
 /// is the part no general skill could know: where this shell guard stops, and
-/// that nobody is watching the terminal.
+/// why an interactive mode is unusable from inside a tool call.
 ///
 /// Fetching it instead would mean an agent's prompt could change without anyone
 /// approving the new words, which is the one thing a grant is supposed to
@@ -92,9 +92,13 @@ fn body(which: Skill) -> &'static str {
              catalogue is at https://clianything.cc.\n\n",
 
             "## Never open a REPL\n\n",
-            "These CLIs offer an interactive mode. **You cannot use it.** Nobody is watching your \
-             terminal, so a REPL waits for input that never comes and the run is spent on \
-             nothing. Always the one-shot form, and always `--json`:\n\n",
+            "These CLIs offer an interactive mode. **You cannot use it** — and the reason is not \
+             that nobody is there. Somebody is: the operator sees every command you run, answers \
+             the permission sheet, and can say something to you mid-run. What none of that gives \
+             you is a way to type into a program *you* started. A shell call is one command and \
+             its output; there is no keystroke channel to a process waiting at a prompt, so a \
+             REPL sits there until the call is cut off. Always the one-shot form, and always \
+             `--json`:\n\n",
             "```\n",
             "cli-anything-gimp --json image resize --width 800 in.png\n",
             "```\n\n",
@@ -190,14 +194,24 @@ mod tests {
         assert!(text.contains("permission sheet"), "what does stop it being invisible");
     }
 
-    /// A adaptação que mais importa: estes CLIs têm modo interactivo e ninguém
-    /// está a ver o terminal. Um REPL fica à espera para sempre e a execução
-    /// gasta-se em nada.
+    /// A adaptação que mais importa, e a razão tem de estar certa: não é que
+    /// não esteja lá ninguém — está, e é o ponto todo desta app. É que uma
+    /// chamada de shell é um comando e a sua saída, sem canal para escrever
+    /// num processo à espera. Dar a razão errada convidava o agente a
+    /// raciocinar para lá da regra: "mas o operador está a ver, logo posso".
     #[test]
     fn it_forbids_the_interactive_mode() {
         let text = body(Skill::Cli);
         assert!(text.contains("Never open a REPL"));
         assert!(text.contains("--json"));
+        assert!(
+            text.contains("the reason is not that nobody is there"),
+            "the operator is watching; that is not why a REPL fails"
+        );
+        assert!(
+            text.contains("no keystroke channel"),
+            "the real reason: a shell call is one command and its output"
+        );
     }
 
     /// A razão de o Director o ter: para saber que existe e o poder passar.
