@@ -533,3 +533,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 }
+
+/// The Curator pass, on demand: promote report_work notes from Done cards into
+/// the project's memory areas and regenerate the index from those files.
+///
+/// A passagem inteira vive no `harness_app::curator`, onde tem testes; o que
+/// esta função sabe é onde é a pasta e onde está o log.
+#[tauri::command]
+pub async fn curator_run(project_id: String, ws: Shared<'_>) -> Result<String, String> {
+    let runtime = ws.runtime(&project_id).await?;
+    let memory = ws.paths.project_dir(&project_id).join("memory");
+    let cards = runtime.engine.snapshot().await?.cards;
+
+    let store = Arc::clone(&runtime.store);
+    let history = tauri::async_runtime::spawn_blocking(move || {
+        harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        harness_app::curator::run(&memory, &history, &cards)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

@@ -155,8 +155,79 @@ pub fn parse_ollama_tags(body: &str) -> Vec<CatalogModel> {
     out
 }
 
+/// Does this endpoint live on the machine?
+///
+/// Só a um local se pergunta directamente o que tem: apontar o pedido de tags
+/// ao host de um estranho é dizer-lhe que corremos Relay. A regra vive aqui e
+/// não no comando porque é política, não é rede — e porque escrita ali não
+/// tinha teste nenhum.
+pub fn is_local(base_url: &str) -> bool {
+    let host = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    host.starts_with("localhost")
+        || host.starts_with("127.0.0.1")
+        || host.starts_with("0.0.0.0")
+        || host.starts_with("[::1]")
+}
+
+/// Um dia. O catálogo tem quatro megabytes e muda-se com a frequência com que
+/// se lançam modelos; voltar a buscá-lo a cada visita ao ecrã de Agentes era
+/// indelicado dos dois lados.
+pub const CACHE_MAX_AGE_SECS: u64 = 24 * 60 * 60;
+
+/// Serve a cópia em disco, ou é preciso voltar a buscar?
+///
+/// Um `refresh` pedido pelo operador ganha sempre, e um ficheiro cuja idade
+/// não se consegue ler conta como velho: preferir a rede a servir uma coisa
+/// cuja data se desconhece.
+pub fn cache_is_fresh(cache: &std::path::Path, refresh: bool) -> bool {
+    !refresh
+        && std::fs::metadata(cache)
+            .and_then(|m| m.modified())
+            .map(|t| {
+                t.elapsed()
+                    .map(|age| age.as_secs() < CACHE_MAX_AGE_SECS)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
+    /// A pergunta que decide se um endpoint é interrogado directamente. Estava
+    /// escrita dentro do comando, onde nada a corria.
+    #[test]
+    fn only_this_machine_is_asked_what_it_has() {
+        for local in [
+            "http://localhost:11434",
+            "https://127.0.0.1:8080",
+            "http://0.0.0.0:1234",
+            "http://[::1]:11434",
+            "localhost:11434",
+        ] {
+            assert!(is_local(local), "{local}");
+        }
+        for remote in ["https://openrouter.ai/api/v1", "https://ollama.com"] {
+            assert!(!is_local(remote), "{remote}");
+        }
+        // Verdade desconfortável, prendida em vez de escondida: a regra é um
+        // prefixo, portanto um host que *começa* por `localhost.` passa por
+        // local. Quem escreveu esse endpoint foi o operador, e o que se lhe
+        // manda é um GET de tags — anotado, não corrigido, porque apertar isto
+        // é recusar endpoints que hoje funcionam.
+        assert!(is_local("https://localhost.example.invalid/api"));
+    }
+
+    /// Um pedido explícito de refresh ganha sempre, e um ficheiro que não
+    /// existe nunca é fresco.
+    #[test]
+    fn a_cache_that_is_not_there_is_never_fresh() {
+        let missing = std::path::Path::new("/does/not/exist/models.dev.json");
+        assert!(!cache_is_fresh(missing, false));
+        assert!(!cache_is_fresh(missing, true));
+    }
+
     use super::*;
 
     const BODY: &str = r#"{

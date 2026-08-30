@@ -3,7 +3,12 @@
 //! regenerate the index from those files. Pure functions plus the file writes;
 //! the judging layer (contradictions, obsolescence, reorganisation) is a later,
 //! model-driven pass that edits these same files.
+//!
+//! O `run` estava dentro de um `#[tauri::command]`: a marca d'água, a escrita
+//! dos ficheiros e a regeneração do índice, sessenta linhas de política num
+//! sítio onde não corre nenhum teste. A casca só sabe agora onde é a pasta.
 
+use std::path::Path;
 
 use harness_domain::{Card, Event, Status};
 use harness_ports::StoredEvent;
@@ -84,6 +89,92 @@ pub fn render_index(area_files: &[(String, Vec<String>)]) -> String {
     out
 }
 
+/// Onde a marca d'água vive, dentro da pasta de memória do projecto.
+fn watermark_file(memory: &Path) -> std::path::PathBuf {
+    memory.join("curator-state.json")
+}
+
+/// A que sequência a última passagem chegou. Um ficheiro ausente é uma
+/// instalação que nunca curou nada, e um ilegível é um dia mau: os dois valem
+/// zero, e zero só faz a passagem seguinte reler o que já promoveu — que é
+/// idempotente por construção, porque o nome do ficheiro é o mesmo.
+fn watermark(memory: &Path) -> u64 {
+    std::fs::read_to_string(watermark_file(memory))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("last_seq").and_then(|s| s.as_u64()))
+        .unwrap_or(0)
+}
+
+/// O índice, lido do que existe em `areas/` e não do que se acabou de escrever.
+///
+/// A diferença importa: um ficheiro promovido numa passagem anterior, ou
+/// editado à mão pelo operador, continua no índice. Gerá-lo a partir das
+/// promoções desta passagem apagava tudo o resto.
+fn index_from_disk(areas: &Path) -> Result<String, String> {
+    let mut listing: Vec<(String, Vec<String>)> = Vec::new();
+    for entry in std::fs::read_dir(areas).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let headers: Vec<String> = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("## "))
+            .map(|l| l[3..].trim().to_string())
+            .collect();
+        listing.push((name, headers));
+    }
+    // A ordem do `read_dir` é a do sistema de ficheiros; sem isto o índice
+    // muda de linha sozinho entre duas passagens que não promoveram nada.
+    listing.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(render_index(&listing))
+}
+
+/// Uma passagem inteira do Curador: promover o que é novo, reescrever o índice
+/// a partir do disco, e avançar a marca d'água. Idempotente — a marca é o que
+/// garante que nada é promovido duas vezes.
+pub fn run(memory: &Path, history: &[StoredEvent], cards: &[Card]) -> Result<String, String> {
+    let areas = memory.join("areas");
+    std::fs::create_dir_all(&areas).map_err(|e| e.to_string())?;
+
+    let since = watermark(memory);
+    let promotions = plan_promotions(history, since, cards);
+    if promotions.is_empty() {
+        return Ok("nothing new to curate".to_string());
+    }
+    for p in &promotions {
+        let path = areas.join(&p.file_name);
+        std::fs::write(&path, &p.markdown)
+            .map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    }
+
+    std::fs::write(memory.join("index.md"), index_from_disk(&areas)?)
+        .map_err(|e| e.to_string())?;
+
+    // A marca sobe depois de os ficheiros estarem escritos, nunca antes: uma
+    // falha a meio deixa a passagem seguinte a repetir, e repetir é seguro.
+    let last_seq = history.last().map(|h| h.seq).unwrap_or(since);
+    std::fs::write(
+        watermark_file(memory),
+        serde_json::json!({ "last_seq": last_seq }).to_string(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "promoted {} note file(s) from {} to {}",
+        promotions.len(),
+        since,
+        last_seq
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,6 +228,46 @@ mod tests {
         assert_eq!(promotions.len(), 1, "watermark skips old, Done-only promotes");
         assert_eq!(promotions[0].card_id, "done");
         assert!(promotions[0].markdown.contains("- fact"));
+    }
+
+    /// Uma segunda passagem sem eventos novos não promove nada e não mexe em
+    /// nada. Era a promessa do módulo e nada a prendia — a marca d'água vivia
+    /// dentro de um `#[tauri::command]`, onde nenhum teste lhe chegava.
+    #[test]
+    fn a_second_pass_over_the_same_history_promotes_nothing() {
+        let dir = std::env::temp_dir().join(format!("curator-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let history = vec![reported(8, "done", "s", &["fact"])];
+        let cards = vec![card("done", Status::Done)];
+
+        let first = run(&dir, &history, &cards).unwrap();
+        assert!(first.starts_with("promoted 1"), "{first}");
+        let index = std::fs::read_to_string(dir.join("index.md")).unwrap();
+
+        let second = run(&dir, &history, &cards).unwrap();
+        assert_eq!(second, "nothing new to curate");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("index.md")).unwrap(),
+            index,
+            "uma passagem que não promove nada não reescreve o índice"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// O que o operador escreveu à mão em `areas/` continua no índice. Gerá-lo
+    /// a partir das promoções desta passagem apagava tudo o resto.
+    #[test]
+    fn the_index_keeps_what_this_pass_did_not_write() {
+        let dir = std::env::temp_dir().join(format!("curator-hand-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("areas")).unwrap();
+        std::fs::write(dir.join("areas").join("by-hand.md"), "# x\n\n## written by the operator\n").unwrap();
+
+        run(&dir, &[reported(8, "done", "s", &["fact"])], &[card("done", Status::Done)]).unwrap();
+        let index = std::fs::read_to_string(dir.join("index.md")).unwrap();
+        assert!(index.contains("## by-hand"), "{index}");
+        assert!(index.contains("- written by the operator"), "{index}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

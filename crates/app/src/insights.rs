@@ -558,6 +558,64 @@ pub struct AgentStats {
     pub commits: u64,
 }
 
+/// Somar um projecto ao total de toda a gente.
+///
+/// O ecrã de Agentes lê a máquina inteira, não um quadro: o mesmo agente
+/// aparece em vários projectos e os números dele são a soma. Esta dobra estava
+/// escrita dentro do `#[tauri::command]`, com um `week_runs` de sete zeros
+/// criado à mão em dois sítios — e um deles a somar índice a índice sem nada a
+/// garantir que os dois vectores tinham o mesmo comprimento.
+pub fn merge_agent_stats(into: &mut BTreeMap<String, AgentStats>, from: BTreeMap<String, AgentStats>) {
+    for (id, stats) in from {
+        let slot = into.entry(id.clone()).or_insert_with(|| blank(&id));
+        slot.runs += stats.runs;
+        slot.cards += stats.cards;
+        slot.cards_done += stats.cards_done;
+        slot.spend += stats.spend;
+        slot.turns += stats.turns;
+        slot.reviews += stats.reviews;
+        slot.sent_back += stats.sent_back;
+        for (i, v) in stats.week_runs.iter().enumerate() {
+            if let Some(cell) = slot.week_runs.get_mut(i) {
+                *cell += v;
+            }
+        }
+    }
+}
+
+/// As linhas escritas, que não vêm do log de eventos mas das trailers dos
+/// commits. Um commit sem `Harness-Agent` não é de agente nenhum e não conta.
+pub fn merge_commit_lines(
+    into: &mut BTreeMap<String, AgentStats>,
+    commits: impl IntoIterator<Item = (Option<String>, u64, u64)>,
+) {
+    for (agent, added, removed) in commits {
+        let Some(agent) = agent else { continue };
+        let slot = into.entry(agent.clone()).or_insert_with(|| blank(&agent));
+        slot.lines_added += added;
+        slot.lines_removed += removed;
+        slot.commits += 1;
+    }
+}
+
+/// A média só existe onde houve runs: dividir por zero dava um `NaN` que o
+/// ecrã desenharia como um número.
+pub fn settle_averages(stats: &mut BTreeMap<String, AgentStats>) {
+    for s in stats.values_mut() {
+        if s.runs > 0 {
+            s.avg_cost = s.spend / s.runs as f64;
+        }
+    }
+}
+
+fn blank(agent_id: &str) -> AgentStats {
+    AgentStats {
+        agent_id: agent_id.to_string(),
+        week_runs: vec![0; 7],
+        ..Default::default()
+    }
+}
+
 /// Per-agent numbers across one project's log. Line counts come from git and
 /// are added by the caller.
 pub fn agent_stats(
@@ -628,6 +686,49 @@ pub fn agent_stats(
 
 #[cfg(test)]
 mod tests {
+    /// Dois projectos, um agente: o ecrã mostra a soma. E a média assenta uma
+    /// vez no fim, sobre o total — não uma vez por projecto, que daria a média
+    /// das médias.
+    #[test]
+    fn one_agent_across_two_projects_is_one_row() {
+        use super::{merge_agent_stats, merge_commit_lines, settle_averages, AgentStats};
+        let one = |runs, spend| {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert(
+                "builder".to_string(),
+                AgentStats {
+                    agent_id: "builder".into(),
+                    runs,
+                    spend,
+                    week_runs: vec![1, 0, 0, 0, 0, 0, 0],
+                    ..Default::default()
+                },
+            );
+            m
+        };
+        let mut all = std::collections::BTreeMap::new();
+        merge_agent_stats(&mut all, one(2, 1.0));
+        merge_agent_stats(&mut all, one(2, 3.0));
+        merge_commit_lines(
+            &mut all,
+            [
+                (Some("builder".to_string()), 10, 2),
+                // Um commit do operador, sem trailer: não é de agente nenhum.
+                (None, 999, 999),
+            ],
+        );
+        settle_averages(&mut all);
+
+        assert_eq!(all.len(), 1, "um agente, uma linha");
+        let b = &all["builder"];
+        assert_eq!(b.runs, 4);
+        assert_eq!(b.spend, 4.0);
+        assert_eq!(b.week_runs[0], 2, "os dias somam-se dia a dia");
+        assert_eq!(b.lines_added, 10);
+        assert_eq!(b.commits, 1);
+        assert_eq!(b.avg_cost, 1.0, "a média é do total, não a média das médias");
+    }
+
     use super::*;
     use harness_domain::{Board, CardId, Command, RunId};
 
