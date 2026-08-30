@@ -7,7 +7,11 @@
  *
  *  What stays handwritten here is the surface ts-rs cannot mirror faithfully:
  *  - Envelope / RunUpdate / RunEventKind / RunLogLine: flattened event unions
- *    where the UI reads loose fields;
+ *    that ts-rs cannot mirror, because `#[serde(flatten)]` on an internally
+ *    tagged enum has no shape it can write. Every field one of them can carry
+ *    is declared, optional and named — "loose" is the *union*, not the fields.
+ *    Six of them used to be read through inline casts at eight call sites,
+ *    which is the same thing without the compiler;
  *  - the shell response wrappers that live in src-tauri itself (Bootstrap and
  *    friends), which are glue rather than domain.
  */
@@ -193,6 +197,28 @@ export interface RunUpdate {
    *  of what the turn actually ran on. The profile says what it *would* run on
    *  today, which stops being the same question the moment it is edited. */
   model?: string | null;
+  /** On `turns`: how many model turns so far. Interim; the total lands on
+   *  `done`. */
+  count?: number;
+  /** On `tool_use` and `tool_result`: the id the model minted for the call,
+   *  and the parent call when it runs inside a subagent. What lets a result
+   *  fold into the call that asked for it. */
+  tool_use_id?: string | null;
+  parent_tool_use_id?: string | null;
+  /** On `tool_result`: whether it worked, and the full (capped) output. A
+   *  failed Bash that reads as a clean one is the bug this pair closes. */
+  ok?: boolean;
+  detail?: string | null;
+  /** On `done`: set when the run ended in an error rather than an answer. It
+   *  arrives on the same message as a success, so without it a failed run
+   *  reads as a completed one. */
+  error?: string | null;
+  /** On `usage`: what one turn spent. `input_tokens` is the prompt the model
+   *  was handed *this* turn, so the last one is also how full its context is. */
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
 
 /** One thing `/` can mean. Handwritten beside `RunUpdate` because it only ever
@@ -253,6 +279,28 @@ export interface RunLogLine {
    *  been edited. Absent on every other kind, and on runs recorded before
    *  usage was written down. */
   model?: string | null;
+  /** On `turns`: how many model turns so far. Interim; the total lands on
+   *  `done`. */
+  count?: number;
+  /** On `tool_use` and `tool_result`: the id the model minted for the call,
+   *  and the parent call when it runs inside a subagent. What lets a result
+   *  fold into the call that asked for it. */
+  tool_use_id?: string | null;
+  parent_tool_use_id?: string | null;
+  /** On `tool_result`: whether it worked, and the full (capped) output. A
+   *  failed Bash that reads as a clean one is the bug this pair closes. */
+  ok?: boolean;
+  detail?: string | null;
+  /** On `done`: set when the run ended in an error rather than an answer. It
+   *  arrives on the same message as a success, so without it a failed run
+   *  reads as a completed one. */
+  error?: string | null;
+  /** On `usage`: what one turn spent. `input_tokens` is the prompt the model
+   *  was handed *this* turn, so the last one is also how full its context is. */
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
 
 // ---- shell wrappers that still live in src-tauri ---------------------------
@@ -591,5 +639,5 @@ export function modelLabel(model: string | null | undefined): {
 
 // The backend's own vocabulary, passed through so a screen imports every
 // list from one place whether it is generated or drawn here.
-export { ALL_PERMISSIONS, MODELS, REVIEWERS, STATUSES, WORKTREE_MODES };
+export { ALL_PERMISSIONS, MODELS, REVIEWERS, SHELL_TOOLS, STATUSES, WORKTREE_MODES };
 export type { Choice };

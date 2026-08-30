@@ -15,6 +15,7 @@ import { paneIn, popover, rowIn } from "../lib/motion";
 import {
   modelLabel,
   ruleLabel,
+  SHELL_TOOLS,
   STATUS_NAME,
   type AllowRule,
   type AttachmentPreview,
@@ -59,8 +60,10 @@ const NO_THREAD_YET = "This chat does not exist yet — send a message to create
  *  shell call is scoped to its leading words, anything else to the tool. */
 function scopeOf(request: PendingApproval): AllowRule {
   const head = request.tool.toLowerCase().split("(")[0]!.trim();
-  const shell = ["bash", "shell", "sh", "powershell"].includes(head);
-  if (!shell) return { tool: request.tool };
+  // A lista vem do `allow.rs` pelo `vocabulary.ts`, como no `ruleIsRevoked`.
+  // Estava escrita à mão aqui e outra vez no `scopable` — a mesma regra de
+  // segurança em três cópias, duas delas sem nada que as mantivesse a par.
+  if (!SHELL_TOOLS.includes(head)) return { tool: request.tool };
   const input = request.input as { command?: string } | null;
   const command = (input?.command ?? request.summary ?? "").trim();
   // Two words is what reads as a scope: `git push`, `cargo test`.
@@ -72,7 +75,7 @@ function scopeOf(request: PendingApproval): AllowRule {
  *  one — the sheet says so rather than pretending. */
 function scopable(request: PendingApproval): boolean {
   const rule = scopeOf(request);
-  if (!rule.command) return !["bash", "shell", "sh", "powershell"].includes(rule.tool.toLowerCase());
+  if (!rule.command) return !SHELL_TOOLS.includes(rule.tool.toLowerCase());
   const input = request.input as { command?: string } | null;
   return !/[;&|]{1,2}|\$\(/.test(input?.command ?? "");
 }

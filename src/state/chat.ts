@@ -69,34 +69,29 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
       return { role: "notice", text: line.message ?? "the answer did not arrive", ts };
     case "tool_use": {
       const tool = toolName(line.tool);
-      const ids = line as RunLogLine & {
-        tool_use_id?: string | null;
-        parent_tool_use_id?: string | null;
-      };
       return {
         role: "tool",
         text: line.summary ?? "",
         ts,
         tool,
-        toolUseId: ids.tool_use_id ?? null,
-        parentToolUseId: ids.parent_tool_use_id ?? null,
+        toolUseId: line.tool_use_id ?? null,
+        parentToolUseId: line.parent_tool_use_id ?? null,
         ok: null,
         detail: null,
       } as ChatMsg;
     }
     case "tool_result": {
-      const res = line as RunLogLine & { tool_use_id?: string; ok?: boolean; detail?: string | null; summary?: string };
       return {
         role: "tool",
-        text: res.summary ?? "",
+        text: line.summary ?? "",
         ts,
         // Without this the fold below has nothing to match on, and every
         // finished call rendered twice — once as a receipt still spinning,
         // once as its own orphaned result. The live path always carried it;
         // only the stored transcript dropped it.
-        toolUseId: res.tool_use_id ?? null,
-        ok: res.ok !== false,
-        detail: res.detail ?? null,
+        toolUseId: line.tool_use_id ?? null,
+        ok: line.ok !== false,
+        detail: line.detail ?? null,
       } as ChatMsg;
     }
     // Tool calls and session boundaries are in the log but would clutter the
@@ -112,7 +107,12 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
  *  from the CLI adapter, and the operator cares about neither prefix. The two
  *  paths into the transcript used to strip with two different patterns, and
  *  the one that matched `harness` without its colon left every stored receipt
- *  reading `:read_docs`. */
+ *  reading `:read_docs`.
+ *
+ *  Live no chat e é lido daqui pelo `events.ts`, que é a outra metade: ele
+ *  tinha o seu, e só tirava o prefixo do nosso próprio servidor — uma
+ *  ferramenta de um servidor concedido ao agente lia-se `mcp__figma__export`
+ *  num ecrã e `export` no outro. Um nome, uma função. */
 export function toolName(raw: string | undefined | null): string {
   return (raw ?? "tool")
     .replace(/^mcp__[a-z0-9_]+?__/i, "")
@@ -419,10 +419,6 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // A tool call is a transcript line, not a transient badge: five
         // calls in a row used to leave the trace of one, and a failed
         // one read like a clean one (#41 in the visual layer).
-        const ev = u as RunUpdate & {
-          tool_use_id?: string;
-          parent_tool_use_id?: string | null;
-        };
         const tool = toolName(u.tool);
         setChat((cs) => [
           ...cs,
@@ -431,8 +427,8 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
             text: u.summary ?? "",
             ts: u.ts_ms,
             tool,
-            toolUseId: ev.tool_use_id ?? null,
-            parentToolUseId: ev.parent_tool_use_id ?? null,
+            toolUseId: u.tool_use_id ?? null,
+            parentToolUseId: u.parent_tool_use_id ?? null,
             ok: null,
             detail: null,
           },
@@ -443,12 +439,6 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // Closes the matching call by id — replaces the pending bubble
         // in place instead of appending a second line. A result with no
         // open call (replay started mid-run) lands closed on its own.
-        const res = u as RunUpdate & {
-          tool_use_id?: string;
-          ok?: boolean | null;
-          detail?: string | null;
-          summary?: string;
-        };
         setChat((cs) => {
           let closed = false;
           const next = cs.map((m) => {
@@ -457,10 +447,10 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
               m.role === "tool" &&
               m.ok == null &&
               m.toolUseId != null &&
-              m.toolUseId === res.tool_use_id
+              m.toolUseId === u.tool_use_id
             ) {
               closed = true;
-              return { ...m, ok: res.ok !== false, detail: res.detail ?? null };
+              return { ...m, ok: u.ok !== false, detail: u.detail ?? null };
             }
             return m;
           });
@@ -469,11 +459,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
             ...next,
             {
               role: "tool",
-              text: res.summary ?? "",
+              text: u.summary ?? "",
               ts: u.ts_ms,
-              toolUseId: res.tool_use_id ?? null,
-              ok: res.ok !== false,
-              detail: res.detail ?? null,
+              toolUseId: u.tool_use_id ?? null,
+              ok: u.ok !== false,
+              detail: u.detail ?? null,
             } as ChatMsg,
           ];
         });

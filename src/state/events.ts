@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toolName } from "./chat";
 import type { RunLogLine, RunUpdate } from "../lib/types";
 
 const MAX_LINES = 400;
@@ -67,7 +68,13 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
     case "tool_use": {
       // The tool's own name is the gutter word: Read, Edit, Bash. Its colour
       // says what kind of call it was without a legend.
-      const tool = (u.tool ?? "tool").replace(/^(harness|mcp__harness__)/, "").replace(/^__/, "");
+      // O mesmo `toolName` da transcrição, e não um segundo padrão: este só
+      // tirava o prefixo do *nosso* servidor, portanto uma ferramenta de um
+      // servidor concedido aparecia como `mcp__figma__export` no feed de
+      // execução e limpa no chat — os mesmos dados escritos de duas maneiras
+      // conforme o ecrã. O comentário do `toolName` já dizia que os dois
+      // caminhos tinham sido unificados; não tinham.
+      const tool = toolName(u.tool);
       const colours: Record<string, string> = {
         Read: "text-ok dark:text-ok-d",
         Glob: "text-ok dark:text-ok-d",
@@ -79,23 +86,23 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
       const l = line(tool, u.summary ?? "", colours[tool] ?? "text-text3 dark:text-text3-d", "text-text2 dark:text-text2-d");
       return {
         ...l,
-        toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
+        toolUseId: u.tool_use_id ?? null,
         parentToolUseId:
-          (u as RunUpdate & { parent_tool_use_id?: string }).parent_tool_use_id ?? null,
+          u.parent_tool_use_id ?? null,
       };
     }
     case "tool_result": {
-      const ok = (u as RunUpdate & { ok?: boolean }).ok !== false;
-      const detail = (u as RunUpdate & { detail?: string | null }).detail ?? null;
+      const ok = u.ok !== false;
+      const detail = u.detail ?? null;
       return {
         ...line(
           ok ? "↳ ok" : "↳ failed",
-          (u as RunUpdate & { summary?: string }).summary ?? "",
+          u.summary ?? "",
           ok ? "text-ok dark:text-ok-d" : "text-bad dark:text-bad-d",
           ok ? "text-text2 dark:text-text2-d" : "text-bad2 dark:text-bad2-d",
           !ok,
         ),
-        toolUseId: (u as RunUpdate & { tool_use_id?: string }).tool_use_id ?? null,
+        toolUseId: u.tool_use_id ?? null,
         ok,
         detail,
       };
@@ -110,7 +117,7 @@ export function toLine(u: RunUpdate | RunLogLine): LogLine | null {
     case "done": {
       // One line that tells the truth: a done with an error is a failure
       // that happens to know its own cost — never two contradicting lines.
-      const err = (u as RunUpdate & { error?: string | null }).error;
+      const err = u.error;
       if (err) {
         return line("failed", err, "text-bad dark:text-bad-d", "text-bad2 dark:text-bad2-d");
       }
@@ -227,7 +234,7 @@ export function useRunFeed(): RunFeed {
     if (u.kind === "turns") {
       // Live progress toward the ceiling: turns counted per assistant
       // message. Cleared when the run ends (text/done/failed below).
-      const count = (u as RunUpdate & { count?: number }).count ?? 0;
+      const count = u.count ?? 0;
       setStreams((prev) => ({
         ...prev,
         [u.card_id]: { ...(prev[u.card_id] ?? { text: "", thinking: "" }), turns: count },
