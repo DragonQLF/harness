@@ -10,7 +10,13 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../lib/ipc";
-import type { Conversation, RunLogLine, RunUpdate, SlashCommand } from "../lib/types";
+import type {
+  BackgroundTask,
+  Conversation,
+  RunLogLine,
+  RunUpdate,
+  SlashCommand,
+} from "../lib/types";
 
 const DIRECTOR = "director";
 
@@ -201,6 +207,8 @@ export interface ChatState {
    *  the granted skills brought. Published by the engine, never assembled
    *  here — a hardcoded list would be wrong the day a skill is granted. */
   commands: SlashCommand[];
+  /** O trabalho que continua por baixo da resposta, agora mesmo. */
+  backgroundTasks: BackgroundTask[];
   chat: ChatMsg[];
   /** O modelo em que esta conversa correu de facto, ou `null` antes do
    *  primeiro turno. Medido nas linhas de `usage`, nunca deduzido do perfil. */
@@ -275,6 +283,9 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
    *  conversations afterwards, because the built-ins do not vary by thread and
    *  an empty menu is worse than a slightly stale one. */
   const [commands, setCommands] = useState<SlashCommand[]>([]);
+  /** O que continua a correr por baixo da resposta. Nível, não acumulado: cada
+   *  evento traz o conjunto vivo inteiro e substitui este. */
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   /** Numbers the pending bubbles until the backend hands each one its real id. */
   const pendingSeq = useRef(0);
   /** One send at a time, and a ref rather than state because state is a render
@@ -400,6 +411,12 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     if (u.kind !== "thinking" && u.kind !== "delta") flush();
 
     switch (u.kind) {
+      case "started":
+        // Por-processo: nada é emitido ao arrancar, por isso quem consome tem
+        // de voltar ao conjunto vazio a cada sessão. Sem isto, tarefas de uma
+        // execução anterior ficavam no ecrã como se ainda corressem.
+        setBackgroundTasks([]);
+        break;
       case "thinking":
         if (u.text) {
           held.current.thinking += u.text;
@@ -500,6 +517,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // being offered.
         if (u.commands) setCommands(u.commands);
         break;
+      case "background_tasks":
+        // Também substituição, e pela razão mais forte: emparelhar arestas
+        // deixaria um indicador presa a girar se uma delas se perdesse.
+        setBackgroundTasks(u.tasks ?? []);
+        break;
       case "local_output":
         // The engine answered by itself — `/usage`, `/context`. No model turn
         // is coming, so this is the whole reply and it lands as one.
@@ -509,11 +531,15 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         streamedRef.current = false;
         setChatThinking("");
         setChatBusy(false);
+        // A execução acabou e leva consigo o que levantou (#108): o que ficasse
+        // aqui seria trabalho que já não existe.
+        setBackgroundTasks([]);
         break;
       case "failed":
         streamedRef.current = false;
         setChatThinking("");
         setChatBusy(false);
+        setBackgroundTasks([]);
         setChat((cs) => [
           ...cs,
           { role: "notice", text: `No answer: ${u.message}`, ts: u.ts_ms },
@@ -752,6 +778,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     conversationId,
     draftProfile,
     commands,
+    backgroundTasks,
     chat,
     chatModel,
     chatBusy,

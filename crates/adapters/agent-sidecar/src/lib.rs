@@ -307,6 +307,22 @@ async fn drive(
                                     }
                                 }
                             }
+                            "background_tasks" => {
+                                // Nível: o conjunto inteiro de cada vez. Uma
+                                // carga malformada não passa por "já não há
+                                // nada a correr" — cai fora e o ecrã fica com
+                                // o último conjunto bom, que é o menos
+                                // enganador dos dois erros.
+                                if let Some(list) = ev.get("tasks") {
+                                    if let Ok(tasks) = serde_json::from_value::<
+                                        Vec<harness_ports::BackgroundTask>,
+                                    >(list.clone())
+                                    {
+                                        let _ =
+                                            tx.send(RunEvent::BackgroundTasks { tasks }).await;
+                                    }
+                                }
+                            }
                             "local_output" => {
                                 let text = ev
                                     .get("text")
@@ -664,6 +680,29 @@ mod tests {
     use super::{done_error, mcp_json};
     use harness_ports::{Grants, McpGrant, McpTransport};
     use serde_json::json;
+
+    /// O contrato entre as duas linguagens. O sidecar manda `task_type` e
+    /// `description` sempre presentes — nunca `undefined` — porque isto
+    /// desserializa para `String`: um campo em falta faria a carga inteira cair
+    /// fora, e o ecrã ficaria com o conjunto anterior a dizer que ainda corre.
+    #[test]
+    fn the_sidecars_background_tasks_deserialise_as_sent() {
+        let sent = json!([
+            { "task_id": "t1", "task_type": "shell", "description": "sleep 400" },
+            { "task_id": "t2", "task_type": "", "description": "" },
+        ]);
+        let tasks: Vec<harness_ports::BackgroundTask> =
+            serde_json::from_value(sent).expect("o que o sidecar manda tem de entrar");
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].task_id, "t1");
+        assert_eq!(tasks[0].task_type, "shell");
+        assert_eq!(tasks[1].description, "");
+
+        // E o vazio é um conjunto, não um erro: é ele que desliga o indicador.
+        let none: Vec<harness_ports::BackgroundTask> =
+            serde_json::from_value(json!([])).expect("o vazio é uma resposta");
+        assert!(none.is_empty());
+    }
 
     #[test]
     fn granted_servers_travel_and_harness_is_never_one_of_them() {

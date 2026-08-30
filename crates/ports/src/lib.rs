@@ -569,6 +569,17 @@ pub struct SlashCommand {
     pub aliases: Vec<String>,
 }
 
+/// Trabalho que o agente deixou a correr por baixo da resposta: um comando
+/// posto em fundo, um subagente. Não é um recibo de uma chamada — é uma coisa
+/// que continua depois de o turno acabar de falar.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct BackgroundTask {
+    pub task_id: String,
+    /// `shell`, `subagent`, … — a etiqueta que o motor lhe dá.
+    pub task_type: String,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunEvent {
@@ -693,6 +704,16 @@ pub enum RunEvent {
     LocalOutput {
         text: String,
     },
+    /// Todo o trabalho de fundo vivo neste momento, sempre que o conjunto muda.
+    ///
+    /// Nível, não aresta: cada um destes traz o conjunto inteiro e substitui o
+    /// anterior, que é o que impede um sinal perdido de deixar um indicador a
+    /// girar para sempre. Efémero pela mesma razão que os `Commands` — é
+    /// por-processo e nada é emitido ao arrancar, portanto uma linha guardada
+    /// só serviria para ressuscitar tarefas que já não existem.
+    BackgroundTasks {
+        tasks: Vec<BackgroundTask>,
+    },
 }
 
 impl RunEvent {
@@ -705,6 +726,7 @@ impl RunEvent {
                 | RunEvent::Thinking { .. }
                 | RunEvent::Turns { .. }
                 | RunEvent::Commands { .. }
+                | RunEvent::BackgroundTasks { .. }
         )
     }
 }

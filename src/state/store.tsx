@@ -37,6 +37,7 @@ import type {
   Status,
   SystemStatus,
   SlashCommand,
+  BackgroundTask,
 } from "../lib/types";
 
 // O redutor de eventos mudou-se para `./events` e o estado de chat para
@@ -160,6 +161,10 @@ interface Store {
    *  the granted skills brought. Published by the engine; never assembled
    *  here, so a granted skill shows up without Relay knowing its name. */
   commands: SlashCommand[];
+  /** What the agent left running under its answer — a backgrounded command, a
+   *  subagent. A level, not a tally: it arrives whole and replaces itself, and
+   *  it empties when the run ends, because a run now takes its work with it. */
+  backgroundTasks: BackgroundTask[];
   /** Say something. Never refused while the agent is working: the message is
    *  queued into the turn in flight, shown as not yet read, and settles into
    *  an ordinary one when the backend says the model has it.
@@ -1015,6 +1020,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       discard,
       loadRunLog,
       commands: chat.commands,
+      backgroundTasks: chat.backgroundTasks,
       sendChat: chat.sendChat,
       newConversation: chat.newConversation,
       chatWithProfile: chat.chatWithProfile,
@@ -1059,6 +1065,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chat.chatLoading,
       chat.chatThinking,
       chat.chatWithProfile,
+      chat.backgroundTasks,
       chat.commands,
       chat.conversationId,
       chat.conversations,

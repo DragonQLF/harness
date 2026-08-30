@@ -19,6 +19,7 @@ import {
   STATUS_NAME,
   type AllowRule,
   type AttachmentPreview,
+  type BackgroundTask,
   type ConversationTotals,
   type PendingApproval,
 } from "../lib/types";
@@ -685,6 +686,47 @@ function Attached({ path, remove }: { path: string; remove: () => void }) {
   );
 }
 
+/** O trabalho que continua por baixo da resposta.
+ *
+ *  Fora do fio e pela mesma razão que as permissões: isto não é uma mensagem, é
+ *  estado — o que está a correr *agora*. Dentro do scroller ficava preso no
+ *  sítio onde por acaso apareceu, a dizer uma coisa que entretanto mudou.
+ *
+ *  Existe porque um turno que responde não é um turno que acabou. Um watchdog
+ *  posto em fundo não deixava marca nenhuma no ecrã, e foi essa invisibilidade
+ *  que fez o #108 levar uma tarde a encontrar. O conjunto chega inteiro e
+ *  substitui-se; esvazia-se quando a execução acaba, porque agora ela leva
+ *  consigo o que levantou. */
+function BackgroundWork({ tasks }: { tasks: BackgroundTask[] }) {
+  if (tasks.length === 0) return null;
+  return (
+    <div className="flex flex-none flex-col gap-1.5 rounded-lg border border-line bg-surface2 px-3 py-2.5 dark:border-line-d dark:bg-surface2-d">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted dark:text-muted-d">
+        <span className="text-primary dark:text-primary-d">{SPINNING}</span>
+        <span>
+          {tasks.length === 1
+            ? "1 task still running in the background"
+            : `${tasks.length} tasks still running in the background`}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1">
+        {tasks.map((task) => (
+          <li key={task.task_id} className="flex min-w-0 items-baseline gap-2 text-xs">
+            {/* O tipo vem do motor; quando ele não o sabe cai no discriminante
+                cru, e é isso que se mostra — nunca uma etiqueta inventada. */}
+            <span className="flex-none rounded bg-primarySoft px-1.5 py-0.5 font-mono text-[11px] text-primary dark:bg-primarySoft-d dark:text-primary-d">
+              {task.task_type || "task"}
+            </span>
+            <span className="min-w-0 truncate text-faint dark:text-faint-d">
+              {task.description || "no description"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function Chat() {
   const {
     chat,
@@ -692,6 +734,7 @@ export function Chat() {
     chatBusy,
     chatLoading,
     chatThinking,
+    backgroundTasks,
     sendChat,
     agents,
     project,
@@ -1115,6 +1158,8 @@ export function Chat() {
               view, and the first they knew of it was the sheet appearing when
               they navigated to another screen. Pinned here it cannot be
               missed and cannot be scrolled away from. */}
+          <BackgroundWork tasks={backgroundTasks} />
+
           {approvals.length > 0 && (
             <div className="flex flex-none flex-col gap-2.5">
               {approvals.map((request) => (

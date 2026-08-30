@@ -37,6 +37,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 107 | Um agente pode ficar cercado a um projecto; quem manda no quadro revê-o |
 | 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
 | 2026-08-30 | 108 | Uma execução leva consigo o que levantou; o turno vazio deixa de passar por resposta |
+| 2026-08-30 | 109 | O trabalho de fundo passa a ver-se: nível e não arestas, fora do fio |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2509,3 +2510,31 @@ as que ainda não conhecemos.
 **O turno é que separa, não o texto.** Um turno que só chamou ferramentas também
 acaba sem texto e correu; é o `num_turns` que distingue os dois. Reprovar por
 texto vazio calava trabalho verdadeiro.
+
+### 109. O trabalho de fundo passa a ver-se
+O #108 escondeu-se durante uma tarde por uma razão simples: um turno que
+responde pode deixar um comando a correr por baixo, e não havia nada no ecrã a
+dizer isso. A única pista era uma linha de resultado a dizer "running in the
+background" — que rola para fora do ecrã como qualquer outra.
+
+**Nível, não arestas.** O SDK dá as duas coisas: `task_started` e
+`task_notification` como bookends, e `background_tasks_changed` com o conjunto
+vivo inteiro a cada mudança. Toma-se o conjunto e substitui-se. Emparelhar
+arestas quer dizer que uma perdida deixa um indicador a girar para sempre, e um
+indicador preso é pior do que nenhum: passa a mentir em vez de faltar.
+
+**Efémero, como os `Commands`.** É por-processo e nada é emitido ao arrancar, por
+isso uma linha guardada só serviria para ressuscitar no ecrã tarefas que já não
+existem. Esvazia-se no `started` e no fim da execução — esta última passou a ser
+verdade com o #108, que faz a execução levar consigo o que levantou.
+
+**Fora do fio, como as permissões.** Não é uma mensagem, é estado: dentro do
+scroller ficava preso no sítio onde por acaso apareceu, a dizer uma coisa que
+entretanto mudou.
+
+**Uma tarefa sem id não vai ao ecrã, e um campo em falta chega vazio e não
+ausente.** O primeiro porque sem id não há chave estável e duas delas seriam a
+mesma linha a piscar. O segundo porque do outro lado isto desserializa para
+`String`: um `undefined` no meio faria a carga inteira cair fora, e o ecrã
+ficava com o conjunto anterior a dizer que ainda corria — a mentira que a
+semântica de nível existe para evitar.

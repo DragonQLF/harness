@@ -171,7 +171,10 @@ export type RunEventKind =
    *  next one, so it is never written to the transcript. */
   | "commands"
   /** A command the engine answered by itself, with no model turn behind it. */
-  | "local_output";
+  | "local_output"
+  /** Everything running in the background right now. Live only, and a *level*:
+   *  each one carries the whole live set and replaces the last. */
+  | "background_tasks";
 
 export interface RunUpdate {
   project_id: string;
@@ -219,6 +222,22 @@ export interface RunUpdate {
   output_tokens?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  /** On `background_tasks`: everything still running underneath the answer.
+   *  Replace what you had — never merge. */
+  tasks?: BackgroundTask[];
+}
+
+/** Work the agent left running under its reply: a backgrounded command, a
+ *  subagent. Handwritten beside `RunUpdate` for the same reason `SlashCommand`
+ *  is — it only ever arrives on one.
+ *
+ *  It exists because a turn that answers is not a turn that finished, and
+ *  nothing on screen used to say so. */
+export interface BackgroundTask {
+  task_id: string;
+  /** `shell`, `subagent`, … — whatever the engine calls it. */
+  task_type: string;
+  description: string;
 }
 
 /** One thing `/` can mean. Handwritten beside `RunUpdate` because it only ever

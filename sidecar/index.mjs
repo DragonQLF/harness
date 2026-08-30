@@ -123,6 +123,25 @@ function answeredNothing(message) {
   );
 }
 
+/** O conjunto de trabalho de fundo vivo, na forma que a Relay guarda.
+ *
+ *  Nível e não aresta: cada carga traz tudo o que está vivo e substitui a
+ *  anterior. Emparelhar `task_started` com `task_notification` deixaria um
+ *  indicador preso a girar por causa de uma aresta perdida — e o conjunto é
+ *  por-processo, portanto começa vazio em cada sessão.
+ *
+ *  Uma tarefa sem `task_id` cai fora: sem id não há chave estável no ecrã, e
+ *  duas dessas seriam a mesma linha a piscar. */
+function liveTasks(message) {
+  return (message.tasks ?? [])
+    .filter((t) => t && typeof t.task_id === "string" && t.task_id)
+    .map((t) => ({
+      task_id: t.task_id,
+      task_type: typeof t.task_type === "string" ? t.task_type : "",
+      description: typeof t.description === "string" ? t.description : "",
+    }));
+}
+
 function summarize(input) {
   if (!input || typeof input !== "object") return String(input ?? "");
   return Object.entries(input)
@@ -883,6 +902,22 @@ async function handleRun({ id, spec }) {
             // A skill discovered mid-run. Documented as replace-the-list, not
             // merge, so it is passed on whole.
             sendCommands(id, message.commands);
+          } else if (message.subtype === "background_tasks_changed") {
+            // O trabalho que continua depois de o turno responder — um `sleep`
+            // posto em fundo, um subagente. Não passava por aqui, e por isso
+            // não havia nada no ecrã a dizer que existia: a única pista era uma
+            // linha de resultado a dizer "running in the background".
+            //
+            // Documentado como *nível* e não como par de arestas: cada carga
+            // traz o conjunto vivo inteiro, e substitui-se o que se tinha. É o
+            // que impede um sinal perdido de deixar um indicador preso — e é
+            // por-processo, portanto começa vazio em cada sessão e não se
+            // guarda em disco.
+            send({
+              type: "event",
+              run_id: id,
+              event: { kind: "background_tasks", tasks: liveTasks(message) },
+            });
           } else if (message.subtype === "local_command_output" && message.content?.trim()) {
             // A command the engine answered by itself — `/usage`, `/context`.
             // No model turn happened, so this is the only thing the operator
