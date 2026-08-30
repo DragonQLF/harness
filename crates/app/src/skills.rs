@@ -91,14 +91,22 @@ fn body(which: Skill) -> &'static str {
              `cli-anything-gimp`, which puts a `cli-anything-gimp` command on the path. The live \
              catalogue is at https://clianything.cc.\n\n",
 
-            "## Never open a REPL\n\n",
-            "These CLIs offer an interactive mode. **You cannot use it** — and the reason is not \
-             that nobody is there. Somebody is: the operator sees every command you run, answers \
-             the permission sheet, and can say something to you mid-run. What none of that gives \
-             you is a way to type into a program *you* started. A shell call is one command and \
-             its output; there is no keystroke channel to a process waiting at a prompt, so a \
-             REPL sits there until the call is cut off. Always the one-shot form, and always \
-             `--json`:\n\n",
+            "## How you interact with one\n\n",
+            "Turn by turn, not keystroke by keystroke. A shell call is one command and its \
+             output: you read what came back and decide the next command. These harnesses are \
+             built for exactly that — they keep their state in a project or session file, so a \
+             run of one-shot calls behaves like a session:\n\n",
+            "```\n",
+            "cli-anything-blender --json --project scene.blend-cli.json object add --type cube\n",
+            "cli-anything-blender --json --project scene.blend-cli.json render --out out.png\n",
+            "```\n\n",
+            "You can also feed a command its input, as long as you decide it up front: pipes and \
+             heredocs are ordinary commands and work fine (`echo \"...\" | cli-anything-x`).\n\n",
+            "**What you cannot do is hold an interactive prompt open.** These CLIs offer a REPL, \
+             and it is not for you — not because nobody is there (the operator sees every command \
+             you run and can speak to you mid-run) but because there is no keystroke channel to a \
+             process already waiting at a prompt. It would sit there until the call is cut off. \
+             Use the one-shot form, and always `--json`:\n\n",
             "```\n",
             "cli-anything-gimp --json image resize --width 800 in.png\n",
             "```\n\n",
@@ -120,18 +128,21 @@ fn body(which: Skill) -> &'static str {
              each one.\n\n",
 
             "## What Relay's guard does and does not stop\n\n",
-            "The shell guard here is about **paths**, not about installing software. It refuses \
-             writes outside your worktree — and with them redirection (`>`, `>>`, `tee`), \
-             command substitution (`$(…)`) and `find -exec`. Reading outside your worktree is \
-             allowed: `ls`, `cat` and `find` may look anywhere, because looking changes \
-             nothing.\n\n",
-            "So `pip install` and `cli-hub install` are *not* refused by the guard — they name no \
-             absolute path. What stops them being invisible is the permission sheet: every shell \
-             call is put to the operator unless a standing rule covers it. Treat an install as \
-             something you are asking for, not something you are doing: say what you want and \
-             why before you run it. And when you genuinely need to write outside the worktree, \
-             ask — do not go looking for a form of the command that slips past.\n\n",
-
+            "It is about **paths**, and only paths. Your command is split on `|`, `&&`, `;` and \
+             newlines, and each part is judged on its own:\n\n",
+            "- A part that is a plain read — `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, \
+             `stat` — may name any path at all, anywhere. Looking changes nothing.\n",
+            "- Every other part is scanned for absolute paths, and one that lands outside your \
+             worktree is refused. A part loses the read exemption if it redirects with `>`, \
+             substitutes with `$(…)` or backticks, starts with `VAR=`, or is a `find` that \
+             executes.\n\n",
+            "The consequence worth holding on to: **a command that names no path outside your \
+             worktree passes, whatever it does.** `pip install`, `cli-hub install`, a pipeline, a \
+             heredoc — none of them is refused here. What keeps them from being invisible is the \
+             permission sheet: every shell call goes to the operator unless a standing rule \
+             covers it. So treat an install as something you are asking for — say what you want \
+             and why before running it. And when you genuinely need to write outside the \
+             worktree, ask; do not go hunting for a spelling that slips past.\n\n",
             "## Say what you ran\n\n",
             "A command whose output you acted on belongs in what you report, exactly enough that \
              someone could run it again. \"I checked\" is not a check anybody can repeat.\n\n",
@@ -180,18 +191,27 @@ mod tests {
     #[test]
     fn it_states_the_shell_guard_as_it_actually_is() {
         let text = body(Skill::Cli);
-        assert!(text.contains("refuses writes outside your worktree"));
-        assert!(text.contains("Reading outside your worktree is allowed"));
-        for guarded in ["tee", "$(…)", "find -exec"] {
-            assert!(text.contains(guarded), "the guard also stops {guarded}");
-        }
-        // O guardo é de caminhos e não de instalações: dizer o contrário fazia
-        // um agente desistir de instalar coisas que na verdade pode instalar.
+        // Os dois lados da regra, e a consequência que dela se tira.
+        assert!(text.contains("It is about **paths**, and only paths"));
+        assert!(text.contains("may name any path at all, anywhere"));
+        assert!(text.contains("lands outside your worktree is refused"));
         assert!(
-            text.contains("are *not* refused by the guard"),
-            "an install names no absolute path, so the guard does not stop it"
+            text.contains("names no path outside your worktree passes, whatever it does"),
+            "a command with no outside path is not refused, and saying otherwise makes an agent \
+             give up on installs it can actually do"
         );
-        assert!(text.contains("permission sheet"), "what does stop it being invisible");
+        // As formas que perdem a isenção de leitura. Não são proibidas — são
+        // julgadas pelos caminhos que trouxerem, e dizer \"proibidas\" era o
+        // exagero anterior.
+        for loses in ["`>`", "$(…)", "VAR=", "`find` that"] {
+            assert!(text.contains(loses), "{loses} loses the read exemption");
+        }
+        assert!(text.contains("permission sheet"), "what does keep an install visible");
+        // Os leitores isentos, nomeados: um agente que não saiba quais são
+        // evita comandos que pode correr.
+        for reader in ["`ls`", "`cat`", "`grep`", "`stat`"] {
+            assert!(text.contains(reader), "{reader} is exempt and should be named");
+        }
     }
 
     /// A adaptação que mais importa, e a razão tem de estar certa: não é que
@@ -200,28 +220,20 @@ mod tests {
     /// num processo à espera. Dar a razão errada convidava o agente a
     /// raciocinar para lá da regra: "mas o operador está a ver, logo posso".
     #[test]
-    fn it_forbids_the_interactive_mode() {
+    fn it_describes_the_interaction_model_and_why_a_repl_is_not_it() {
         let text = body(Skill::Cli);
-        assert!(text.contains("Never open a REPL"));
+        // Interagir é possível — turno a turno, com o estado no ficheiro de
+        // projecto. Dizer só "não uses o REPL" deixava o agente sem saber
+        // como *é* que se faz.
+        assert!(text.contains("Turn by turn, not keystroke by keystroke"));
+        assert!(text.contains("keep their state in a project or session file"));
+        assert!(text.contains("pipes and heredocs"), "input decided up front works");
         assert!(text.contains("--json"));
+        // E a razão do REPL tem de continuar a ser a certa.
         assert!(
-            text.contains("the reason is not that nobody is there"),
+            text.contains("not because nobody is there"),
             "the operator is watching; that is not why a REPL fails"
         );
-        assert!(
-            text.contains("no keystroke channel"),
-            "the real reason: a shell call is one command and its output"
-        );
-    }
-
-    /// A razão de o Director o ter: para saber que existe e o poder passar.
-    #[test]
-    fn it_tells_the_holder_how_to_pass_it_on() {
-        let text = body(Skill::Cli);
-        assert!(text.contains("install_skill"));
-        assert!(
-            text.contains("Shell"),
-            "passing the prose on without the permission grants nothing"
-        );
+        assert!(text.contains("no keystroke channel"));
     }
 }
