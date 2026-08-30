@@ -471,6 +471,11 @@ async fn send_message(
                     }
                     _ => {}
                 }
+                // A lista do `/` chega por evento efémero e some-se com a
+                // sessão. Guardada aqui, sobrevive ao reinício.
+                if let RunEvent::Commands { commands } = &ev {
+                    ws.remember_slash_commands(commands);
+                }
                 // Deltas are for the live view only; the `Text` that follows is
                 // what the transcript keeps (decision #25).
                 if !ev.is_ephemeral() {

@@ -195,7 +195,13 @@ export interface ChatState {
   /** A lista vem do backend, tanto pelo arranque como pelo evento. */
   setConversations: (list: Conversation[]) => void;
   /** O que o bootstrap deixa: a lista, e a conversa a reabrir. */
-  hydrate: (conversations: Conversation[], lastConversation: string | null) => void;
+  /** `known` is the slash menu the last session published, off the bootstrap.
+   *  Empty on a first ever run, and replaced whole by the next session. */
+  hydrate: (
+    conversations: Conversation[],
+    lastConversation: string | null,
+    known: SlashCommand[],
+  ) => void;
   /** Absorve um update se ele for desta conversa. `true` quando o consumiu, e
    *  aí o feed de execução não o vê. */
   consume: (u: RunUpdate) => boolean;
@@ -268,20 +274,28 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     draftRef.current = null;
   }, []);
 
-  const hydrate = useCallback((list: Conversation[], lastConversation: string | null) => {
-    setConversations(list);
-    // The backend decides which conversation reopens; the frontend just
-    // renders it. Its transcript is read from disk, so it is there whether
-    // or not the native Claude session can still be resumed.
-    if (lastConversation) {
-      setConversationId(lastConversation);
-      chatRef.current = lastConversation;
-      api
-        .conversationTranscript(lastConversation)
-        .then((lines) => setChat(toChat(lines)))
-        .catch(() => {});
-    }
-  }, []);
+  const hydrate = useCallback(
+    (list: Conversation[], lastConversation: string | null, known: SlashCommand[]) => {
+      setConversations(list);
+      // O menu do `/` chega por um evento efémero, que só uma sessão nova
+      // publica. Sem esta linha, o compositor abria sem menu a cada reinício e
+      // só o recuperava depois de o operador já ter escrito alguma coisa — que
+      // é exactamente quando já não precisava dele.
+      if (known.length > 0) setCommands(known);
+      // The backend decides which conversation reopens; the frontend just
+      // renders it. Its transcript is read from disk, so it is there whether
+      // or not the native Claude session can still be resumed.
+      if (lastConversation) {
+        setConversationId(lastConversation);
+        chatRef.current = lastConversation;
+        api
+          .conversationTranscript(lastConversation)
+          .then((lines) => setChat(toChat(lines)))
+          .catch(() => {});
+      }
+    },
+    [],
+  );
 
   const appendToDirector = useCallback(
     (text: string) =>

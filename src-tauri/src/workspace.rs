@@ -118,6 +118,11 @@ pub struct Workspace {
     /// went through a card. Held here so the Director's next turn receives it
     /// rather than having to know to ask — and so the window can come and get
     /// it, which the startup emit cannot promise (see [`Finding`]).
+    /// O que `/` sabe fazer. Publicado por cada sessão que abre e guardado no
+    /// disco porque o evento que o traz é efémero: sem isto, reiniciar a app
+    /// deixava o compositor sem menu até ao turno seguinte, que é precisamente
+    /// quando o operador ainda não escreveu nada para o provocar.
+    commands: Mutex<Vec<harness_ports::SlashCommand>>,
     /// Guards against two shutdown paths starting the daily look twice.
     reflection_running: std::sync::atomic::AtomicBool,
     /// Set by whoever wins the race to close the window, so a second close
@@ -143,6 +148,8 @@ impl Workspace {
         let router = Arc::new(ApprovalRouter::new(Arc::clone(&settings)));
         router.attach(Box::new(WindowNotifier(app.clone())));
 
+        let remembered_commands: Vec<harness_ports::SlashCommand> =
+            paths::read_json_or_default(&paths.commands_file());
         let stored_agents: Vec<AgentProfile> = paths::read_json_or_default(&paths.agents_file());
         let agents = agents::normalise(stored_agents);
         let projects: Vec<Project> = paths::read_json_or_default(&paths.projects_file());
@@ -200,6 +207,7 @@ impl Workspace {
             chats,
             chat_log,
             inbox: Mutex::new(inbox),
+            commands: Mutex::new(remembered_commands),
             reflection_running: std::sync::atomic::AtomicBool::new(false),
             closing: std::sync::atomic::AtomicBool::new(false),
             closing_token: CancellationToken::new(),
@@ -339,6 +347,24 @@ impl Workspace {
     /// `None` só enquanto o `load` não acabou, e nada corre antes disso.
     pub fn arc(&self) -> Option<Arc<Workspace>> {
         self.me.get().and_then(|w| w.upgrade())
+    }
+
+    /// O menu do `/`, tal como a última sessão o descreveu.
+    pub fn slash_commands(&self) -> Vec<harness_ports::SlashCommand> {
+        self.commands.lock().unwrap().clone()
+    }
+
+    /// Substituir, nunca fundir: uma skill que desapareceu deve deixar de ser
+    /// oferecida, e é assim que o SDK documenta o seu próprio push.
+    pub fn remember_slash_commands(&self, list: &[harness_ports::SlashCommand]) {
+        {
+            let mut held = self.commands.lock().unwrap();
+            if *held == list {
+                return;
+            }
+            *held = list.to_vec();
+        }
+        let _ = paths::write_json(&self.paths.commands_file(), &list.to_vec());
     }
 
     pub async fn conversations(&self, include_archived: bool) -> Vec<Conversation> {

@@ -302,6 +302,10 @@ export interface Bootstrap {
   projects: Project[];
   status: SystemStatus;
   approvals: PendingApproval[];
+  /** What `/` can reach, as the last session described it. The event that
+   *  publishes it is ephemeral, so without this the menu is empty after every
+   *  restart — which is exactly when nothing has yet happened to refill it. */
+  commands: SlashCommand[];
   inbox: Proposal[];
   data_dir: string;
   conversations: Conversation[];

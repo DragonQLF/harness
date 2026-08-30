@@ -36,6 +36,16 @@ impl AppPaths {
         &self.root
     }
 
+    /// O que `/` sabe fazer, da última vez que uma sessão o disse.
+    ///
+    /// O evento que traz esta lista é efémero — não vai para a transcrição —,
+    /// portanto reiniciar a app deixava o compositor sem menu nenhum até ao
+    /// primeiro turno seguinte. Guardá-la é o que faz o `/` funcionar à
+    /// primeira; a lista é substituída inteira à próxima sessão que a publique.
+    pub fn commands_file(&self) -> PathBuf {
+        self.root.join("commands.json")
+    }
+
     pub fn settings_file(&self) -> PathBuf {
         self.root.join("settings.json")
     }

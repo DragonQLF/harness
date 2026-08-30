@@ -9,7 +9,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Plus, Square } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { ago, bytes, money, num, shortAgo } from "../lib/format";
+import { ago, bytes, clock, money, num, shortAgo } from "../lib/format";
 import { cx } from "../lib/cx";
 import { paneIn, popover, rowIn } from "../lib/motion";
 import {
@@ -532,21 +532,35 @@ const Turn = memo(
             had seen it, which is the one thing the screen must never claim on
             its own. It settles into an ordinary bubble on the backend's
             `user_read`. */}
-        {kind === "user" &&
-          (msg!.pending ? (
-            <div className="flex max-w-[62%] flex-col items-end gap-1 self-end">
-              <div className="w-full whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] border border-dashed border-line2 bg-surface px-3.75 py-2.75 text-base leading-[1.55] text-ink2 dark:border-line2-d dark:bg-surface-d dark:text-ink2-d">
-                {msg!.text}
-              </div>
-              <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
-                queued · not read yet
-              </span>
-            </div>
-          ) : (
-            <div className="max-w-[62%] self-end whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] bg-ink px-3.75 py-2.75 text-base leading-[1.55] text-white dark:bg-ink-d dark:text-canvas-d">
+        {kind === "user" && (
+          <div className="flex max-w-[62%] flex-col items-end gap-1 self-end">
+            <div
+              className={cx(
+                "w-full whitespace-pre-wrap break-words rounded-[16px_16px_4px_16px] px-3.75 py-2.75 text-base leading-[1.55]",
+                msg!.pending
+                  ? "border border-dashed border-line2 bg-surface text-ink2 dark:border-line2-d dark:bg-surface-d dark:text-ink2-d"
+                  : "bg-ink text-white dark:bg-ink-d dark:text-canvas-d",
+              )}
+            >
               {msg!.text}
             </div>
-          ))}
+            {/* Quando foi dito, e em que pé está.
+                Só três estados são honestos aqui. *Queued* e *read* são os
+                únicos que o backend confirma, e confirma-os por id: o
+                `chat_queue` responde com um, o `user_read` fecha-o. Uma
+                mensagem que não passou por fila começou o turno, portanto foi
+                lida por construção e não precisa de o dizer — dizer-lhe "read"
+                seria inventar um facto que ninguém mediu. */}
+            <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
+              {clock(msg!.ts)}
+              {msg!.pending
+                ? " · queued · not read yet"
+                : msg!.queueId
+                  ? " · read"
+                  : ""}
+            </span>
+          </div>
+        )}
 
         {kind === "notice" && (
           <div className="flex max-w-[82%] flex-col items-start gap-2">
@@ -580,6 +594,14 @@ const Turn = memo(
                   <Receipt key={ti} msg={t} />
                 ))}
               </div>
+            )}
+            {/* A hora em que a resposta começou a chegar. Enquanto está a
+                escrever não se diz: o carimbo mudaria por baixo do texto e
+                pareceria a resposta a saltar no tempo. */}
+            {msg?.text && !streaming && (
+              <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>
+                {clock(msg.ts)}
+              </span>
             )}
           </div>
         )}
@@ -789,7 +811,12 @@ export function Chat() {
       .slice(0, 8);
   }, [commands, slashQuery]);
 
-  const open = slashing && matches.length > 0;
+  // Aberto também quando não há lista nenhuma, para dizer porquê. O menu vinha
+  // de um evento efémero publicado por cada sessão nova: numa instalação
+  // acabada de abrir não há nada para mostrar, e mostrar nada lia-se como o `/`
+  // estar avariado. Agora a lista sobrevive ao reinício (vem no `bootstrap`) e
+  // este ramo é só para o primeiro arranque de todos.
+  const open = slashing && (matches.length > 0 || commands.length === 0);
 
   /** Put the command in the box rather than sending it: most take arguments,
    *  and the ones that do not are one keystroke from going anyway. */
@@ -1144,6 +1171,12 @@ export function Chat() {
                   exit="gone"
                   className="mb-2 max-h-[228px] overflow-y-auto rounded-10px border border-line bg-elev p-1 shadow-soft dark:border-line-d dark:bg-elev-d dark:shadow-soft-d"
                 >
+                  {commands.length === 0 && (
+                    <div className="px-2.5 py-2 text-sm leading-normal text-muted dark:text-muted-d">
+                      No commands yet. The list comes from the session itself, so it arrives with
+                      the first answer on this machine — and is remembered after that.
+                    </div>
+                  )}
                   {matches.map((c) => (
                     <button
                       key={c.name}

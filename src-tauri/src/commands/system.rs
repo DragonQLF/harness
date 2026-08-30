@@ -71,6 +71,10 @@ pub struct Bootstrap {
     /// Unscoped shell allowances left by an older build. They authorise nothing
     /// now; the UI says so once.
     pub revoked_allowances: Vec<String>,
+    /// What `/` can reach, as the last session described it. Without this the
+    /// composer's menu is empty after every restart — the event that carries it
+    /// is ephemeral, so nothing on disk remembered it.
+    pub commands: Vec<harness_ports::SlashCommand>,
     /// Improvement proposals waiting on the operator, newest first.
     pub inbox: Vec<harness_app::inbox::Proposal>,
     /// The last finding of the look at Relay's own repository, if it found
@@ -102,6 +106,7 @@ pub async fn bootstrap(ws: Shared<'_>) -> Result<Bootstrap, String> {
             .into_iter()
             .map(|r| r.label())
             .collect(),
+        commands: ws.slash_commands(),
         inbox: ws.inbox().proposals,
         outside_work: ws.outside_work_warning().await,
     })

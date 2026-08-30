@@ -403,7 +403,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Whatever the look already found, whether or not this window was
         // there to hear it announced. On a reload this is the only path.
         if (boot.outside_work) noteOutsideWork(boot.outside_work);
-        chat.hydrate(boot.conversations, boot.last_conversation);
+        chat.hydrate(boot.conversations, boot.last_conversation, boot.commands);
         if (boot.revoked_allowances.length > 0) {
           // Said once, because it changes what the app will do without asking.
           toast(
