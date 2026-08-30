@@ -16,6 +16,7 @@ import {
   WORKTREE_MODES,
   tone,
   type AgentProfile,
+  type BrowserOffer,
   type CatalogModel,
   type McpTransport,
   type Reviewer,
@@ -186,6 +187,86 @@ function Granted({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Os dois browsers, um clique cada.
+ *
+ *  Um browser é alcance, e o alcance concede-se por agente — por isso isto vive
+ *  no perfil e não nas Definições. Não há formulário: o comando, as opções, a
+ *  pasta do perfil e a lista de ferramentas estão todos decididos, e a única
+ *  escolha a sério é qual dos dois. A frase por baixo de cada um é o que se
+ *  está a conceder, e é a que o backend escreve — não uma paráfrase que possa
+ *  vir a discordar dela. */
+function Browsers({ agent }: { agent: AgentProfile }) {
+  const { saveAgents, toast } = useStore();
+  const [offers, setOffers] = useState<BrowserOffer[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .browserOffers()
+      .then((list) => alive && setOffers(list))
+      .catch(() => alive && setOffers([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const give = async (id: string) => {
+    setBusy(id);
+    try {
+      // O backend monta a concessão (comando, opções, pasta, ferramentas) e
+      // devolve a tripulação já com ela. Guardá-la de volta é o que põe o
+      // ecrã em dia, pelo mesmo caminho de qualquer outra edição de perfil.
+      await saveAgents(await api.browserGrant(agent.id, id));
+    } catch (e) {
+      toast("bad", "Could not grant that browser", reason(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div>
+      <Eyebrow className="block pb-2">BROWSERS</Eyebrow>
+      <div className="flex flex-col gap-1.5">
+        {(offers ?? []).map((b) => {
+          const has = agent.mcp_servers.some((m) => m.name === b.id);
+          return (
+            <div
+              key={b.id}
+              className="rounded-md border border-line2 bg-surface px-3 py-2 dark:border-line2-d dark:bg-surface-d"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-text1 dark:text-text1-d">{b.name}</span>
+                <span className={cx(mono, "text-xs text-text4 dark:text-text4-d")}>{b.id}</span>
+                <div className="flex-1" />
+                {has ? (
+                  <span className={cx(mono, "text-xs text-ok dark:text-ok-d")}>granted</span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy != null}
+                    onClick={() => give(b.id)}
+                    className={cx(CHIP, "px-2.5 py-1 text-xs font-normal text-text2 disabled:opacity-50 dark:text-text2-d")}
+                  >
+                    {busy === b.id ? "granting…" : "Grant"}
+                  </button>
+                )}
+              </div>
+              <div className="pt-1 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+                {b.note}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="pt-2 text-xs font-normal leading-normal text-text4 dark:text-text4-d">
+        Chrome is started by the run and every call still asks you. Remove one under INSTALLED.
       </div>
     </div>
   );
@@ -1053,6 +1134,7 @@ export function Agents({
                 </div>
               </div>
               <Granted agent={agent} patch={patch} />
+              <Browsers agent={agent} />
               <div>
                 <Eyebrow className="block pb-2">MCP AND SKILLS ARE PER AGENT</Eyebrow>
                 <div className="text-xs font-normal leading-normal text-text4 dark:text-text4-d">

@@ -5,6 +5,7 @@
 //! live here, so they can be tested without a webview.
 
 pub mod agents;
+pub mod browsers;
 pub mod allow;
 pub mod approvals;
 pub mod attachments;

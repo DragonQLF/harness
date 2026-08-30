@@ -42,6 +42,15 @@ impl AppPaths {
     /// portanto reiniciar a app deixava o compositor sem menu nenhum até ao
     /// primeiro turno seguinte. Guardá-la é o que faz o `/` funcionar à
     /// primeira; a lista é substituída inteira à próxima sessão que a publique.
+    /// Onde o browser "signed in" guarda os cookies dele.
+    ///
+    /// Dentro dos dados do Relay, e não no Chrome do operador: o que lá estiver
+    /// foi posto lá de propósito, que é o que torna "entra só no site que o
+    /// Director precisa" uma resposta a sério em vez de uma esperança.
+    pub fn browser_profile_dir(&self) -> PathBuf {
+        self.root.join("browser-profile")
+    }
+
     pub fn commands_file(&self) -> PathBuf {
         self.root.join("commands.json")
     }

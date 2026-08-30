@@ -324,6 +324,15 @@ export interface Bootstrap {
   outside_work: MirrorWarning | null;
 }
 
+/** One of the two browsers an agent can be given. Handwritten beside
+ *  `Bootstrap`: a shell response, not a domain type. */
+export interface BrowserOffer {
+  id: string;
+  name: string;
+  /** What granting it costs, in the backend's own words. */
+  note: string;
+}
+
 export interface CreatedCard {
   card_id: string;
   run_id: string | null;

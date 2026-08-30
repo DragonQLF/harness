@@ -140,6 +140,60 @@ pub async fn agents_save(
     ws.set_agents(agents).await
 }
 
+/// One of the two browsers, described for the screen that offers it.
+#[derive(Debug, Serialize)]
+pub struct BrowserOffer {
+    pub id: String,
+    pub name: String,
+    /// What the operator is agreeing to, in the words the module writes.
+    pub note: String,
+}
+
+/// The browsers an agent can be given, and what each one costs to give.
+#[tauri::command]
+pub async fn browser_offers() -> Result<Vec<BrowserOffer>, String> {
+    use harness_app::browsers::Browser;
+    Ok([Browser::Private, Browser::SignedIn]
+        .into_iter()
+        .map(|b| BrowserOffer {
+            id: b.id().to_string(),
+            name: b.name().to_string(),
+            note: b.note().to_string(),
+        })
+        .collect())
+}
+
+/// Give one agent one of the browsers.
+///
+/// A one-click grant rather than a form, because every field of it is decided
+/// — the command, the flags, the profile directory, the tool list — and the
+/// only real choice is which of the two. The choice that matters is made on the
+/// Agents screen, per agent, and it is never made by a model: this is an
+/// operator command, and `add_mcp_server` remains the Director's own path with
+/// its own self-elevation guard.
+#[tauri::command]
+pub async fn browser_grant(
+    agent_id: String,
+    browser_id: String,
+    ws: Shared<'_>,
+) -> Result<Vec<AgentProfile>, String> {
+    let which = harness_app::browsers::Browser::from_id(&browser_id)
+        .ok_or_else(|| format!("there is no browser called {browser_id}"))?;
+    use harness_ports::ClockPort;
+    let grant = harness_app::browsers::grant(
+        which,
+        &ws.paths.browser_profile_dir(),
+        crate::workspace::SystemClock.now_millis(),
+    );
+    let mut crew = ws.agents().await;
+    let slot = crew
+        .iter_mut()
+        .find(|a| a.id == agent_id)
+        .ok_or_else(|| format!("there is no agent called {agent_id}"))?;
+    harness_app::grants::upsert_mcp(&mut slot.mcp_servers, grant);
+    ws.set_agents(crew).await
+}
+
 /// Per-agent numbers, summed across every project so an agent page reads the
 /// whole workspace. Line counts come from the git history.
 #[tauri::command]

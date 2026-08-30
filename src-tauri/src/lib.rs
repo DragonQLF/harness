@@ -224,6 +224,8 @@ pub fn run() {
             commands::system::close_now,
             commands::system::curator_run,
             commands::system::model_catalog,
+            commands::system::browser_offers,
+            commands::system::browser_grant,
             commands::system::updates_list,
             commands::system::update_install,
             // inbox

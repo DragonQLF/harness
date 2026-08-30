@@ -7,6 +7,7 @@ import type {
   ActiveRun,
   ActivityRow,
   AttachmentPreview,
+  BrowserOffer,
   AgentProfile,
   AgentStats,
   Bootstrap,
@@ -59,6 +60,9 @@ export const api = {
   settingsUpdate: (settings: Settings) => invoke<Settings>("settings_update", { settings }),
 
   agentsGet: () => invoke<AgentProfile[]>("agents_get"),
+  browserOffers: () => invoke<BrowserOffer[]>("browser_offers"),
+  browserGrant: (agentId: string, browserId: string) =>
+    invoke<AgentProfile[]>("browser_grant", { agentId, browserId }),
   agentsSave: (agents: AgentProfile[]) => invoke<AgentProfile[]>("agents_save", { agents }),
   agentsStats: () =>
     invoke<AgentStats[]>("agents_stats", { tzOffsetMinutes: tzOffsetMinutes() }),

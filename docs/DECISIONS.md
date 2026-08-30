@@ -32,6 +32,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 99–101 | O token deixa de ser uma unidade de render; Agentes ganha lugar na barra; as Definições ganham secções |
 | 2026-08-30 | 102 | A revisão automática deixa de ser um segundo Director; o #98 reforma-se |
 | 2026-08-30 | 103 | Os agentes falam uns com os outros a meio do trabalho |
+| 2026-08-30 | 104 | Dois browsers por agente: um que não guarda nada e um que guarda |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2236,3 +2237,44 @@ escrita para não ter.
 
 **Quem fala viaja com o que foi dito.** Quatro builders a trabalhar dariam
 quatro mensagens sem dono, e a primeira pergunta dele seria sempre a mesma.
+
+### 104. Dois browsers, e a diferença entre eles é o que fica guardado
+Um agente que não vê uma página não consegue verificar nada que aconteça numa.
+O `chrome-devtools-mcp` resolve isso e não precisa de máquina nova nenhuma no
+Relay: já há concessões de MCP por agente, com aprovação, com a lista de
+ferramentas declarada e com o painel que a mostra. O que faltava era a escolha
+estar feita em vez de ser um formulário.
+
+**São dois, e a diferença é uma só: se o que se passa no browser sobrevive ao
+run.** O `--isolated` dá ao Chrome uma pasta temporária que é apagada ao fechar
+— nada fica, ninguém está autenticado, e dois agentes ao mesmo tempo não se
+pisam porque cada um tem a sua. O outro aponta para uma pasta que o Relay
+guarda: os cookies ficam, que é o objectivo, e é também todo o seu perigo.
+
+**Contra a suposição de partida, que era minha e estava errada:** por omissão o
+`chrome-devtools-mcp` **não** é stateless. Sem `--isolated` reutiliza
+`~/.cache/chrome-devtools-mcp/chrome-profile` e não a limpa entre runs. Quem
+assumisse que o comportamento por defeito é seguro estaria a conceder o
+persistente sem saber — por isso o Relay nomeia os dois e nunca oferece "o
+default".
+
+**Não é o Chrome do operador.** É um perfil dentro dos dados do Relay, vazio até
+alguém entrar em alguma coisa nele. O que ele alcança é o que lá foi posto de
+propósito, e é isso que torna "entra só no site que o Director precisa" uma
+resposta a sério. Ligar a um Chrome já a correr é possível (`--browser-url`) e
+**não** é oferecido como preset: essa entrega todas as sessões que o operador
+tem abertas, e uma escolha dessas não deve caber num clique.
+
+**O Chrome tranca a pasta do perfil.** Dois agentes com o "signed in" a correr
+ao mesmo tempo dá um deles sem browser. É para um agente, e o ecrã di-lo em vez
+de deixar descobrir.
+
+**Nenhum é concedido por omissão.** Um browser é alcance, e o alcance concede-se
+por agente, à mão, no ecrã de Agentes. A frase que descreve cada um vem do
+backend e é a mesma que o teste prende — uma paráfrase no ecrã podia vir a
+discordar do que o comando realmente faz.
+
+**Fica por fazer:** `--allowed-url-pattern` / `--blocked-url-pattern` existem e
+limitariam o persistente aos sítios que interessam. Não é sandbox — a própria
+documentação o diz — mas é a diferença entre um agente que chega ao painel de
+uma conta e um que chega ao email dela.
