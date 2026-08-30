@@ -128,13 +128,6 @@ pub async fn run(
              in the agent settings to let this profile change boards",
         );
     }
-    if !delegating && !is_read_only(&call.name) {
-        // Configuration, never roles: the reader may BE the Director.
-        return ToolReply::refused(
-            "this profile does not have delegation enabled - turn on \"can delegate\" \
-             in the agent settings to let this profile change boards",
-        );
-    }
 
     // Navegar e listar não precisam de projecto nenhum: são as que respondem
     // antes de haver um sobre que agir.
