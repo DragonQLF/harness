@@ -19,6 +19,11 @@
 //!
 //! No I/O and no clock: the shell mints the ids and the adapter does the
 //! writing, so the ordering is testable without a sidecar.
+//!
+//! It lives beside the port it implements rather than up in `harness_app`
+//! because a worker run needs one too — that is what lets the Director say
+//! something to an agent that is already working — and `harness_app` sits
+//! *above* the engine, so the engine could not have reached it there.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -26,7 +31,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use harness_ports::{InboxPort, QueuedMessage};
+use crate::{InboxPort, QueuedMessage};
 use tokio::sync::Semaphore;
 
 /// The queue one conversation's live turn reads from.
@@ -35,6 +40,19 @@ use tokio::sync::Semaphore;
 /// `waiting` when the adapter takes it, and only leaves `handed` when the run
 /// says the model has it; anything in either when the turn ends never reached
 /// the model.
+impl std::fmt::Debug for Queue {
+    /// Só o que é seguro dizer num log: quem é e quanto lhe falta entregar.
+    /// O texto das mensagens é do operador e não tem que aparecer aqui.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = self.state.lock().unwrap();
+        f.debug_struct("Queue")
+            .field("conversation_id", &self.conversation_id)
+            .field("waiting", &state.waiting.len())
+            .field("handed", &state.handed.len())
+            .finish()
+    }
+}
+
 pub struct Queue {
     conversation_id: String,
     state: Mutex<State>,
@@ -140,7 +158,7 @@ impl InboxPort for Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harness_ports::InboxPort;
+    use crate::InboxPort;
 
     fn queue() -> Arc<Queue> {
         Queue::new("chat_1")

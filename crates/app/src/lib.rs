@@ -8,7 +8,10 @@ pub mod agents;
 pub mod allow;
 pub mod approvals;
 pub mod attachments;
-pub mod chatqueue;
+/// A fila de um turno vivo mudou-se para os portos, porque um run de cartão
+/// também precisa de uma e o engine não alcança este crate. Reexportada com o
+/// nome antigo: quem a importava não tem nada a ver com a mudança.
+pub use harness_ports::queue as chatqueue;
 pub mod conversations;
 pub mod checks;
 pub mod code;

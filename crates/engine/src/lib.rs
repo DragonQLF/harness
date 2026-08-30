@@ -176,6 +176,11 @@ enum Msg {
         card_id: CardId,
         reply: oneshot::Sender<Result<(), String>>,
     },
+    MessageRun {
+        card_id: CardId,
+        text: String,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
     ActiveRuns {
         reply: oneshot::Sender<Vec<ActiveRun>>,
     },
@@ -286,6 +291,19 @@ impl EngineHandle {
         self.ask(|reply| Msg::CancelRun { card_id, reply }).await?
     }
 
+    /// Say something to an agent that is already working.
+    ///
+    /// Not an interruption and not a second run: it goes into that run's inbox
+    /// and the model reads it at its next natural read, the same way a
+    /// correction typed into the composer reaches a live turn. Answers with the
+    /// queued message's id, which is what a `message_read` later names.
+    ///
+    /// Refused when nothing is running on that card — there is no inbox to put
+    /// it in, and pretending otherwise would drop the message in silence.
+    pub async fn message_run(&self, card_id: CardId, text: String) -> Result<String, String> {
+        self.ask(|reply| Msg::MessageRun { card_id, text, reply }).await?
+    }
+
     pub async fn active_runs(&self) -> Result<Vec<ActiveRun>, String> {
         self.ask(|reply| Msg::ActiveRuns { reply }).await
     }
@@ -387,6 +405,13 @@ struct RunEntry {
     worktree: WorktreePath,
     agent_id: String,
     started_ms: u64,
+    /// O que se lhe disser enquanto trabalha.
+    ///
+    /// Um run de cartão não tinha nenhuma, com a razão de que "ninguém tem um
+    /// compositor apontado a um cartão". Continua a não ter — mas o Director
+    /// tem, e a mesma fila é o que lhe permite avisar um agente a meio em vez
+    /// de esperar que acabe para lhe dizer que estava a fazer a coisa errada.
+    inbox: Arc<harness_ports::queue::Queue>,
 }
 
 struct SessionEntry {
@@ -408,6 +433,7 @@ pub struct Engine {
     agent: Arc<dyn AgentPort>,
     approver: Option<Approver>,
     review: Option<harness_ports::ReviewHook>,
+    message: Option<harness_ports::MessageHook>,
     git: Arc<dyn GitPort>,
     run_log: Option<Arc<dyn RunLogPort>>,
     config: EngineConfig,
@@ -438,6 +464,9 @@ pub struct EngineDeps {
     /// Who reads a finished diff when the reviewer is the Director. `None`
     /// leaves those cards waiting for the operator — see `ReviewHook`.
     pub review: Option<harness_ports::ReviewHook>,
+    /// Where a worker's `message_director` lands. `None` refuses the tool
+    /// rather than swallowing what it said.
+    pub message: Option<harness_ports::MessageHook>,
     pub run_log: Option<Arc<dyn RunLogPort>>,
 }
 
@@ -486,6 +515,7 @@ impl Engine {
             agent: deps.agent,
             approver: deps.approver,
             review: deps.review,
+            message: deps.message,
             git: deps.git,
             run_log: deps.run_log,
             config,
@@ -645,6 +675,9 @@ impl Engine {
                 }
                 Msg::CancelRun { card_id, reply } => {
                     let _ = reply.send(self.cancel_run(&card_id));
+                }
+                Msg::MessageRun { card_id, text, reply } => {
+                    let _ = reply.send(self.message_run(&card_id, &text));
                 }
                 Msg::ActiveRuns { reply } => {
                     let _ = reply.send(self.active_runs());

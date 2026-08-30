@@ -186,6 +186,25 @@ function harnessTools(runId) {
         call("create_card"),
       ),
       tool(
+        "message_agent",
+        "Say something to an agent that is already working, without stopping it. It goes into " +
+          "that run's inbox and the model reads it at its next natural read — so a correction " +
+          "lands during the work instead of after it. Use it when you would otherwise let an " +
+          "agent finish something you already know is wrong. Refused when nothing is running " +
+          "on that card; then the card's own title is where the instruction belongs.",
+        {
+          card_id: z.string().describe("The card whose run you are talking to, for example c_7b30"),
+          text: z
+            .string()
+            .describe("What it needs to know now, in one or two sentences"),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("message_agent"),
+      ),
+      tool(
         "edit_card",
         "Correct what a card says, before anything has run on it. The title is the prompt the " +
           "agent receives, so a badly worded card is a badly worded instruction — fix it here " +
@@ -522,9 +541,15 @@ function harnessTools(runId) {
   });
 }
 
-/** The one tool a worker run carries: its own account of the work it did.
- *  The engine still owns the commit — this only feeds it, and records the
- *  durable notes for the memory layer. Absence of a call is normal and safe.
+/** The two tools a worker run carries: its own account of the work it did, and
+ *  a line to the Director while it is still doing it.
+ *
+ *  The engine still owns the commit — `report_work` only feeds it, and records
+ *  the durable notes for the memory layer. Absence of a call is normal and
+ *  safe. `message_director` is the one that does not wait: it drops a line in
+ *  his inbox and returns immediately, because an agent blocked on a person is
+ *  an agent not working.
+ *
  *  `call` is injected: a free reference here passed node --check and only
  *  exploded on the first real worker run. */
 function reportWorkTool(runId, call) {
@@ -552,6 +577,20 @@ function reportWorkTool(runId, call) {
             ),
         },
         call("report_work"),
+      ),
+      tool(
+        "message_director",
+        "Tell the Director something while you are still working — a blocker, a decision that " +
+          "turned out to be wrong, a discovery that changes what this card should be. It lands " +
+          "in his inbox and he reads it at his next turn. No answer comes back through this " +
+          "tool, so do not wait for one: say it and carry on. If he wants to change course he " +
+          "will say so on the card.",
+        {
+          text: z
+            .string()
+            .describe("What he needs to know, in one or two sentences. Say which card you are on."),
+        },
+        call("message_director"),
       ),
     ],
   });

@@ -316,16 +316,58 @@ impl Engine {
         // The agent's report_work lands here while it runs; the commit reads
         // the latest one. Shared with the spawned task on purpose.
         let work_report = Arc::new(std::sync::Mutex::new(crate::WorkReport::default()));
+        // O que lhe for dito enquanto trabalha. A mesma fila do chat: entra no
+        // stream de entrada do SDK e o modelo lê-a na leitura seguinte, sem
+        // esperar pelo fim do turno.
+        let inbox = harness_ports::queue::Queue::new(card_id.as_str());
 
         // The worker's single harness tool: its own account of the work.
         // Routed through the actor like every other write, so the event log
         // and the slot move together.
         let report_tx = self.self_tx.clone();
         let report_card = card_id.clone();
+        let message_hook = self.message.clone();
+        let speaking_as = profile.agent_id.clone();
         let tools: Option<harness_ports::ToolRunner> = Some(Arc::new(move |call| {
             let tx = report_tx.clone();
             let card = report_card.clone();
+            let hook = message_hook.clone();
+            let agent_id = speaking_as.clone();
             Box::pin(async move {
+                // O outro sentido da conversa: o agente diz alguma coisa ao
+                // Director sem parar o que está a fazer. Não espera resposta —
+                // esperar por uma pessoa era exactamente o que a fila existe
+                // para evitar.
+                if call.name == "message_director" {
+                    let text = call
+                        .input
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if text.is_empty() {
+                        return harness_ports::ToolReply::refused("that needs something to say");
+                    }
+                    let Some(hook) = hook else {
+                        return harness_ports::ToolReply::refused(
+                            "there is nobody to carry that to right now",
+                        );
+                    };
+                    return match hook(harness_ports::AgentMessage {
+                        card_id: card.to_string(),
+                        agent_id,
+                        text,
+                    })
+                    .await
+                    {
+                        Ok(()) => harness_ports::ToolReply::ok(
+                            "said; he reads it at his next turn. Carry on — no answer is coming \
+                             back through this tool.",
+                        ),
+                        Err(why) => harness_ports::ToolReply::refused(why),
+                    };
+                }
                 if call.name != "report_work" {
                     return harness_ports::ToolReply::refused(format!(
                         "no such harness tool: {}",
@@ -391,9 +433,10 @@ impl Engine {
             // write to Relay, not to the repository, so it rides in
             // allowed_tools instead of the approval queue.
             tools,
-            // A card run is nobody's conversation: there is no composer
-            // pointed at it, so there is nothing to queue.
-            inbox: None,
+            // Um cartão não tem compositor apontado a ele — mas tem o
+            // Director, que pode avisá-lo a meio em vez de o deixar acabar
+            // errado. É a mesma fila do chat, pelo mesmo caminho.
+            inbox: Some(Arc::clone(&inbox) as harness_ports::Inbox),
             thinking_tokens: None,
             // A worker may fan out one level; its children never may.
             subagents: true,
@@ -409,6 +452,7 @@ impl Engine {
         };
         if let Some(allowed) = spec.allowed_tools.as_mut() {
             allowed.push("mcp__harness__report_work".to_string());
+            allowed.push("mcp__harness__message_director".to_string());
             allowed.sort();
             allowed.dedup();
         }
@@ -609,6 +653,7 @@ impl Engine {
                 worktree: worktree.clone(),
                 agent_id: entry_agent_id,
                 started_ms,
+                inbox,
             },
         );
         // The start is no longer in flight: it is a run. Clearing it here and
@@ -637,6 +682,29 @@ impl Engine {
             }
             None => Err("no active run for this card".to_string()),
         }
+    }
+
+    /// Put something in a working agent's inbox. See `EngineHandle::message_run`.
+    pub(crate) fn message_run(&mut self, card_id: &CardId, text: &str) -> Result<String, String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("nothing to say".to_string());
+        }
+        let Some(entry) = self.runs.get(card_id) else {
+            return Err("nothing is running on that card".to_string());
+        };
+        let queued = entry
+            .inbox
+            .push(text)?;
+        self.emit_run(
+            card_id,
+            &entry.run_id.clone(),
+            RunEvent::UserQueued {
+                queue_id: queued.id.clone(),
+                text: text.to_string(),
+            },
+        );
+        Ok(queued.id)
     }
 
     pub(crate) async fn finish_run(

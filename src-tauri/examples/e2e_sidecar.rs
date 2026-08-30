@@ -91,6 +91,7 @@ async fn main() {
             git: git.clone(),
             approver: None,
             review: None,
+            message: None,
             run_log: Some(run_log.clone() as Arc<dyn RunLogPort>),
         },
         config,

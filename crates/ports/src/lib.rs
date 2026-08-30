@@ -44,6 +44,8 @@ impl From<std::io::Error> for StoreError {
     }
 }
 
+pub mod queue;
+
 pub trait StorePort: Send + Sync {
     fn append_event(&self, e: &Event, ts_ms: u64) -> Result<StoredEvent, StoreError>;
     fn read_all(&self) -> Result<Vec<StoredEvent>, StoreError>;
@@ -163,6 +165,31 @@ pub struct ReviewRequest {
 pub type ReviewHook =
     Arc<dyn Fn(ReviewRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
+/// Something a working agent wants the Director to know now.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentMessage {
+    pub card_id: String,
+    /// Which agent is speaking, so the Director is not left guessing which of
+    /// four builders just said this.
+    pub agent_id: String,
+    pub text: String,
+}
+
+/// How a worker reaches the Director mid-run.
+///
+/// The other half of `EngineHandle::message_run`, and it needs a hook for the
+/// same reason the review does: the message ends up in a *conversation*, and
+/// the engine does not know conversations exist (#19). It hands over who is
+/// speaking and what they said; the shell decides where that lands.
+///
+/// The reply is what the agent is told — the Director's answer does not come
+/// back this way. A worker that stops to wait for one would be blocking on a
+/// person, and the whole point of the queue is that neither side waits.
+pub type MessageHook =
+    Arc<dyn Fn(AgentMessage) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync>;
+
 /// A tool the agent calls that Relay itself implements — moving a card,
 /// opening a screen, reading a diff. The adapter forwards the call; the shell
 /// carries it out. Like any other tool the agent does not already hold, it goes
@@ -209,7 +236,7 @@ pub struct QueuedMessage {
 /// A port and not a channel because the queue has to answer two questions the
 /// adapter cannot: what is still undelivered when the run ends, and whether a
 /// message arrived too late to be delivered at all. The implementation is
-/// `harness_app::chatqueue`, where cargo can test the ordering.
+/// [`queue::Queue`], beside it, where cargo can test the ordering.
 pub trait InboxPort: Send + Sync {
     /// The next message for the run. Resolves to `None` once the inbox is
     /// closed, and must be cancel-safe: the adapter races it against the

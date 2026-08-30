@@ -893,6 +893,7 @@ impl Workspace {
                 // A revisão automática corre na conversa do Director, não num
                 // segundo Director sem sessão. Ver `crate::review`.
                 review: self.arc().as_ref().map(crate::review::hook),
+                message: self.arc().as_ref().map(crate::review::message_hook),
                 run_log: Some(run_log.clone() as Arc<dyn RunLogPort>),
             },
             config,

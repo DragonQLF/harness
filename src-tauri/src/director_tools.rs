@@ -484,6 +484,21 @@ pub async fn run(
         // Correcting a badly written card, rather than discarding it and
         // losing the id, the history, the session and the dependencies that
         // point at it. The domain refuses it once the card has run.
+        "message_agent" => {
+            let Some(card_id) = text(&call.input, "card_id") else {
+                return ToolReply::refused("that needs a card_id");
+            };
+            let Some(said) = text(&call.input, "text") else {
+                return ToolReply::refused("that needs something to say");
+            };
+            match runtime.engine.message_run(CardId::new(card_id.clone()), said).await {
+                Ok(_) => ToolReply::ok(format!(
+                    "said to {card_id}{where_}; it reads that at its next read, without stopping"
+                )),
+                Err(e) => ToolReply::refused(e),
+            }
+        }
+
         "edit_card" => {
             let Some(card_id) = text(&call.input, "card_id") else {
                 return ToolReply::refused("edit_card needs a card_id");
@@ -1176,6 +1191,7 @@ mod tests {
             "move_card",
             "approve_card",
             "reject_card",
+            "message_agent",
             "delete_card",
             "create_project",
             "create_agent",

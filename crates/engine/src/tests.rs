@@ -635,6 +635,7 @@ fn rig_full(
             git: git.clone(),
             approver,
             review: Some(fake_reviewer(review, Arc::clone(&later), reviews.clone())),
+            message: None,
             run_log: Some(log.clone()),
         },
         test_config(),
@@ -892,6 +893,7 @@ async fn shutdown_waits_for_the_agent_before_the_single_wip_commit() {
                 order: Arc::clone(&order),
             }),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -941,6 +943,7 @@ async fn shutdown_without_commit_policy_leaves_nothing_behind() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -981,6 +984,7 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::WaitCancelled)),
                 review: None,
+                message: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -1007,6 +1011,7 @@ async fn interrupted_run_recovered_as_failed_on_restart() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git,
             approver: None,
             run_log: None,
@@ -1180,6 +1185,7 @@ async fn two_cards_with_different_profiles_each_get_only_their_own_grants() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(GrantSpy { seen: seen.clone() }),
             review: None,
+            message: None,
             git,
             approver: None,
             run_log: None,
@@ -1288,6 +1294,48 @@ async fn a_review_nobody_takes_leaves_the_card_in_review() {
     .await;
     tokio::time::sleep(Duration::from_millis(120)).await;
     assert_eq!(status_of(&r.handle, &id).await, Some(Status::Review));
+}
+
+/// Dizer alguma coisa a um agente que já está a trabalhar.
+///
+/// Não interrompe e não começa um segundo run: entra na fila daquele run, e o
+/// modelo lê-a na leitura seguinte. O que se prende aqui são as duas recusas,
+/// porque são elas que impedem uma mensagem de desaparecer em silêncio — sem
+/// run não há caixa onde a pôr, e um texto vazio não é uma mensagem.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_working_agent_can_be_told_something_midway() {
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
+    let id = CardId::new("c_msg");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("run registers as active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    let queued = r
+        .handle
+        .message_run(id.clone(), "stop — the card said the wrong thing".into())
+        .await;
+    assert!(queued.is_ok(), "a live run takes a message: {queued:?}");
+
+    assert!(
+        r.handle
+            .message_run(id.clone(), "   ".into())
+            .await
+            .is_err(),
+        "an empty message is not a message"
+    );
+    assert!(
+        r.handle
+            .message_run(CardId::new("c_nothing"), "hello".into())
+            .await
+            .is_err(),
+        "a card with nothing running has no inbox to put it in"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1564,6 +1612,7 @@ async fn a_long_log_is_compacted_into_a_snapshot_on_startup() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1605,6 +1654,7 @@ async fn a_card_session_survives_a_restart() {
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
                 review: None,
+                message: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -1644,6 +1694,7 @@ async fn a_card_session_survives_a_restart() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1684,6 +1735,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
                 review: None,
+                message: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -1709,6 +1761,7 @@ async fn the_run_after_a_restart_resumes_the_session_from_before_it() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(ResumeSpy { seen: Arc::clone(&spy.seen) }),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1811,6 +1864,7 @@ async fn a_reported_summary_becomes_the_commit_body_and_the_last_one_wins() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(ReportingAgent),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -1950,6 +2004,7 @@ async fn a_rejected_card_keeps_its_work_report_in_the_log() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(ReportingAgent),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2093,6 +2148,7 @@ async fn a_card_discarded_mid_start_leaves_no_checkout_behind() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2171,6 +2227,7 @@ async fn a_green_build_writes_a_manifest_with_the_commit_sha() {
                 Arc::clone(&later),
                 Reviews::default(),
             )),
+            message: None,
             run_log: None,
         },
         config,
@@ -2226,6 +2283,7 @@ async fn a_failed_build_leaves_no_artifact_behind() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2309,6 +2367,7 @@ async fn a_failed_run_leaves_work_and_the_next_run_finds_it() {
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(WritesThenFailsAgent),
                 review: None,
+                message: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -2426,6 +2485,7 @@ async fn a_failed_worktree_leaves_the_card_alone() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: Arc::new(fake_git),
             approver: None,
             run_log: None,
@@ -2462,6 +2522,7 @@ async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
                 clock: Arc::new(FixedClock),
                 agent: Arc::new(FakeAgent(FakeMode::Complete)),
                 review: None,
+                message: None,
                 git: git.clone(),
                 approver: None,
                 run_log: None,
@@ -2494,6 +2555,7 @@ async fn a_shared_worktree_is_adopted_after_a_restart_not_rebuilt() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,
@@ -2537,6 +2599,7 @@ async fn a_partial_rejection_lands_the_rest_and_survives_a_restart() {
             clock: Arc::new(FixedClock),
             agent: Arc::new(FakeAgent(FakeMode::Complete)),
             review: None,
+            message: None,
             git: git.clone(),
             approver: None,
             run_log: None,

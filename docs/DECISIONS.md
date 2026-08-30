@@ -31,6 +31,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-28 | 93–96 | Skills e MCP por agente em runtime: plugin do Relay, declaração em vez de comando, auto-elevação recusada |
 | 2026-08-30 | 99–101 | O token deixa de ser uma unidade de render; Agentes ganha lugar na barra; as Definições ganham secções |
 | 2026-08-30 | 102 | A revisão automática deixa de ser um segundo Director; o #98 reforma-se |
+| 2026-08-30 | 103 | Os agentes falam uns com os outros a meio do trabalho |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2201,3 +2202,37 @@ que o operador vê no ecrã de Agentes.
 **Fica por fazer, e é o passo seguinte:** um revisor especializado. Enquanto o
 trabalho não se amontoar, o Director chega; quando chegar a altura, o `ReviewHook`
 é exactamente o sítio onde outro nome se encaixa sem o engine dar por isso.
+
+### 103. Os agentes falam uns com os outros a meio do trabalho
+A fila de mensagens existia desde que o compositor deixou de bloquear durante um
+turno: o que se escreve entra no stream de entrada do SDK e o modelo lê-o na
+leitura seguinte — *durante* o trabalho, não depois dele. Só que essa fila era
+do chat e de mais ninguém. Um run de cartão levava `inbox: None`, com a razão
+escrita ao lado: "um cartão não é conversa de ninguém, não há compositor apontado
+a ele, portanto não há nada para pôr em fila".
+
+A razão estava certa e a conclusão não. Não há compositor apontado a um cartão,
+mas há o Director — e a coisa que ele mais precisa de poder fazer é avisar um
+agente que está a construir a coisa errada, agora, em vez de esperar que acabe
+para lha mandar refazer.
+
+**Os dois sentidos são a mesma fila.** `message_agent` põe na fila daquele run,
+por um método novo do engine; `message_director` faz o caminho inverso por um
+gancho (`MessageHook`), pela mesma razão que a revisão o faz — acaba numa
+conversa, e o engine não sabe que existem conversas (#19). Nenhum dos dois
+espera resposta: um agente parado à espera de uma pessoa é um agente que não
+está a trabalhar, e a fila existe precisamente para que nenhum dos lados espere.
+
+**A fila mudou-se para os portos.** Estava em `harness_app`, que fica *acima* do
+engine, portanto o engine não lhe chegava. Não tem I/O nem relógio — é
+contabilidade pura sobre um porto que os portos já definem —, por isso desce
+para junto do porto que implementa, com o nome antigo reexportado para quem a
+importava.
+
+**Recusas em vez de silêncio.** Sem run não há caixa onde pôr a mensagem, e um
+texto vazio não é uma mensagem: as duas são recusadas com uma frase, e há teste
+para ambas. Uma mensagem que desaparece calada é o defeito que esta fila foi
+escrita para não ter.
+
+**Quem fala viaja com o que foi dito.** Quatro builders a trabalhar dariam
+quatro mensagens sem dono, e a primeira pergunta dele seria sempre a mesma.

@@ -24,7 +24,7 @@
 use std::sync::Arc;
 
 use harness_app::agents;
-use harness_ports::{ReviewHook, ReviewRequest};
+use harness_ports::{AgentMessage, MessageHook, ReviewHook, ReviewRequest};
 
 use crate::workspace::Workspace;
 
@@ -85,4 +85,46 @@ async fn take(ws: &Arc<Workspace>, request: ReviewRequest) -> bool {
             false
         }
     }
+}
+
+/// The other direction: a worker saying something to the Director mid-run.
+///
+/// Same road as the review, and for the same reason — it ends in a conversation,
+/// which the engine knows nothing about. `chat::queue` again, so if he is
+/// already mid-turn the agent's words reach him at his next read rather than
+/// waiting for him to finish; nothing here blocks the agent, which goes back to
+/// work the moment this returns.
+pub fn message_hook(ws: &Arc<Workspace>) -> MessageHook {
+    let ws = Arc::clone(ws);
+    Arc::new(move |message: AgentMessage| {
+        let ws = Arc::clone(&ws);
+        Box::pin(async move { carry(&ws, message).await })
+    })
+}
+
+async fn carry(ws: &Arc<Workspace>, message: AgentMessage) -> Result<(), String> {
+    match ws.agent_exact(agents::DIRECTOR_ID).await {
+        Some(profile) if profile.can_chat() && !profile.paused => {}
+        _ => return Err("the Director is not available to hear that".to_string()),
+    }
+    let conversation_id = conversation_for(ws)
+        .await
+        .ok_or_else(|| "there is no conversation to carry that to".to_string())?;
+
+    // Quem fala vem com o que foi dito. Sem isso, quatro builders a trabalhar
+    // dão quatro mensagens sem dono, e a primeira pergunta dele seria sempre a
+    // mesma.
+    let who = ws
+        .agent_exact(&message.agent_id)
+        .await
+        .map(|a| a.name)
+        .unwrap_or_else(|| message.agent_id.clone());
+    let said = format!(
+        "{who}, working on {}, says: {}",
+        message.card_id, message.text
+    );
+    crate::chat::queue(ws, conversation_id, said, Vec::new(), None)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("that could not be carried to the Director: {e}"))
 }
