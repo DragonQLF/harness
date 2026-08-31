@@ -106,6 +106,13 @@ impl AppPaths {
         self.root.join("attachments")
     }
 
+    /// Os sockets dos runs destacados, um por chave. É por aqui que uma Relay
+    /// nova reencontra trabalho que ficou a andar sem ela. Não confundir com o
+    /// `runs_dir` de um projecto, que guarda transcrições e não portas.
+    pub fn run_sockets_dir(&self) -> PathBuf {
+        self.root().join("run-sockets")
+    }
+
     pub fn sidecar_dir(&self) -> PathBuf {
         self.root.join("sidecar")
     }

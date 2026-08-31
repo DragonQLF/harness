@@ -138,6 +138,10 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         permission_mode: Some("manual".to_string()),
         approver: Some(ws.router.approver_for("workspace")),
         resume_session: None,
+        // Sem reatação: isto é um turno sem ninguém à espera dele, e um socket
+        // deixado para trás seria uma porta aberta que nada volta a abrir.
+        run_key: None,
+        from_seq: None,
         tools: Some(crate::director_tools::runner(
             ws,
             conversation.project_id.clone(),

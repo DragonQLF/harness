@@ -6,7 +6,7 @@ use harness_ports::{
     ApprovalRequest, Grants, Inbox, McpTransport, QueuedMessage, RunEvent, RunOutcome, RunSpec,
     ToolCall,
 };
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -22,6 +22,9 @@ pub struct SidecarAgent {
     /// which is what a project engine holds — cannot carry them, and that is
     /// the boundary recorded in `DEBT.md`.
     grants: Grants,
+    /// Onde vivem os sockets dos runs destacados. Sem isto o porto continua a
+    /// falar por canos, que é o que os testes e uma Relay antiga fazem.
+    runs_dir: Option<PathBuf>,
 }
 
 impl SidecarAgent {
@@ -30,7 +33,13 @@ impl SidecarAgent {
             program: program.into(),
             script: script.into(),
             grants: Grants::default(),
+            runs_dir: None,
         }
+    }
+
+    pub fn with_runs_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.runs_dir = Some(dir.into());
+        self
     }
 
     pub fn with_grants(mut self, grants: Grants) -> Self {
@@ -104,36 +113,39 @@ async fn next_queued(inbox: Option<Inbox>) -> Option<QueuedMessage> {
     }
 }
 
+/// Por onde se fala com o sidecar. Um cano ou um socket — o protocolo é o
+/// mesmo, e é isso que deixa todo o `drive` de baixo intacto.
+type Writer = Box<dyn AsyncWrite + Unpin + Send>;
+type Reader = Box<dyn AsyncRead + Unpin + Send>;
+
 struct LineSink<'a> {
-    stdin: &'a mut tokio::process::ChildStdin,
+    out: &'a mut Writer,
 }
 
 impl LineSink<'_> {
     async fn send(&mut self, value: serde_json::Value) -> Result<(), String> {
         let line = format!("{value}\n");
-        self.stdin
+        self.out
             .write_all(line.as_bytes())
             .await
-            .map_err(|e| format!("sidecar stdin write failed: {e}"))
+            .map_err(|e| format!("sidecar write failed: {e}"))
     }
 }
 
+/// Conduz um run que já está do outro lado do fio, seja ele qual for.
+///
+/// `fresh` diz se este é o princípio ou uma reatação. No princípio manda-se o
+/// `run`; numa reatação não — o trabalho já vai a meio, e mandá-lo outra vez
+/// pedia ao modelo que refizesse o que já fez.
 async fn drive(
-    child: &mut Child,
+    mut stdin: Writer,
+    mut lines: tokio::io::Lines<BufReader<Reader>>,
+    fresh: bool,
     spec: RunSpec,
     grants: Grants,
     tx: mpsc::Sender<RunEvent>,
     cancel: CancellationToken,
 ) -> Result<RunOutcome, String> {
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "sidecar stdin unavailable".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "sidecar stdout unavailable".to_string())?;
-
     let id = uuid::Uuid::new_v4().to_string();
     let run_msg = serde_json::json!({
         "type": "run",
@@ -169,9 +181,10 @@ async fn drive(
             "effort": spec.effort,
         }
     });
-    LineSink { stdin: &mut stdin }.send(run_msg).await?;
+    if fresh {
+        LineSink { out: &mut stdin }.send(run_msg).await?;
+    }
 
-    let mut lines = BufReader::new(stdout).lines();
     let mut session_id: Option<String> = None;
     let mut cost_usd: Option<f64> = None;
     let mut turns: Option<u32> = None;
@@ -185,10 +198,9 @@ async fn drive(
     let outcome = loop {
         tokio::select! {
             _ = cancel.cancelled() => {
-                let _ = LineSink { stdin: &mut stdin }
+                let _ = LineSink { out: &mut stdin }
                     .send(serde_json::json!({ "type": "cancel", "id": id }))
                     .await;
-                let _ = child.kill().await;
                 break Ok(RunOutcome::Cancelled);
             }
             queued = next_queued(reading.clone()), if reading.is_some() => {
@@ -203,7 +215,7 @@ async fn drive(
                             "message_id": message.id,
                             "text": message.text,
                         });
-                        if (LineSink { stdin: &mut stdin }).send(line).await.is_err() {
+                        if (LineSink { out: &mut stdin }).send(line).await.is_err() {
                             break Err("sidecar stdin closed while queueing a message".to_string());
                         }
                     }
@@ -416,10 +428,11 @@ async fn drive(
                                         error: failure.clone(),
                                     })
                                     .await;
-                                // The result is the end of the run. The sidecar
-                                // keeps its stdin open for another command, so
-                                // waiting for stdout to close would hang here.
-                                let _ = child.kill().await;
+                                // O `done` é o fim do run. Quem desliga o
+                                // sidecar é o `run` lá em baixo, que é quem
+                                // sabe se ele é nosso ou se ficou destacado a
+                                // servir outra coisa.
+                                //
                                 // An error result must not pass for a finished
                                 // run: nothing downstream would know the
                                 // difference, and a card would be committed and
@@ -495,7 +508,7 @@ async fn drive(
                             "ok": reply.ok,
                             "text": reply.text,
                         });
-                        if (LineSink { stdin: &mut stdin })
+                        if (LineSink { out: &mut stdin })
                             .send(response)
                             .await
                             .is_err()
@@ -562,7 +575,7 @@ async fn drive(
                             "request_id": request_id,
                             "allow": allowed,
                         });
-                        if (LineSink { stdin: &mut stdin })
+                        if (LineSink { out: &mut stdin })
                             .send(response)
                             .await
                             .is_err()
@@ -576,18 +589,11 @@ async fn drive(
         }
     };
 
-    if !cancel.is_cancelled() && !saw_done && outcome.is_ok() {
-        drop(stdin);
-        let status = child.wait().await.map_err(|e| format!("wait sidecar: {e}"))?;
-        if !status.success() {
-            return Ok(RunOutcome::Failed {
-        message: format!("sidecar exited with {status}"),
-        cost_usd: None,
-        turns: None,
-    });
-        }
-    }
-
+    // Quem espera pelo processo é o `run`, que é o único que sabe se há
+    // processo nosso para esperar: numa reatação o sidecar é de outra Relay que
+    // já morreu, e não há `Child` nenhum deste lado.
+    let _ = saw_done;
+    drop(stdin);
     outcome
 }
 
@@ -610,7 +616,46 @@ impl harness_ports::AgentPort for SidecarAgent {
             spec.grants.clone()
         };
         let provider = spec.provider.clone();
+        let runs_dir = self.runs_dir.clone();
+        // Só em unix. Em Windows não há socket de domínio nesta pilha, e o que
+        // aconteceria era pior do que não haver reatação: levantava-se o sidecar
+        // com `--serve`, esperava-se por uma porta que nunca abria, e o turno
+        // falhava em vez de correr. Lá continua-se pelos canos, como sempre.
+        #[cfg(unix)]
+        let socket = runs_dir
+            .as_ref()
+            .zip(spec.run_key.as_ref())
+            .map(|(dir, key)| dir.join(format!("{key}.sock")));
+        #[cfg(not(unix))]
+        let socket: Option<PathBuf> = {
+            let _ = &runs_dir;
+            None
+        };
+        let from_seq = spec.from_seq;
         Box::pin(async move {
+            // Há trabalho a andar deste lado? Um socket que atende é um run
+            // vivo, e a resposta certa a um run vivo é ligar-se a ele — não
+            // levantar um segundo que lhe iria disputar a sessão. É a diferença
+            // entre um agente que sobrevive a um reinício e um que não.
+            if let Some(path) = &socket {
+                if let Ok(stream) = tokio::net::UnixStream::connect(path).await {
+                    let (read, write) = stream.into_split();
+                    let mut out: Writer = Box::new(write);
+                    let key = spec.run_key.clone().unwrap_or_default();
+                    let (lines, running) =
+                        handshake(&mut out, Box::new(read), &key, from_seq).await?;
+                    // Vivo quer dizer "a meio": manda-se-lhe o `run` outra vez
+                    // pedia ao modelo que refizesse o que já fez. Parado quer
+                    // dizer que o sidecar sobreviveu ao turno mas não tem
+                    // trabalho — nesse caso este é o turno novo dele.
+                    return drive(out, lines, !running, spec, grants, tx, cancel).await;
+                }
+                // Um socket que não atende é de um processo que já morreu. O
+                // ficheiro fica para trás e faria a próxima tentativa bater na
+                // mesma porta fechada.
+                let _ = std::fs::remove_file(path);
+            }
+
             let mut cmd = Command::new(&program);
             // Set per run, not per process: two agents in the same Relay can be
             // pointed at different endpoints, and one of them being local must
@@ -620,17 +665,29 @@ impl harness_ports::AgentPort for SidecarAgent {
                     cmd.env(key, value);
                 }
             }
-            cmd.arg(&script)
-                .stdin(Stdio::piped())
+            cmd.arg(&script);
+            if let Some(path) = &socket {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                cmd.arg("--serve").arg(path);
+                if let Some(key) = &spec.run_key {
+                    cmd.arg("--key").arg(key);
+                }
+            }
+            cmd.stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                // One sidecar per run, and it outlives its usefulness the
-                // moment the result arrives; never leave it running.
-                .kill_on_drop(true);
-            // O sidecar passa a liderar um grupo só dele, e o CLI que ele
-            // levanta herda-o. Sem isto o grupo dele é o da própria Relay
-            // — matá-lo pelo grupo matava a aplicação, e é por isso que a
-            // limpeza lá em baixo não podia existir antes desta linha.
+                .stderr(Stdio::null());
+            // Destacado, quando serve num socket: é esse o ponto. Um sidecar
+            // que morre com a Relay leva o turno com ele, e foi isso que fez um
+            // reinício custar o trabalho de uma tarde. Sem socket continua
+            // preso à Relay como sempre esteve.
+            if socket.is_none() {
+                cmd.kill_on_drop(true);
+            }
+            // O sidecar lidera um grupo só dele, e o CLI que ele levanta
+            // herda-o. Sem isto o grupo dele é o da própria Relay — matá-lo
+            // pelo grupo matava a aplicação.
             #[cfg(unix)]
             cmd.process_group(0);
             #[cfg(windows)]
@@ -646,27 +703,39 @@ impl harness_ports::AgentPort for SidecarAgent {
             #[cfg(unix)]
             let group = child.id();
 
-            let outcome = drive(&mut child, spec, grants, tx, cancel).await;
+            if let Some(path) = &socket {
+                let stream = await_socket(path).await?;
+                let (read, write) = stream.into_split();
+                let mut out: Writer = Box::new(write);
+                let key = spec.run_key.clone().unwrap_or_default();
+                // Run acabado de nascer: não há atraso possível.
+                let (lines, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
+                let outcome = drive(out, lines, true, spec, grants, tx, cancel).await;
+                // Destacado de propósito: não se mata. Ou acabou — e ele
+                // desliga-se sozinho — ou a Relay é que se foi, e o que fica de
+                // pé é precisamente o que uma Relay nova vai reencontrar.
+                let _ = &mut child;
+                return outcome;
+            }
 
-            // Seja qual for o fim, nada do que este run levantou lhe sobrevive.
-            //
-            // O `child.kill()` lá dentro manda um SIGKILL ao node e mais nada.
-            // O CLI do Claude é neto: ficava órfão, era adoptado pelo init, e
-            // órfão continuava a segurar a sessão. A mensagem seguinte retomava
-            // então uma sessão que já era de outro — o CLI novo entregava-a à
-            // fila do órfão e saía sem correr turno nenhum, e a resposta saía
-            // por um stream que já ninguém lia. Três mensagens seguidas
-            // desapareceram assim (#108).
-            //
-            // E o SIGKILL no node é também o que impede o sidecar de se
-            // desmontar sozinho: o `finally` dele nunca chega a correr. Por
-            // isso a garantia tem de estar deste lado, e no fim de todos os
-            // caminhos — não só nos dois que matavam à mão.
+            let stdin = child.stdin.take().ok_or("sidecar stdin unavailable")?;
+            let stdout = child.stdout.take().ok_or("sidecar stdout unavailable")?;
+            let outcome = drive(
+                Box::new(stdin),
+                BufReader::new(Box::new(stdout) as Reader).lines(),
+                true,
+                spec,
+                grants,
+                tx,
+                cancel,
+            )
+            .await;
+
+            // Sem socket, nada deste run lhe sobrevive. O `child.kill()` manda
+            // um SIGKILL ao node e mais nada: o CLI do Claude é neto, ficava
+            // órfão, e órfão continuava a segurar a sessão (#108).
             #[cfg(unix)]
             if let Some(pid) = group {
-                // O grupo é o que o `process_group(0)` acabou de criar para
-                // este run, portanto isto não alcança nada que a Relay não
-                // tenha levantado aqui.
                 unsafe { libc::killpg(pid as libc::pid_t, libc::SIGKILL) };
             }
             let _ = child.kill().await;
@@ -675,9 +744,68 @@ impl harness_ports::AgentPort for SidecarAgent {
     }
 }
 
+/// Diz quem somos e confere quem atendeu.
+///
+/// Um socket é um sítio, não uma identidade. Sem esta conferência, uma Relay
+/// que se ligasse a um caminho reaproveitado adoptava o run de *outro* agente —
+/// um cartão a compilar em vez da conversa do Director — e passava a escrever
+/// os eventos dele na conversa errada, a responder-lhe às aprovações e a
+/// mandar-lhe mensagens que não eram para ele. Melhor recusar e levantar um run
+/// novo do que herdar trabalho alheio.
+/// Atendeu quem procurávamos?
+///
+/// Separado para poder ser exercitado sem levantar processos: é uma decisão de
+/// três linhas com um `SIGKILL` e uma conversa alheia do outro lado.
+fn same_run(greeting: &serde_json::Value, expect_key: &str) -> Result<(), String> {
+    let theirs = greeting.get("run_key").and_then(|k| k.as_str()).unwrap_or("");
+    if theirs != expect_key {
+        return Err(format!(
+            "that socket is serving {theirs:?}, not {expect_key:?} — refusing to adopt it"
+        ));
+    }
+    Ok(())
+}
+
+async fn handshake(
+    out: &mut Writer,
+    read: Reader,
+    expect_key: &str,
+    from_seq: Option<u64>,
+) -> Result<(tokio::io::Lines<BufReader<Reader>>, bool), String> {
+    LineSink { out }
+        .send(serde_json::json!({ "type": "attach", "from_seq": from_seq }))
+        .await?;
+    let mut lines = BufReader::new(read).lines();
+    let greeting = match lines.next_line().await {
+        Ok(Some(line)) => line,
+        _ => return Err("sidecar did not answer the attach".to_string()),
+    };
+    let greeting: serde_json::Value =
+        serde_json::from_str(&greeting).map_err(|e| format!("bad attach answer: {e}"))?;
+    same_run(&greeting, expect_key)?;
+    let running = greeting
+        .get("running")
+        .and_then(|r| r.as_bool())
+        .unwrap_or(false);
+    Ok((lines, running))
+}
+
+/// O socket aparece um instante depois do processo. Espera-se por ele em vez de
+/// se adivinhar um tempo: uma máquina cansada demora mais, e um `sleep` fixo ou
+/// falha nela ou faz toda a gente esperar por ela.
+async fn await_socket(path: &std::path::Path) -> Result<tokio::net::UnixStream, String> {
+    for _ in 0..200 {
+        if let Ok(stream) = tokio::net::UnixStream::connect(path).await {
+            return Ok(stream);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    Err(format!("sidecar never served on {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{done_error, mcp_json};
+    use super::{done_error, mcp_json, same_run};
     use harness_ports::{Grants, McpGrant, McpTransport};
     use serde_json::json;
 
@@ -702,6 +830,24 @@ mod tests {
         let none: Vec<harness_ports::BackgroundTask> =
             serde_json::from_value(json!([])).expect("o vazio é uma resposta");
         assert!(none.is_empty());
+    }
+
+    /// Um socket é um sítio, não uma identidade.
+    ///
+    /// Sem esta conferência, uma Relay que se ligasse a um caminho reaproveitado
+    /// adoptava o run de outro agente — um cartão a compilar em vez da conversa
+    /// do Director — e passava a escrever-lhe os eventos na conversa errada e a
+    /// responder-lhe às aprovações em nome dela.
+    #[test]
+    fn a_socket_serving_someone_else_is_refused() {
+        assert!(same_run(&json!({ "run_key": "chat-c1" }), "chat-c1").is_ok());
+        // O caso que interessa: um cartão a atender onde se procurava a conversa.
+        let wrong = same_run(&json!({ "run_key": "card-c_e530" }), "chat-c1").unwrap_err();
+        assert!(wrong.contains("card-c_e530") && wrong.contains("chat-c1"));
+        // Um sidecar velho, que não se identifica, também não serve: adoptar às
+        // cegas é o que isto existe para impedir.
+        assert!(same_run(&json!({}), "chat-c1").is_err());
+        assert!(same_run(&json!({ "run_key": null }), "chat-c1").is_err());
     }
 
     #[test]

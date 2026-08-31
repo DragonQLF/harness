@@ -31,10 +31,17 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, "index.mjs"), "utf8");
 
 function closeHandler() {
-  const start = source.indexOf('rl.on("close"');
-  assert.ok(start > -1, "o sidecar deixou de reagir ao fim do stdin: volta a poder ficar órfão");
-  return source.slice(start);
+  const start = source.indexOf("function tearDown()");
+  assert.ok(start > -1, "o sidecar deixou de ter desmontagem: volta a poder ficar órfão");
+  return source.slice(start, source.indexOf("\n}", start));
 }
+
+test("em modo cano, o fim do stdin ainda é o sinal", () => {
+  // A desmontagem só vale se estiver ligada ao fim do stdin. Separá-la numa
+  // função nomeada — para o modo socket a não usar — quase a deixou órfã de
+  // quem a chamava.
+  assert.match(source, /rl\.on\("close", tearDown\)/);
+});
 
 test("o fim do stdin desmonta o que estiver a correr", () => {
   const handler = closeHandler();

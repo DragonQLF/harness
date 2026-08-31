@@ -35,6 +35,13 @@ const OURS: &str = "claude-agent-sdk";
 /// O sidecar que o levanta. É ele o líder do grupo desde a 0.3.16, e é isso que
 /// torna seguro levar o grupo em vez do processo.
 const SIDECAR: &str = "sidecar/index.mjs";
+/// O que distingue um sobrevivente de um resto.
+///
+/// Desde a reatação, um sidecar sem pai deixou de ser lixo por definição: pode
+/// ser um turno que continuou sozinho enquanto a Relay reiniciava, à espera de
+/// que alguém se volte a ligar a ele. Serve num socket, e é o `--serve` que o
+/// diz. Sem ele é um resto do tempo dos canos, e esse ninguém volta a apanhar.
+const SERVING: &str = "--serve";
 
 /// `ps` na forma que se lê aqui. Separado da leitura para o parser poder ser
 /// exercitado contra saídas verdadeiras, que é onde isto se parte.
@@ -123,8 +130,15 @@ pub fn all_ours(rows: &[Row]) -> Vec<&Row> {
 /// quem é o dono.
 pub fn orphaned_sidecars(rows: &[Row]) -> Vec<&Row> {
     rows.iter()
-        .filter(|r| r.ppid == 1 && r.command.contains(SIDECAR))
+        .filter(|r| r.ppid == 1 && r.command.contains(SIDECAR) && !r.command.contains(SERVING))
         .collect()
+}
+
+/// Está este processo a servir um socket — isto é, é alguém a quem se pode
+/// voltar? Matá-lo seria deitar fora precisamente o trabalho que a reatação
+/// existe para salvar.
+pub fn is_detached_survivor(row: &Row) -> bool {
+    row.command.contains(SIDECAR) && row.command.contains(SERVING)
 }
 
 /// O sidecar e os CLIs que ele levantou.
@@ -200,7 +214,19 @@ fn kill_one(_pid: u32) {}
 /// sítio, isto mataria um turno a sério.
 pub fn reap_session(session_id: &str) -> usize {
     let rows = read_ps();
-    reap(&rows, &holders_in(&rows, session_id))
+    let strays: Vec<&Row> = holders_in(&rows, session_id)
+        .into_iter()
+        // Um CLI cujo sidecar está a servir um socket não é um resto: é um run
+        // vivo a que a Relay se vai ligar daqui a um instante. Matá-lo aqui era
+        // o mesmo erro de sempre, só que ao contrário — em vez de deixar
+        // trabalho a apodrecer, deitava-o fora.
+        .filter(|cli| {
+            !rows
+                .iter()
+                .any(|r| r.pid == cli.ppid && is_detached_survivor(r))
+        })
+        .collect();
+    reap(&rows, &strays)
 }
 
 /// Restos deixados por uma Relay que morreu a meio — force quit, crash, o
@@ -356,6 +382,43 @@ mod tests {
     fn the_flag_still_matches_at_the_end_of_the_line() {
         let rows = parse_ps("900 800 800 /x/claude-agent-sdk-x/claude --resume=so-esta\n");
         assert_eq!(holders_in(&rows, "so-esta").len(), 1);
+    }
+
+    /// Desde a reatação, um sidecar sem pai pode ser um sobrevivente e não um
+    /// resto: um turno que continuou sozinho enquanto a Relay reiniciava. É o
+    /// `--serve` que os separa, e confundi-los deitava fora exactamente o
+    /// trabalho que a reatação existe para salvar.
+    #[test]
+    fn a_detached_survivor_is_not_a_stray() {
+        let rows = parse_ps(
+            "\
+900 800 800 /x/node_modules/@anthropic-ai/claude-agent-sdk-x/claude --resume=viva
+800   1 800 node /x/sidecar/index.mjs --serve /a/run-sockets/chat-c1.sock --key chat-c1
+910 810 810 /x/node_modules/@anthropic-ai/claude-agent-sdk-x/claude --resume=morta
+810   1 810 node /x/sidecar/index.mjs
+",
+        );
+        let orphans = orphaned_sidecars(&rows);
+        assert_eq!(orphans.len(), 1, "só o que não serve ninguém");
+        assert_eq!(orphans[0].pid, 810);
+        assert!(is_detached_survivor(&rows[1]), "o que serve é para voltar a ele");
+        assert!(!is_detached_survivor(&rows[3]));
+    }
+
+    /// E a limpeza por sessão respeita a mesma diferença: o CLI de um
+    /// sobrevivente não se toca, porque a Relay está prestes a ligar-se a ele.
+    #[test]
+    fn the_cli_of_a_survivor_is_spared_by_session_sweep() {
+        let rows = parse_ps(
+            "\
+900 800 800 /x/node_modules/@anthropic-ai/claude-agent-sdk-x/claude --resume=viva
+800   1 800 node /x/sidecar/index.mjs --serve /a/run-sockets/chat-c1.sock --key chat-c1
+",
+        );
+        let held = holders_in(&rows, "viva");
+        assert_eq!(held.len(), 1, "continua a ser encontrado");
+        let spared = rows.iter().any(|r| r.pid == held[0].ppid && is_detached_survivor(r));
+        assert!(spared, "o pai serve um socket, logo isto não é um resto");
     }
 
     #[test]

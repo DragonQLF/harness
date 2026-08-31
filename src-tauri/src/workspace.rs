@@ -832,7 +832,9 @@ impl Workspace {
 
         let script = sidecar::script_in(&self.sidecar_dir);
         let worker: Arc<dyn AgentPort> = Arc::new(SwitchingAgent {
-            sidecar: Arc::new(SidecarAgent::new("node", script)),
+            sidecar: Arc::new(
+                SidecarAgent::new("node", script).with_runs_dir(self.paths.run_sockets_dir()),
+            ),
             cli: Arc::new(ClaudeCliAgent::new("claude")),
             settings: Arc::clone(&self.settings),
         });

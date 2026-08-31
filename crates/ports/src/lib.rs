@@ -483,6 +483,22 @@ pub struct RunSpec {
     pub approver: Option<Approver>,
     /// Session to resume instead of starting fresh.
     pub resume_session: Option<String>,
+    /// Quem é este trabalho, de forma estável: a conversa ou o cartão a que
+    /// pertence. É por ela que o sidecar é encontrado outra vez depois de a
+    /// Relay reiniciar — e é ela que se confere ao ligar, para não se apanhar
+    /// o run de outro agente que por acaso estivesse no mesmo sítio.
+    ///
+    /// Vazia quer dizer "sem reatação": o run vive preso a esta Relay, como
+    /// sempre viveu.
+    pub run_key: Option<String>,
+    /// Por onde ia quem se liga. O sidecar reenvia o que veio depois disto e
+    /// mais nada.
+    ///
+    /// Vazio quer dizer "só o que vier a seguir", que é a omissão segura: uma
+    /// Relay que reiniciou não sabe por onde ia, e pedir tudo outra vez punha a
+    /// conversa no ecrã com as falas repetidas. O atraso não se perde — está na
+    /// sessão em disco —, só não volta a ser desenhado.
+    pub from_seq: Option<u64>,
     /// Relay's own tools, when this run is allowed to act on the app.
     pub tools: Option<ToolRunner>,
     /// What the operator says *during* this run. Absent for a card run: only a
@@ -540,6 +556,8 @@ impl RunSpec {
             permission_mode: None,
             approver: None,
             resume_session: None,
+            run_key: None,
+            from_seq: None,
             tools: None,
             inbox: None,
             thinking_tokens: None,

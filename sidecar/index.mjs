@@ -1,5 +1,7 @@
 import { query, createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import readline from "node:readline";
+import net from "node:net";
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { inspect } from "./pathguard.mjs";
@@ -11,9 +13,85 @@ const approvals = new Map();
 const toolCalls = new Map();
 /** Live runs that can still be spoken to, by run id. See `Inbox`. */
 const inboxes = new Map();
+/** Pedidos feitos e ainda não respondidos, pelo id deles.
+ *
+ *  Uma aprovação e uma chamada às ferramentas da Relay não se resolvem sozinhas:
+ *  são a Relay que as responde. Feitas enquanto ninguém está ligado, ficam aqui
+ *  e repetem-se a quem se ligar a seguir — senão o run ficava à espera de uma
+ *  resposta que ninguém sabia que estava a ser esperada. */
+const pendingRequests = new Map();
+
+/** Pergunta à Relay, e lembra-se de que perguntou. */
+function ask(obj) {
+  pendingRequests.set(obj.request_id, obj);
+  send(obj);
+}
+
+function answered(requestId) {
+  pendingRequests.delete(requestId);
+}
+
+/** Para onde vai o que dizemos, e o que fica dito enquanto ninguém ouve.
+ *
+ *  Em cima de um cano, o sidecar durava o que durasse a Relay: ela morria, o
+ *  cano fechava, e o turno em curso ia com ela. Num socket não — o trabalho
+ *  continua, e uma Relay nova volta a ligar-se e recebe o que perdeu. É essa a
+ *  diferença entre um agente que sobrevive a um reinício e um que não.
+ *
+ *  Por isso tudo o que se diz é numerado e guardado. Quem se liga diz por onde
+ *  ia (`from_seq`) e recebe o resto antes do que vier a seguir — sem buracos e
+ *  sem repetições, que é o que permite à conversa no ecrã ser a mesma de antes.
+ *
+ *  A memória chega e o disco não faz falta: o histórico só serve enquanto este
+ *  processo viver, e se ele morrer não há execução para onde voltar. */
+const bus = {
+  seq: 0,
+  history: [],
+  client: null,
+  /** Só o que é evento entra no histórico. Os pedidos — aprovações, chamadas às
+   *  ferramentas da Relay — voltam a fazer-se de outra maneira: continuam
+   *  pendentes nos mapas acima e são repetidos a quem se ligar, porque o que
+   *  falta neles não é serem vistos, é serem respondidos. */
+  replayable(obj) {
+    return obj?.type === "event";
+  },
+  write(obj) {
+    if (!this.client) return;
+    try {
+      this.client.write(JSON.stringify(obj) + "\n");
+    } catch {
+      // Um cliente que se foi a meio de uma escrita não é uma falha do run.
+    }
+  },
+  publish(obj) {
+    if (this.replayable(obj)) {
+      obj = { ...obj, seq: ++this.seq };
+      this.history.push(obj);
+    }
+    this.write(obj);
+  },
+  attach(socket, fromSeq) {
+    this.client = socket;
+    for (const past of this.history) {
+      if (past.seq > fromSeq) this.write(past);
+    }
+    return this.seq;
+  },
+  detach(socket) {
+    if (this.client === socket) this.client = null;
+  },
+};
+
+/** Modo cano, como sempre foi: sem `--serve`, fala-se por stdout. É o que os
+ *  testes usam e o que serve uma Relay anterior à reatação. */
+let stdioMode = true;
 
 function send(obj) {
-  process.stdout.write(JSON.stringify(obj) + "\n");
+  if (stdioMode) {
+    process.stdout.write(JSON.stringify(obj) + "\n");
+    return;
+  }
+  bus.publish(obj);
 }
 
 /** One user message, in exactly the shape the SDK writes for a string prompt.
@@ -158,7 +236,7 @@ function summarize(input) {
 function callHarness(runId, name, input) {
   const request_id = randomUUID();
   const answer = new Promise((resolve) => toolCalls.set(request_id, resolve));
-  send({ type: "tool_request", request_id, run_id: runId, name, input });
+  ask({ type: "tool_request", request_id, run_id: runId, name, input });
   return answer.then((reply) => {
     toolCalls.delete(request_id);
     return {
@@ -782,7 +860,7 @@ async function handleRun({ id, spec }) {
     // server figma on Designer — grants get_file, export_frame", never "the
     // Director wants to install something". The Rust side falls back to a
     // generic key-value rendering when this is absent.
-    send({
+    ask({
       type: "approval_request",
       request_id,
       run_id: id,
@@ -1093,8 +1171,7 @@ async function handleRun({ id, spec }) {
   }
 }
 
-const rl = readline.createInterface({ input: process.stdin, terminal: false });
-rl.on("line", (line) => {
+function handleLine(line) {
   let msg;
   try {
     msg = JSON.parse(line);
@@ -1122,15 +1199,17 @@ rl.on("line", (line) => {
       break;
     }
     case "approval_response": {
+      answered(msg.request_id);
       approvals.get(msg.request_id)?.(!!msg.allow);
       break;
     }
     case "tool_response": {
+      answered(msg.request_id);
       toolCalls.get(msg.request_id)?.({ ok: msg.ok !== false, text: msg.text ?? "" });
       break;
     }
   }
-});
+}
 
 /** A Relay foi-se.
  *
@@ -1149,7 +1228,7 @@ rl.on("line", (line) => {
  *  leva o grupo a seguir — o grupo é o nosso, criado à nascença, e nós somos o
  *  líder, portanto isto não alcança nada que a Relay não tenha levantado aqui.
  *  Levar o grupo mata-nos também, que é o objectivo. */
-rl.on("close", () => {
+function tearDown() {
   for (const ac of controllers.values()) ac.abort();
   setTimeout(() => {
     try {
@@ -1158,4 +1237,118 @@ rl.on("close", () => {
       process.exit(0);
     }
   }, 1500);
-});
+}
+
+/** Como se fala com a Relay: por cano ou por socket.
+ *
+ *  **Cano** (sem `--serve`) é o que sempre foi, e continua a ser o que os
+ *  testes usam. O sidecar vive o que a Relay viver: um EOF no stdin só pode
+ *  querer dizer que ela morreu — viva, nunca o fecha —, e nesse caso desmonta-se
+ *  e leva o grupo, para não ficar órfão a segurar a sessão (#108).
+ *
+ *  **Socket** (`--serve <caminho>`) é o contrário, de propósito: o run
+ *  sobrevive a quem o mandou fazer. Um cliente que se desliga não é um fim, é
+ *  uma ausência — o trabalho continua, o que se diz fica numerado no `bus`, e a
+ *  Relay seguinte liga-se, diz por onde ia e recebe o resto. Um turno deixa de
+ *  se perder num reinício.
+ *
+ *  O que *não* muda entre os dois é o protocolo: as mesmas linhas JSON, o mesmo
+ *  despachante. Só muda por onde passam, e é isso que mantém o `drive` do lado
+ *  da Rust quase intacto. */
+function serveOnSocket(path) {
+  stdioMode = false;
+  // Um socket deixado por um processo que já morreu não é dono de nada. Se
+  // ainda estivesse alguém à escuta neste caminho o `listen` falhava, e falhar
+  // é o que queremos — dois servidores no mesmo sítio era pior do que não
+  // arrancar.
+  try {
+    fs.unlinkSync(path);
+  } catch {
+    /* não existia, que é o caso normal */
+  }
+
+  const server = net.createServer((socket) => {
+    socket.setNoDelay(true);
+    let greeted = false;
+    const lines = readline.createInterface({ input: socket, terminal: false });
+    lines.on("line", (line) => {
+      if (!greeted) {
+        greeted = true;
+        let hello = {};
+        try {
+          hello = JSON.parse(line);
+        } catch {
+          /* fica no zero, que é o mesmo que "manda-me tudo" */
+        }
+        // Sem número, manda-se só o que vier a seguir. É a omissão segura: o
+        // contrário — mandar tudo de novo — punha a conversa no ecrã com todas
+        // as falas repetidas, e uma duplicação é mais difícil de desfazer do
+        // que uma falta. Quem souber por onde ia diz o número e recebe o
+        // atraso; enquanto a Relay não guardar esse número, fica pelo vivo.
+        const from = Number.isFinite(hello.from_seq) ? hello.from_seq : bus.seq;
+        // Primeiro dizer quem somos e em que pé estamos, depois o atraso, e só
+        // então o que estiver por responder: por esta ordem, quem se liga tem o
+        // contexto antes de lhe pedirem uma decisão.
+        socket.write(
+          JSON.stringify({
+            type: "attached",
+            run_key: runKey,
+            seq: bus.seq,
+            running: controllers.size > 0,
+          }) + "\n",
+        );
+        bus.attach(socket, from);
+        for (const request of pendingRequests.values()) bus.write(request);
+        // Um `attach` sozinho é só isso; o `run` vem a seguir, na mesma ligação.
+        if (hello.type !== "attach") handleLine(line);
+        return;
+      }
+      handleLine(line);
+    });
+    socket.on("close", () => {
+      lines.close();
+      bus.detach(socket);
+    });
+    socket.on("error", () => bus.detach(socket));
+  });
+
+  server.listen(path);
+  server.on("error", (e) => {
+    process.stderr.write(`sidecar: cannot serve on ${path}: ${e.message}\n`);
+    process.exit(1);
+  });
+  // O socket é o nosso nome: sem ele ninguém nos volta a encontrar, e um
+  // ficheiro deixado para trás faz a Relay bater a uma porta que já não abre.
+  const sweep = () => {
+    try {
+      fs.unlinkSync(path);
+    } catch {
+      /* já lá não estava */
+    }
+  };
+  process.on("exit", sweep);
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    process.on(signal, () => {
+      sweep();
+      process.exit(0);
+    });
+  }
+}
+
+const argAfter = (flag) => {
+  const at = process.argv.indexOf(flag);
+  return at > -1 ? process.argv[at + 1] : null;
+};
+const serveAt = argAfter("--serve");
+/** Quem este sidecar é. Dito na saudação para quem se liga poder conferir que
+ *  encontrou o trabalho que procurava, e não o de outro agente que por acaso
+ *  estivesse no mesmo caminho. Um socket é um sítio; a chave é a identidade. */
+const runKey = argAfter("--key");
+
+if (serveAt) {
+  serveOnSocket(serveAt);
+} else {
+  const rl = readline.createInterface({ input: process.stdin, terminal: false });
+  rl.on("line", handleLine);
+  rl.on("close", tearDown);
+}

@@ -356,6 +356,13 @@ async fn send_message(
             conversation.project_id.as_deref().unwrap_or("workspace"),
         )),
         resume_session: resume_session.clone(),
+        // Esta conversa, e só esta. É por aqui que uma Relay nova reencontra um
+        // turno que ficou a andar sem ela — e o prefixo mantém-na longe da
+        // chave de um cartão, que é trabalho de outro agente: ligar-se ao
+        // socket errado seria adoptá-lo, escrever-lhe os eventos nesta conversa
+        // e responder-lhe às aprovações em nome dela.
+        run_key: Some(format!("chat-{}", conversation.id)),
+        from_seq: None,
         tools: Some(tools),
         // The whole point of the queue: this run can be spoken to while it
         // works. Only a conversation carries one — nobody is typing at a card.
@@ -412,25 +419,28 @@ async fn send_message(
         return Ok(conversation);
     }
 
-    // A guarda acima acabou de dizer que esta conversa não tem turno vivo. Logo,
-    // qualquer processo agarrado a esta sessão não está a servir ninguém: não há
-    // quem lhe leia o que escreve. Este é o único sítio onde isso se sabe com
-    // certeza, e é por isso que a limpeza é aqui e não noutro lado.
+    // A guarda acima acabou de dizer que esta conversa não tem turno vivo. Mas
+    // "sem turno vivo do lado da Relay" deixou de querer dizer "sem trabalho a
+    // andar": desde a reatação, um sidecar pode ter continuado sozinho e estar
+    // à espera de que alguém se volte a ligar a ele. Por isso a limpeza é a
+    // segunda escolha e não a primeira — se há socket, quem decide é o porto,
+    // que se liga e confere a chave antes de adoptar seja o que for.
     //
-    // Sem ela, o turno que vem a seguir retoma uma sessão que é do resto: o CLI
-    // entrega-lhe a mensagem pela fila e sai sem correr nada. Foi assim que uma
-    // conversa passou dez horas a recusar tudo — o processo estava vivo, a gastar
-    // CPU, e há dez horas que não lia a fila dele. Vivo não é o mesmo que a
-    // servir, e é a execução viva do lado da Relay que separa os dois.
+    // Sem socket é um resto do tempo dos canos, e esse ainda é o do #108: um
+    // processo agarrado à sessão que ninguém lê. Esse limpa-se, como antes.
     if let Some(session) = resume_session.clone() {
-        // O `ps` bloqueia, e isto corre num executor assíncrono.
-        let swept = tokio::task::spawn_blocking(move || {
-            harness_app::strays::reap_session(&session)
-        })
-        .await
-        .unwrap_or(0);
-        if swept > 0 {
-            eprintln!("swept {swept} stray process(es) still holding this session");
+        let socket = ws
+            .paths
+            .run_sockets_dir()
+            .join(format!("chat-{}.sock", conversation.id));
+        if !socket.exists() {
+            let swept =
+                tokio::task::spawn_blocking(move || harness_app::strays::reap_session(&session))
+                    .await
+                    .unwrap_or(0);
+            if swept > 0 {
+                eprintln!("swept {swept} stray process(es) still holding this session");
+            }
         }
     }
 
@@ -687,7 +697,11 @@ pub fn agent_for(ws: &Workspace) -> Arc<dyn AgentPort> {
 pub fn granted_agent_for(ws: &Workspace, grants: harness_ports::Grants) -> Arc<dyn AgentPort> {
     let script = sidecar::script_in(ws.sidecar_dir());
     Arc::new(SwitchingAgent {
-        sidecar: Arc::new(SidecarAgent::new("node", script.clone()).with_grants(grants)),
+        sidecar: Arc::new(
+            SidecarAgent::new("node", script.clone())
+                .with_grants(grants)
+                .with_runs_dir(ws.paths.run_sockets_dir()),
+        ),
         cli: Arc::new(ClaudeCliAgent::new("claude")),
         settings: Arc::clone(&ws.settings),
     })

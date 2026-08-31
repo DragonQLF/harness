@@ -432,6 +432,14 @@ impl Engine {
             ),
             approver: self.approver.clone(),
             resume_session: resume_session.clone(),
+            // Um cartão também sobrevive a um reinício da Relay: dez minutos de
+            // build não se perdem porque a janela fechou. A chave é o cartão, e
+            // leva prefixo para nunca poder cruzar-se com a de uma conversa —
+            // ligar-se ao socket errado seria adoptar o trabalho de outro
+            // agente, escrever os eventos dele no sítio errado e responder-lhe
+            // às aprovações.
+            run_key: Some(format!("card-{}", card_id.as_str())),
+            from_seq: None,
             // The worker's one harness tool: its own account of the work. A
             // write to Relay, not to the repository, so it rides in
             // allowed_tools instead of the approval queue.

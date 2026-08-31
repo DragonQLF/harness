@@ -39,6 +39,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 108 | Uma execução leva consigo o que levantou; o turno vazio deixa de passar por resposta |
 | 2026-08-30 | 109 | O trabalho de fundo passa a ver-se: nível e não arestas, fora do fio |
 | 2026-08-31 | 110 | Um resto é um processo agarrado a uma sessão sem execução viva; descoberta em vez de lock |
+| 2026-08-31 | 111 | O run sobrevive à Relay: socket em vez de cano, com identidade conferida |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2591,3 +2592,49 @@ a detecção do turno vazio, que é de plataforma nenhuma.
 Relay, que nunca o fecha enquanto viva; um EOF ali só quer dizer uma coisa, e o
 sistema entrega-o mesmo quando ela morre de SIGKILL. Aborta o que estiver a
 correr e leva o grupo. É a metade que não depende de ninguém o vir limpar.
+
+### 111. O run deixa de morrer com quem o mandou fazer: socket em vez de cano
+Um sidecar em cima de um cano dura o que durar a Relay. Ela reinicia — um force
+quit, um crash, o instalador a relançá-la — e o turno em curso vai com ela. A
+0.3.16 e a #110 trataram do que fica para trás; nenhuma das duas devolve o
+trabalho. Isso pede outra coisa: uma ligação que seja uma visita e não um
+cordão.
+
+**O protocolo não muda; muda por onde passa.** As mesmas linhas JSON, o mesmo
+despachante, o mesmo `drive`. Só o transporte é que passa a poder ser um socket,
+e é isso que mantém a mudança pequena onde ela é arriscada.
+
+**O que se diz é numerado e guardado.** Quem se liga diz por onde ia e recebe o
+resto — sem buracos e sem repetições. Só os eventos entram no histórico: a um
+pedido por responder não lhe falta ser visto outra vez, falta ser respondido, e
+esses repetem-se a quem chegar a partir dos pendentes. Uma aprovação feita
+enquanto ninguém estava ligado não se perde nem responde sozinha; espera.
+
+**Sem número, manda-se só o que vier a seguir.** É a omissão segura. Uma Relay
+que reiniciou não sabe por onde ia, e pedir tudo outra vez punha a conversa no
+ecrã com todas as falas repetidas — uma duplicação é mais difícil de desfazer do
+que uma falta, e o atraso não se perde: está na sessão em disco. Guardar o
+número por conversa é o passo seguinte, e é o que fecha essa falta.
+
+**Um socket é um sítio, não uma identidade.** Por isso quem atende diz quem é, e
+quem se liga confere antes de adoptar. Sem essa conferência uma Relay ligava-se
+a um caminho reaproveitado e adoptava o run de *outro* agente — um cartão a
+compilar em vez da conversa do Director — e passava a escrever-lhe os eventos na
+conversa errada, a responder-lhe às aprovações e a mandar-lhe mensagens que não
+eram para ele. As chaves são prefixadas (`chat-`, `card-`) para nunca se
+cruzarem, e um sidecar que não se identifica é recusado como qualquer outro.
+
+**Os cartões também.** Dez minutos de build não se perdem porque a janela
+fechou. A reatação não é um privilégio da conversa do Director.
+
+**E a #110 aprende a diferença.** Um sidecar sem pai deixou de ser lixo por
+definição: pode ser um turno que continuou sozinho, à espera de que alguém volte
+a ligar-se. É o `--serve` que os separa. A limpeza passa a ser a segunda escolha
+— havendo socket, quem decide é o porto, que se liga e confere a chave; não
+havendo, é um resto do tempo dos canos e trata-se como sempre se tratou.
+Confundi-los deitava fora exactamente o trabalho que isto existe para salvar.
+
+**Windows fica pelos canos, e é de propósito.** Não há socket de domínio nesta
+pilha, e o que aconteceria era pior do que não haver reatação: o sidecar
+levantava-se com `--serve` e esperava-se por uma porta que nunca abria — o turno
+falhava em vez de correr.
