@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countGroupLines, summariseTools } from "./toolgroup.ts";
+import { countGroupLines, groupView, summariseTools } from "./toolgroup.ts";
 import type { ChatMsg } from "./bubbles.ts";
 
 const call = (tool: string): ChatMsg => ({ role: "tool", text: "", ts: 0, tool, ok: true });
@@ -61,4 +61,26 @@ test("o que se sabe soma-se, mesmo entre chamadas que não sabem", () => {
   });
   // Uma só chamada que saiba chega para haver número.
   assert.deepEqual(countGroupLines([call("Bash"), edit(2, 1)]), { added: 2, removed: 1 });
+});
+
+/** O bug que se viu no ecrã: uma chamada única nascia com cabeçalho e aberta, e
+ *  fechá-la deixava a ficha e levava o cabeçalho — o botão de fechar entregava
+ *  um estado pior do que aquele de onde veio. Uma chamada não tem estado. */
+test("uma chamada é uma ficha, e não tem aberto nem fechado", () => {
+  assert.equal(groupView(1, false, null), "chip");
+  assert.equal(groupView(1, true, null), "chip");
+  // Nem carregando: não há botão para carregar.
+  assert.equal(groupView(1, false, true), "chip");
+  assert.equal(groupView(1, false, false), "chip");
+  assert.equal(groupView(0, false, null), "chip");
+});
+
+/** O que está a acontecer agora não se esconde atrás de um resumo; o que já
+ *  acabou esconde-se, e abre-se a pedido. */
+test("um grupo a meio abre-se sozinho, um acabado fecha-se", () => {
+  assert.equal(groupView(3, true, null), "open");
+  assert.equal(groupView(3, false, null), "closed");
+  // E o operador ganha sempre à omissão, nos dois sentidos.
+  assert.equal(groupView(3, true, false), "closed");
+  assert.equal(groupView(3, false, true), "open");
 });

@@ -24,7 +24,7 @@ import {
   type PendingApproval,
 } from "../lib/types";
 import { toolName, useStore, type ChatMsg } from "../state/store";
-import { countGroupLines, summariseTools } from "../state/toolgroup";
+import { countGroupLines, groupView, summariseTools } from "../state/toolgroup";
 import { api, reason } from "../lib/ipc";
 import { mono } from "../components/ui";
 
@@ -332,12 +332,15 @@ function ToolGroup({ tools }: { tools: ChatMsg[] }) {
   const flying = tools.some((t) => t.ok == null);
   const failed = tools.filter((t) => t.ok === false).length;
   const [open, setOpen] = useState<boolean | null>(null);
-  const shown = open ?? (flying || tools.length === 1);
+  const view = groupView(tools.length, flying, open);
+  const shown = view === "open";
 
   const summary = summariseTools(tools);
   const lines = countGroupLines(tools);
 
-  if (tools.length === 1 && !shown) {
+  // Uma chamada é uma ficha e nada mais: sem cabeçalho, sem seta, sem estado
+  // que se possa fechar para um sítio pior do que aquele de onde veio.
+  if (view === "chip") {
     return <Receipt msg={tools[0]} />;
   }
 

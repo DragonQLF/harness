@@ -66,3 +66,27 @@ export function countGroupLines(
   }
   return known ? { added, removed } : null;
 }
+
+/** O que se desenha para um conjunto de chamadas.
+ *
+ *  Três estados e não dois, porque uma chamada só **não tem** estado aberto ou
+ *  fechado: é uma ficha, e a ficha já se abre sozinha quando tem saída para
+ *  mostrar. Misturar as duas coisas foi o bug: uma chamada única nascia com
+ *  cabeçalho *e* aberta, e fechá-la trocava o componente inteiro por uma ficha
+ *  nua — o cartão ficava e o "Ran 1 command" desaparecia, que é o contrário do
+ *  que um botão de fechar promete.
+ *
+ *  `chosen` é o que o operador carregou, ou `null` enquanto não carregou nada.
+ *  Por omissão um grupo a meio está aberto — o que está a acontecer agora não
+ *  se esconde atrás de um resumo — e um grupo acabado está fechado.
+ */
+export type GroupView = "chip" | "open" | "closed";
+
+export function groupView(
+  count: number,
+  flying: boolean,
+  chosen: boolean | null,
+): GroupView {
+  if (count <= 1) return "chip";
+  return (chosen ?? flying) ? "open" : "closed";
+}
