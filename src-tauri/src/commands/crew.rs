@@ -191,6 +191,17 @@ pub async fn model_catalog(
 ) -> Result<Vec<harness_app::catalog::CatalogModel>, String> {
     use harness_app::catalog;
 
+    // Codex is not an endpoint and has no entry on models.dev — it is asked
+    // what it offers, the way a local Ollama is, because the answer depends on
+    // the plan this machine is signed into rather than on a public list.
+    if provider_id == harness_app::catalog::CODEX_PROVIDER {
+        let home = ws.paths.codex_home();
+        let found = harness_agent_codex::models("codex", Some(&home))
+            .await
+            .map_err(|e| format!("could not ask Codex what it offers: {e}"))?;
+        return Ok(catalog::from_codex(&found));
+    }
+
     // A local endpoint is nobody's published list: ask the machine what it has.
     if catalog::is_local(&base_url) {
         let url = format!("{}/api/tags", base_url.trim_end_matches('/'));

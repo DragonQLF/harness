@@ -28,7 +28,7 @@ pub struct SidecarStatus {
     pub development: bool,
 }
 
-fn no_window(cmd: &mut Command) -> &mut Command {
+pub(crate) fn no_window(cmd: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

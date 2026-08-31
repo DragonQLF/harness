@@ -43,6 +43,8 @@ import type {
   Navigation,
   PendingApproval,
   PendingUpdate,
+  CodexStatus,
+  PlanUsage,
   Project,
   Proposal,
   FolderInfo,
@@ -236,6 +238,15 @@ export const api = {
   // ---- model endpoints ----
   modelCatalog: (providerId: string, baseUrl: string, refresh = false) =>
     invoke<CatalogModel[]>("model_catalog", { providerId, baseUrl, refresh }),
+  // ---- codex ----
+  /** Is the Codex binary there, and is somebody logged into it? */
+  codexStatus: () => invoke<CodexStatus>("codex_status"),
+  /** What the ChatGPT plan has left. The honest stand-in for a cost meter on a
+   *  backend that does not bill per run. */
+  codexPlanUsage: () => invoke<PlanUsage>("codex_plan_usage"),
+  /** An image on disk, as a data URL. Refused for anything outside a project,
+   *  Relay's own data, or Codex's — the path comes out of a model's answer. */
+  previewImage: (path: string) => invoke<string>("preview_image", { path }),
   // ---- updates ----
   updatesList: () => invoke<PendingUpdate[]>("updates_list"),
   updateInstall: (cardId: string) => invoke<void>("update_install", { cardId }),

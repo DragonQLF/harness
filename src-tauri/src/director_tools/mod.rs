@@ -22,6 +22,7 @@
 mod board;
 mod crew;
 mod grants;
+mod images;
 mod knowledge;
 mod projects;
 
@@ -82,6 +83,12 @@ fn is_read_only(name: &str) -> bool {
             | "self_report"
             | "read_docs"
             | "propose_improvement"
+            // Not a read, and honest about it: it spends the plan's quota and
+            // writes a PNG. It rides free from the *delegation* check for the
+            // reason `record_decision` does (#76) — it touches no board and
+            // nobody else's work — and it is still not in `allowed_tools`, so
+            // the operator sees it on the sheet before it happens.
+            | "generate_image"
     )
 }
 
@@ -192,6 +199,11 @@ pub async fn run(
     if call.name == "record_decision" {
         return knowledge::record_decision(ws, &project_id, &call);
     }
+    // An image belongs to no board, so it is answered before a project is
+    // resolved — a conversation pinned to nothing can still make one.
+    if call.name == "generate_image" {
+        return images::generate_image(ws, &call).await;
+    }
 
     let runtime = match ws.runtime(&project_id).await {
         Ok(r) => r,
@@ -257,6 +269,7 @@ mod tests {
             "self_report",
             "read_docs",
             "propose_improvement",
+            "generate_image",
         ] {
             assert!(is_read_only(open), "{open} should need no delegation");
         }

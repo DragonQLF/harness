@@ -6,7 +6,8 @@ its own worktree, with a Director that reads every finished diff before it
 reaches you.
 
 Stack: **Tauri 2 (Rust) + React** · Claude Code via **Node sidecar + Agent SDK**
-(with the `claude` command line as a fallback).
+(with the `claude` command line as a fallback) · optionally **Codex**, chosen per
+agent, over its app server.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -26,6 +27,8 @@ crates/
     git/                worktrees, commits w/ trailers, diffs, history, languages
     model-claude/       AgentPort over the claude CLI (option A)
     agent-sidecar/      AgentPort over the Node sidecar + Agent SDK (option B, default)
+    model-codex/        AgentPort over `codex app-server`, on the ChatGPT plan
+                        this machine is logged into
 src-tauri/              the shell only: IPC commands, one engine per project, sidecar staging
 sidecar/                Node process hosting @anthropic-ai/claude-agent-sdk
 src/                    React frontend: a projection of backend snapshots and events
@@ -35,6 +38,13 @@ docs/                   founding spec, decision log, screenshots
 ## Run it
 
 Prereqs: Rust toolchain, Node >= 20, pnpm, git, Claude Code logged in (`claude`, then `/login`).
+
+To run an agent on Codex instead, `codex login` once — a ChatGPT plan, no API
+key. Set that agent's **AGENT** to Codex on the Agents screen, or ask the
+Director to (`set_agent_model` takes a `backend`). A Codex agent has no endpoint
+and no dollar budget: a plan does not bill per run, so the budget knob is
+replaced by what the plan has left. `generate_image` rides along for every
+agent, Claude included.
 
 ```
 pnpm install

@@ -229,6 +229,9 @@ pub fn run() {
             commands::project::card_checks,
             commands::project::card_run_checks,
             // system
+            commands::codex::codex_status,
+            commands::codex::codex_plan_usage,
+            commands::codex::preview_image,
             commands::system::bootstrap,
             commands::system::status,
             commands::system::settings_get,

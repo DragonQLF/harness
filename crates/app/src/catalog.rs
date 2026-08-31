@@ -59,6 +59,37 @@ impl CatalogModel {
     }
 }
 
+/// The pseudo-endpoint id the Agents screen asks under when the agent runs on
+/// Codex. Not a `Provider` — there is no URL and no key — but the model picker
+/// asks one question and this is how it names the one source that is not an
+/// endpoint.
+pub const CODEX_PROVIDER: &str = "codex";
+
+/// Codex's own catalogue, in the shape the picker already draws.
+///
+/// Two fields are left at their empty values on purpose. **Context** is not
+/// something Codex reports per model, so it stays zero — which `caveat` reads
+/// as "not said" rather than as "too small", and is why the check there is
+/// `context > 0`. **Cost** is `0.0` rather than `None` for the same reason a
+/// local Ollama's is: these runs are already paid for by the subscription, so
+/// there is no per-token price to show and a blank would read as unknown.
+pub fn from_codex(models: &[harness_agent_codex::CodexModel]) -> Vec<CatalogModel> {
+    models
+        .iter()
+        .map(|m| CatalogModel {
+            id: m.id.clone(),
+            name: m.name.clone(),
+            context: 0,
+            // Every model Codex drives the agent with calls tools; an image or
+            // embedding model would not be in this list at all.
+            tool_call: true,
+            input_cost: Some(0.0),
+            output_cost: Some(0.0),
+            usable: true,
+        })
+        .collect()
+}
+
 fn number(value: Option<&serde_json::Value>) -> Option<f64> {
     value.and_then(|v| v.as_f64())
 }

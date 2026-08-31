@@ -117,6 +117,17 @@ impl AppPaths {
         self.root.join("sidecar")
     }
 
+    /// The `CODEX_HOME` Codex runs start from: Relay's, not the operator's.
+    ///
+    /// Same reason the sidecar gets its own directory. Codex reads its
+    /// connectors, skills and defaults out of this directory, so pointing it at
+    /// one of ours is what stops a card run reaching the servers in somebody's
+    /// `~/.codex/config.toml` (decision #26). The login is linked into it —
+    /// see `harness_agent_codex::prepare_home`.
+    pub fn codex_home(&self) -> PathBuf {
+        self.root.join("codex")
+    }
+
     pub fn projects_dir(&self) -> PathBuf {
         self.root.join("projects")
     }

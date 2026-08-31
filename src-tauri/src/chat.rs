@@ -171,24 +171,24 @@ pub async fn queue(
 /// Nada disto é um erro quando não encontra ninguém: o caso normal de um
 /// arranque é não haver socket nenhum, e aí não se levanta nem se escreve nada.
 pub async fn reattach_all(ws: &Arc<Workspace>) {
-    let Ok(entries) = std::fs::read_dir(ws.paths.run_sockets_dir()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let Some(id) = name
-            .strip_suffix(".sock")
-            .and_then(|key| key.strip_prefix("chat-"))
-        else {
-            continue;
-        };
-        // Um socket de uma conversa que já não existe não é nosso para retomar.
-        if ws.conversation(id).await.is_none() {
+    // Ao contrário: pergunta-se a cada conversa onde estaria o seu socket, em
+    // vez de se ler o nome do ficheiro para descobrir de quem é.
+    //
+    // O nome deixou de o poder dizer. Era a chave do run à letra
+    // (`chat-<id>.sock`), o que dava caminhos de 124 bytes que nenhum `bind`
+    // aceita — ver `harness_ports::sockets` — e agora é um resumo. Um resumo
+    // não se desfaz, portanto a pergunta tinha de mudar de direcção. Fica
+    // melhor do que estava: uma conversa apagada já não deixa aqui um socket
+    // órfão a ser interrogado.
+    let dir = ws.paths.run_sockets_dir();
+    for conversation in ws.conversations(true).await {
+        let key = format!("chat-{}", conversation.id);
+        if !harness_ports::sockets::path_for(&dir, &key).exists() {
             continue;
         }
         if let Err(e) = send_message(
             ws,
-            Some(id.to_string()),
+            Some(conversation.id.clone()),
             String::new(),
             Vec::new(),
             false,
@@ -197,7 +197,7 @@ pub async fn reattach_all(ws: &Arc<Workspace>) {
         )
         .await
         {
-            eprintln!("could not reattach {id}: {e}");
+            eprintln!("could not reattach {}: {e}", conversation.id);
         }
     }
 }
@@ -392,14 +392,21 @@ async fn send_message(
     // listening.
     let inbox = harness_app::chatqueue::Queue::new(&conversation.id);
 
+    // Resolved before the spec because both halves need it: the sidecar takes
+    // its grants on the port, the Codex app server takes its MCP servers per
+    // thread and so reads them off the run. Same value, handed to whichever
+    // asks — the alternative was a Codex conversation with no connectors and
+    // no sign of why.
+    let granted = harness_app::grants::for_profile(ws.paths.root(), &profile);
+
     let spec = RunSpec {
-        provider: harness_app::providers::find(&settings.providers, &profile.provider)
-            .and_then(|p| p.resolve()),
+        backend: profile.backend,
+        provider: profile.resolved_provider(&settings),
         prompt,
         cwd,
         model: profile.model.clone(),
         allowed_tools: Some(allowed_tools),
-        max_budget_usd: profile.budget_usd,
+        max_budget_usd: profile.resolved_budget(),
         // `dontAsk` denies anything outside `allowed_tools` without ever
         // consulting the approver, which would make the board tools dead
         // (decision #27). `manual` routes them to the operator instead.
@@ -426,9 +433,10 @@ async fn send_message(
         // nothing to report — its work is the conversation itself.
         subagents: false,
         report_work: false,
-        // O porto desta conversa já foi construído por perfil, com as
-        // concessões dentro; vazio aqui quer dizer "usa as dele".
-        grants: harness_ports::Grants::default(),
+        // O porto desta conversa também as leva, e para o sidecar tanto dá —
+        // são as mesmas. Aqui é por causa do Codex, cujo servidor as recebe
+        // por thread e portanto as lê do run.
+        grants: granted.clone(),
         // Como este perfil escreve. Só pega numa sessão nova: numa retomada
         // o estilo é o que ela trouxe de origem, e é por isso que mudá-lo
         // não mexe na conversa que está no ecrã.
@@ -444,15 +452,13 @@ async fn send_message(
     // an approval that landed a minute ago is in the profile, so the next turn
     // carries it. Nothing is inherited — a profile with no grants gets exactly
     // the isolated run it got before any of this existed.
-    let agent = crate::chat::granted_agent_for(
-        ws,
-        harness_app::grants::for_profile(ws.paths.root(), &profile),
-    );
+    let agent = crate::chat::granted_agent_for(ws, granted);
     let (ev_tx, mut ev_rx) = mpsc::channel::<RunEvent>(64);
     // Registered by conversation id so the operator has a stop: a turn that
     // never emits `done` must not leave them without an exit — and, since the
     // composer stays live, somewhere for what they type meanwhile to land.
     let token = CancellationToken::new();
+    let token_for_reaper = token.clone();
     let turn = crate::conversations::Turn::new(token.clone(), Arc::clone(&inbox));
     let turn_id = turn.id;
     // Refused rather than stacked. Two turns on one conversation are two
@@ -482,10 +488,13 @@ async fn send_message(
     // Sem socket é um resto do tempo dos canos, e esse ainda é o do #108: um
     // processo agarrado à sessão que ninguém lê. Esse limpa-se, como antes.
     if let Some(session) = resume_session.clone() {
-        let socket = ws
-            .paths
-            .run_sockets_dir()
-            .join(format!("chat-{}.sock", conversation.id));
+        // Pelo mesmo caminho que o adaptador o construiria — são o mesmo
+        // ficheiro, e uma segunda maneira de o soletrar era esta pergunta a
+        // responder sempre "não há socket".
+        let socket = harness_ports::sockets::path_for(
+            &ws.paths.run_sockets_dir(),
+            &format!("chat-{}", conversation.id),
+        );
         if !socket.exists() {
             let swept =
                 tokio::task::spawn_blocking(move || harness_app::strays::reap_session(&session))
@@ -506,6 +515,18 @@ async fn send_message(
     let resumed = resume_session.is_some();
 
     tauri::async_runtime::spawn(async move {
+        // Um turno registado que morre sem se desregistar deixa a conversa
+        // trancada: o `register` recusa o seguinte, e a partir daí tudo o que o
+        // operador escreve vai para a fila de um morto — que foi exactamente o
+        // que se viu, a mesma resposta três vezes seguidas ao longo de dez
+        // minutos. O `finish` no fim do corpo não chega, porque um `panic` ou
+        // um `abort` não passam por ele.
+        //
+        // Isto passa. Cancelar o token é bastante: o `Turns::register` já trata
+        // um token cancelado como um turno acabado e ocupa-lhe o lugar, portanto
+        // o pior caso deixa de ser uma conversa trancada para sempre e passa a
+        // ser um turno a menos.
+        let _reaper = TurnReaper(Some(token_for_reaper));
         // Did this run actually reach a live session? A resume of a session
         // that no longer exists comes back with no `started`, no text and an
         // error result — so this is what separates "the thread continued" from
@@ -604,7 +625,33 @@ async fn send_message(
                 // A resume that could not be honoured is the one failure worth
                 // explaining rather than just reporting: the thread above is
                 // still readable, but the model no longer remembers it.
-                let lost = resumed && !answered.load(std::sync::atomic::Ordering::Relaxed);
+                //
+                // Mas só quando foi *a sessão* que faltou. Isto dizia apenas
+                // "falhou durante um resume", e por isso um socket que não
+                // ligava — um problema de processo, com a sessão inteira no
+                // disco — desligava a conversa da sua própria história para
+                // sempre. Ver `conversations::session_was_lost`, e a
+                // `harness_ports::sockets` para o bug que fazia isto disparar
+                // em todos os runs de macOS.
+                let unanswered = resumed && !answered.load(std::sync::atomic::Ordering::Relaxed);
+                let lost = unanswered && harness_app::conversations::session_was_lost(&message);
+                if unanswered && !lost {
+                    let notice = RunEvent::Notice {
+                        text: format!(
+                            "this turn never reached the model ({message}). The conversation \
+                             keeps its session — try again, and if it keeps failing the run \
+                             above says what could not be started."
+                        ),
+                    };
+                    ws.append_chat_line(
+                        &conversation_id,
+                        RunLogLine {
+                            ts_ms: SystemClock.now_millis(),
+                            event: notice.clone(),
+                        },
+                    );
+                    publish(notice);
+                }
                 if lost {
                     ws.record_chat_resume_failure(&conversation_id).await;
                     let notice = RunEvent::Notice {
@@ -649,6 +696,9 @@ async fn send_message(
             Some(turn) => turn.queue.close(),
             None => Vec::new(),
         };
+        // Saiu pela porta: já não há nada para o guarda apanhar, e cancelar o
+        // token agora só confundiria quem o lê a seguir.
+        _reaper.disarm();
 
         // A message typed while the turn was ending must not vanish because it
         // lost the race. Its words are already in the transcript, so all that
@@ -704,6 +754,29 @@ async fn send_message(
 /// just asked to end. Nothing is thrown away — the messages stay in the thread
 /// exactly as they were written down, still saying the model never read them,
 /// and sending one again is one click.
+/// Cancela o token do turno se o run desaparecer sem se despedir.
+///
+/// Existe por causa do `Drop`, e é a única coisa que corre num caminho que
+/// ninguém escreveu: um `panic` dentro da tarefa, ou a tarefa a ser deitada
+/// fora. Não desregista o turno — isso é uma chamada a um actor e o `Drop` não
+/// pode esperar por nada — mas cancelar chega, porque um turno cancelado deixa
+/// de contar como vivo para o `register`.
+struct TurnReaper(Option<CancellationToken>);
+
+impl TurnReaper {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for TurnReaper {
+    fn drop(&mut self) {
+        if let Some(token) = self.0.take() {
+            token.cancel();
+        }
+    }
+}
+
 pub async fn stop_turn(ws: &Workspace, conversation_id: &str) {
     let Some(turn) = ws.finish_chat_turn(conversation_id, None).await else {
         return;
@@ -756,6 +829,12 @@ pub fn granted_agent_for(ws: &Workspace, grants: harness_ports::Grants) -> Arc<d
                 .with_runs_dir(ws.paths.run_sockets_dir()),
         ),
         cli: Arc::new(ClaudeCliAgent::new("claude")),
+        // Grants reach Codex through the run rather than through the port: the
+        // app server takes its MCP servers per thread, so the adapter reads
+        // `spec.grants` and needs nothing built into it.
+        codex: Arc::new(
+            harness_agent_codex::CodexAgent::new("codex").with_home(&ws.paths.codex_home()),
+        ),
         settings: Arc::clone(&ws.settings),
     })
 }

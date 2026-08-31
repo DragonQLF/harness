@@ -639,11 +639,14 @@ impl harness_ports::AgentPort for SidecarAgent {
         // aconteceria era pior do que não haver reatação: levantava-se o sidecar
         // com `--serve`, esperava-se por uma porta que nunca abria, e o turno
         // falhava em vez de correr. Lá continua-se pelos canos, como sempre.
+        // O nome é um resumo da chave e não a chave: um `sun_path` tem 104
+        // bytes e o caminho óbvio passava-os numa conta de macOS qualquer.
+        // Ver `harness_ports::sockets`.
         #[cfg(unix)]
         let socket = runs_dir
             .as_ref()
             .zip(spec.run_key.as_ref())
-            .map(|(dir, key)| dir.join(format!("{key}.sock")));
+            .map(|(dir, key)| harness_ports::sockets::path_for(dir, key));
         #[cfg(not(unix))]
         let socket: Option<PathBuf> = {
             let _ = &runs_dir;
@@ -737,6 +740,18 @@ impl harness_ports::AgentPort for SidecarAgent {
             if let Some(path) = &socket {
                 if let Some(dir) = path.parent() {
                     let _ = std::fs::create_dir_all(dir);
+                    // O recuo do `sockets::path_for` vai parar a `/tmp`, que é
+                    // de toda a gente. Quem guarda o socket é a conferência da
+                    // chave ao ligar (#111), mas uma pasta que só o dono abre
+                    // é a diferença entre uma conferência e uma porta.
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = std::fs::set_permissions(
+                            dir,
+                            std::fs::Permissions::from_mode(0o700),
+                        );
+                    }
                 }
                 cmd.arg("--serve").arg(path);
                 if let Some(key) = &spec.run_key {

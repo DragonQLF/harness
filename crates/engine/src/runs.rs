@@ -412,6 +412,11 @@ impl Engine {
 
         let mut spec = RunSpec {            prompt,
             cwd: worktree.0.clone(),
+            // Which agent binary this is. The port is one switch over several
+            // adapters, so it has to travel with the run rather than be a mode
+            // the app is in — two agents on two backends work the same board at
+            // the same time.
+            backend: profile.backend,
             // Where this agent's model lives travels with the profile, so one
             // crew can mix a local model for the work and a hosted one for the
             // review without the engine knowing the difference.

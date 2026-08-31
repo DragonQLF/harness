@@ -49,9 +49,12 @@ fn describe_model(
     agent: &harness_app::agents::AgentProfile,
     providers: &[harness_app::providers::Provider],
 ) -> String {
-    let where_ = harness_app::providers::find(providers, &agent.provider)
-        .map(|p| p.name.clone())
-        .unwrap_or_else(|| "the Claude login".to_string());
+    let where_ = match agent.backend {
+        harness_ports::Backend::Codex => "Codex, on this machine's ChatGPT plan".to_string(),
+        harness_ports::Backend::Claude => harness_app::providers::find(providers, &agent.provider)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "the Claude login".to_string()),
+    };
     match agent.model.as_deref() {
         Some(model) if !model.is_empty() => format!(" on {model} via {where_}"),
         _ => format!(" on {where_}"),
@@ -251,7 +254,32 @@ pub(super) async fn set_agent_model(ws: &Arc<Workspace>, call: &ToolCall) -> Too
             Ok(i) => &mut crew[i],
             Err(refusal) => return refusal,
         };
+        // The backend first: it decides whether the other two mean anything.
+        // Moving an agent to Codex and setting an Anthropic endpoint in the
+        // same call would otherwise store a setting that never applies.
+        if let Some(named) = text(&call.input, "backend") {
+            let backend = harness_ports::Backend::parse(&named);
+            if backend.id() != named.trim().to_ascii_lowercase() {
+                return ToolReply::refused(format!(
+                    "there is no backend called {named}. It is `claude` or `codex`."
+                ));
+            }
+            if backend != slot.backend {
+                slot.backend = backend;
+                // The model name belongs to the old backend's vocabulary.
+                // Clearing it lets the new one pick its own default, which is
+                // the only outcome here that cannot fail mid-run — unless this
+                // same call names a model, handled just below.
+                slot.model = None;
+            }
+        }
         if let Some(provider) = text(&call.input, "provider") {
+            if slot.backend == harness_ports::Backend::Codex {
+                return ToolReply::refused(
+                    "a Codex agent has no endpoint to set: it runs on the ChatGPT plan this \
+                     machine is logged into. Switch it back to `claude` first.",
+                );
+            }
             // The empty string is the Anthropic login, and is spelled
             // "anthropic" here so the model never has to send a blank.
             if provider.eq_ignore_ascii_case("anthropic") {
@@ -263,6 +291,13 @@ pub(super) async fn set_agent_model(ws: &Arc<Workspace>, call: &ToolCall) -> Too
             }
         }
         if let Some(model) = text(&call.input, "model") {
+            if !harness_app::agents::model_fits(slot.backend, &model) {
+                return ToolReply::refused(format!(
+                    "{model} is not a {} model. Set `backend` in the same call if that is \
+                     what you meant.",
+                    slot.backend.id()
+                ));
+            }
             slot.model = Some(model);
         }
         let summary = format!(

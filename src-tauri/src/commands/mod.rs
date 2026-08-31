@@ -7,6 +7,7 @@
 pub mod approvals;
 pub mod board;
 pub mod chat;
+pub mod codex;
 pub mod code;
 pub mod crew;
 pub mod inbox;

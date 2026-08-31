@@ -16,10 +16,12 @@ import {
   WORKTREE_MODES,
   tone,
   type AgentProfile,
+  type Backend,
   type BrowserOffer,
   type SkillOffer,
   type CatalogModel,
   type McpTransport,
+  type PlanUsage,
   type Reviewer,
   type WorktreeMode,
 } from "../lib/types";
@@ -401,6 +403,7 @@ function Templates() {
         role: "Say what this one is for.",
         brief: "",
         tone: "accent",
+        backend: "claude",
         model: "sonnet",
         permissions: ["Read", "Search"],
         budget_usd: 0.5,
@@ -712,6 +715,104 @@ function KnobPick({
   );
 }
 
+/** What the ChatGPT plan has left, for an agent that runs on it.
+ *
+ *  This sits where the budget knob sits for a Claude agent, and it is not the
+ *  same kind of thing: a budget is a ceiling the operator sets, this is a fact
+ *  the provider reports. It is read from Codex rather than added up here,
+ *  because the plan is spent by everything on the machine — a `codex` in a
+ *  terminal counts too — so a total Relay kept itself would be lower than the
+ *  truth and look like a bug the first time somebody compared it. */
+function PlanMeter() {
+  const [usage, setUsage] = useState<PlanUsage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .codexPlanUsage()
+      .then((u) => alive && setUsage(u))
+      .catch((e) => alive && setError(reason(e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (error) {
+    return (
+      <p className="mb-0 text-sm leading-relaxed text-warn dark:text-warn-d">
+        Could not read the plan: {error}
+      </p>
+    );
+  }
+  // Nada enquanto vem. Uma barra vazia e uma barra a zero por cento são
+  // desenhos diferentes da mesma coisa, e só uma delas é verdade.
+  if (!usage) return null;
+
+  const windows = [
+    {
+      k: usage.primary_window_mins ? windowName(usage.primary_window_mins) : "this window",
+      pct: usage.primary_percent,
+      resets: usage.primary_resets_at,
+    },
+    {
+      k: usage.secondary_window_mins ? windowName(usage.secondary_window_mins) : "the long window",
+      pct: usage.secondary_percent,
+      resets: usage.secondary_resets_at,
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Eyebrow className="block">
+        {usage.plan ? `${usage.plan.toUpperCase()} PLAN` : "PLAN"} · SPENT
+      </Eyebrow>
+      {windows.map((w) => (
+        <div key={w.k} className="flex flex-col gap-1">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-text3 dark:text-text3-d">{w.k}</span>
+            <span className={cx(mono, "text-sm text-text2 dark:text-text2-d")}>
+              {w.pct}%{w.resets ? ` · resets ${shortWhen(w.resets)}` : ""}
+            </span>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-active dark:bg-active-d">
+            <div
+              className={cx(
+                "h-full rounded-full",
+                w.pct >= 90 ? "bg-warn dark:bg-warn-d" : "bg-accent dark:bg-accent-d",
+              )}
+              style={{ width: `${Math.min(100, Math.max(0, w.pct))}%` }}
+            />
+          </div>
+        </div>
+      ))}
+      {usage.reached && (
+        <p className="mb-0 text-sm leading-relaxed text-warn dark:text-warn-d">
+          The plan says this limit is reached ({usage.reached}). Runs on this agent will fail
+          until it resets.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Codex reports a window as a length in minutes, not as a name. */
+function windowName(mins: number): string {
+  if (mins % (60 * 24 * 7) === 0) return plural(mins / (60 * 24 * 7), "week");
+  if (mins % (60 * 24) === 0) return plural(mins / (60 * 24), "day");
+  if (mins % 60 === 0) return plural(mins / 60, "hour");
+  return plural(mins, "minute");
+}
+
+/** A unix second, as a short local time. */
+function shortWhen(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function Knob({
   label,
   value,
@@ -870,21 +971,49 @@ export function Agents({
   // Escolhas de uma lista: vêem-se todas de uma vez em vez de se ciclar até
   // acertar. As duas que restam em `Knob` são um número de 1 a 4 e seis
   // orçamentos, onde ciclar é mais rápido do que abrir uma lista.
+  const onCodex = agent.backend === "codex";
   const picks = [
     {
-      label: "RUNS ON",
-      value: agent.provider ?? "",
-      hint: endpoint ? endpoint.base_url : "The Claude login this machine already has",
+      label: "AGENT",
+      value: agent.backend,
+      hint: onCodex
+        ? "Codex, on this machine's ChatGPT plan — no key, no per-run cost"
+        : "Claude, on the login or endpoint below",
       options: [
-        { id: "", name: "Claude login" },
-        ...providers.map((p) => ({ id: p.id, name: p.name })),
+        { id: "claude", name: "Claude" },
+        { id: "codex", name: "Codex" },
       ],
+      // Mudar de agente invalida o modelo pela mesma razão que mudar de
+      // endpoint o invalida, e com mais força: os dois nem sequer partilham o
+      // vocabulário. `sonnet` não quer dizer nada ao Codex.
       onPick: (id: string) =>
-        // Trocar de endpoint invalida o modelo: `opus` não quer dizer nada num
-        // Ollama, e `qwen3.5` não quer dizer nada na Anthropic. Limpar é mais
-        // honesto do que deixar lá um nome que vai falhar a meio de um run.
-        patch({ provider: id, model: id === (agent.provider ?? "") ? agent.model : null }),
+        patch(
+          id === agent.backend
+            ? {}
+            : { backend: id as Backend, model: null, ...(id === "codex" ? { budget_usd: null } : {}) },
+        ),
     },
+    // Um endpoint só quer dizer alguma coisa a quem lê ANTHROPIC_BASE_URL. Num
+    // perfil de Codex não é uma escolha desactivada — é uma escolha que não
+    // existe, e um selector a cinzento dizia que existia.
+    ...(onCodex
+      ? []
+      : [
+          {
+            label: "RUNS ON",
+            value: agent.provider ?? "",
+            hint: endpoint ? endpoint.base_url : "The Claude login this machine already has",
+            options: [
+              { id: "", name: "Claude login" },
+              ...providers.map((p) => ({ id: p.id, name: p.name })),
+            ],
+            onPick: (id: string) =>
+              // Trocar de endpoint invalida o modelo: `opus` não quer dizer nada num
+              // Ollama, e `qwen3.5` não quer dizer nada na Anthropic. Limpar é mais
+              // honesto do que deixar lá um nome que vai falhar a meio de um run.
+              patch({ provider: id, model: id === (agent.provider ?? "") ? agent.model : null }),
+          },
+        ]),
     {
       label: "REVIEWER",
       value: agent.reviewer,
@@ -911,12 +1040,22 @@ export function Agents({
       hint: `A ${agent.max_concurrent === 1 ? "second" : "further"} card waits`,
       onCycle: () => patch({ max_concurrent: (agent.max_concurrent % 4) + 1 }),
     },
-    {
-      label: "BUDGET",
-      value: agent.budget_usd == null ? "no cap" : money(agent.budget_usd),
-      hint: settings ? `Counts against ${money(settings.daily_budget_usd, 0)} a day` : "per run",
-      onCycle: () => patch({ budget_usd: cycle(budgets, agent.budget_usd) }),
-    },
+    // Um tecto em dólares não se aplica a um plano que não cobra em dólares.
+    // O botão sai em vez de ficar a cinzento: um cap desactivado dizia que
+    // existia um cap. O que o substitui é o `PlanMeter`, com a percentagem da
+    // janela — que é um número real e não uma conversão inventada.
+    ...(onCodex
+      ? []
+      : [
+          {
+            label: "BUDGET",
+            value: agent.budget_usd == null ? "no cap" : money(agent.budget_usd),
+            hint: settings
+              ? `Counts against ${money(settings.daily_budget_usd, 0)} a day`
+              : "per run",
+            onCycle: () => patch({ budget_usd: cycle(budgets, agent.budget_usd) }),
+          },
+        ]),
   ];
 
   const week = stats?.week_runs ?? [0, 0, 0, 0, 0, 0, 0];
@@ -1094,6 +1233,8 @@ export function Agents({
             ))}
           </motion.div>
 
+          {onCodex && <PlanMeter />}
+
           <motion.div
             custom={1}
             variants={rowIn}
@@ -1135,10 +1276,10 @@ export function Agents({
                   para os hospedados, a própria máquina para um Ollama local) e
                   os apelidos ficam no topo, ditos como o que são. */}
               <ModelPicker
-                providerId={endpoint ? endpoint.id : "anthropic"}
-                baseUrl={endpoint ? endpoint.base_url : ""}
+                providerId={onCodex ? "codex" : endpoint ? endpoint.id : "anthropic"}
+                baseUrl={onCodex ? "" : endpoint ? endpoint.base_url : ""}
                 aliases={
-                  endpoint
+                  endpoint || onCodex
                     ? undefined
                     : MODELS.map((m) => ({
                         id: m.id,

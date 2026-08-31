@@ -25,6 +25,7 @@ fn export_types() {
     std::fs::create_dir_all(&dir).unwrap();
     std::env::set_var("TS_RS_EXPORT_DIR", &dir);
 
+    harness_ports::Backend::export().unwrap();
     harness_ports::WorktreeMode::export().unwrap();
     harness_ports::Reviewer::export().unwrap();
     harness_ports::SkillGrant::export().unwrap();

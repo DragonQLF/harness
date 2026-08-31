@@ -1495,6 +1495,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-agent-codex"
+version = "0.1.0"
+dependencies = [
+ "harness-ports",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "harness-agent-sidecar"
 version = "0.1.0"
 dependencies = [
@@ -1510,6 +1521,7 @@ dependencies = [
 name = "harness-app"
 version = "0.1.0"
 dependencies = [
+ "harness-agent-codex",
  "harness-domain",
  "harness-engine",
  "harness-ports",
@@ -3105,6 +3117,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "harness-agent-claude",
+ "harness-agent-codex",
  "harness-agent-sidecar",
  "harness-app",
  "harness-domain",

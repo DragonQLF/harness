@@ -2638,3 +2638,135 @@ Confundi-los deitava fora exactamente o trabalho que isto existe para salvar.
 pilha, e o que aconteceria era pior do que não haver reatação: o sidecar
 levantava-se com `--serve` e esperava-se por uma porta que nunca abria — o turno
 falhava em vez de correr.
+
+### 112. Codex passa a ser um segundo agente, e o plano passa a ser o que se
+mede em vez do dinheiro
+
+Um perfil escolhe agora **em que binário corre**: `claude` ou `codex`. É um
+campo novo no `AgentProfile` (`backend`), não um endpoint, e a distinção é a
+coisa toda desta secção.
+
+**Porque não é um `Provider`.** O `providers.rs` diz o que um endpoint é: um
+sítio que fala o protocolo Messages da Anthropic, alcançável com três variáveis
+de ambiente. É por isso que apontar um agente ao Ollama ou ao OpenRouter não é
+uma integração. O Codex não fala nada disso — tem protocolo próprio, sandbox
+própria e login próprio —, portanto entrava como endpoint ou entrava como
+agente, e como endpoint teria de mentir nas três variáveis. Entra como agente:
+o `SwitchingAgent` lê o `spec.backend` **antes** de ler a definição
+sidecar/CLI, para a preferência do operador sobre como falar com a Claude não
+decidir calado um run de Codex.
+
+**Porquê o app-server e não o `codex exec`.** Foram medidos os três caminhos. O
+`codex exec --json` imprime quatro linhas e sai: sem deltas, sem canal para
+responder a uma aprovação, sem ferramentas nossas. O terceiro caminho — conduzir
+o TUI por um pseudo-terminal e ler o ecrã — é o que outros orquestradores fazem,
+e é por isso que documentam `approval_policy = "never"`: uma caixa desenhada num
+ecrã não é um evento a que se responda. O `codex app-server` é JSON-RPC
+bidireccional por stdio, e as aprovações chegam como **pedidos**, que é o que
+faz a folha de permissões do Relay funcionar igual nos dois agentes.
+
+O preço está escrito: o app-server é experimental a montante e o esquema muda
+entre versões do Codex. Aceita-se — a alternativa era um agente que não se pode
+interromper nem perguntar.
+
+**Dois erros que só a medição apanhou.** O `turn/start` responde
+**imediatamente**, com `status: "inProgress"` e a lista de items vazia: é um
+aviso de recepção, não o fim do turno. A primeira versão deste adaptador tomou-o
+pelo fim e dava runs bem-sucedidos antes de o modelo dizer uma palavra. O fim é
+a notificação `turn/completed`. E o `-c mcp_servers={}` **não** limpa os
+conectores do operador — o override funde-se com a configuração carregada em vez
+de a substituir, e mediu-se: quatro servidores do `~/.codex/config.toml`
+anunciaram-se num run que devia estar isolado. O que fecha a #26 para o Codex é
+um `CODEX_HOME` nosso, em appdata, onde não há nada com que fundir; o `auth.json`
+entra por **link** e não por cópia, porque o token renova-se e uma cópia era um
+login a apodrecer. O que o agente recebeu vai por cima disso, em `-c` com
+caminhos pontuados — o valor de um `-c` lê-se como TOML, e um objecto JSON não é
+uma tabela inline.
+
+**O dinheiro deixa de existir onde não existe.** Um turno de subscrição não tem
+preço: não há `cost_usd`, e o `max_budget_usd` de um perfil de Codex resolve-se
+a `None` em vez de a zero. O ecrã de Agentes tira o botão do orçamento em vez de
+o pôr a cinzento — um cap desactivado dizia que havia um cap — e põe no lugar a
+percentagem das duas janelas do plano, lida ao Codex e não somada aqui: o plano
+gasta-se com tudo o que corre na máquina, e um total nosso ficaria por baixo da
+verdade.
+
+### 113. O `image_gen` do Codex fica ao alcance da Claude
+
+O modelo de imagem da OpenAI chega-se por dois caminhos: a Images API, que quer
+uma `OPENAI_API_KEY`, e a ferramenta interna do Codex, que não quer nada — o
+próprio ficheiro da skill o diz — e gasta o plano em que a máquina já está
+ligada. Como o Relay já fala com aquele binário para runs inteiros, a ferramenta
+`generate_image` é o mesmo adaptador pedido para um turno só. Um agente de
+Claude ganha-a como qualquer outra ferramenta do Relay; um agente de Codex já a
+tinha de origem e nunca passa por aqui.
+
+Não é uma leitura, e está dito assim: gasta quota e escreve um PNG. Fica fora do
+`allowed_tools`, portanto passa pela folha antes de acontecer, e passa livre pelo
+teste de delegação pela razão do `record_decision` (#76) — não toca em quadro
+nenhum.
+
+**O ficheiro não é arrumado por nós.** O Codex guarda-o na sua casa e devolve o
+caminho; decidir que uma imagem é um asset do repositório era uma decisão do
+agente, que a toma com um `cp` que já pode correr.
+
+**E vê-se.** O caminho entra na resposta como markdown e o `Streamdown` do chat
+desenha-o — os bytes atravessam o IPC como data URL, a mesma estrada de um
+anexo colado, para não se abrir o protocolo de assets nem mexer na CSP. Quais os
+caminhos que podem fazer essa viagem é `preview::readable`, com teste: o caminho
+vem dentro de uma transcrição escrita por um modelo, e sem cerca uma `<img>`
+numa resposta era uma maneira de ler qualquer ficheiro da máquina para dentro da
+janela. SVG fica deliberadamente de fora — um SVG embutido é um documento que
+pode trazer script.
+
+### 114. O socket que nunca podia abrir (bug)
+
+Todos os runs de macOS falhavam com "sidecar never served", e a reatação da
+#111 nunca funcionou nesta plataforma — desde o dia em que saiu.
+
+O `sun_path` de um `sockaddr_un` é um array de **104 bytes** no macOS e nos BSD
+(108 no Linux). Passar disso não trunca nem avisa: o `listen` devolve `EINVAL` e
+o socket não chega a existir. O caminho que a Relay construía —
+`<appdata>/run-sockets/<run_key>.sock` — dá **124 bytes** numa conta de macOS
+vulgar, e o `run_key` de uma conversa ainda repete o prefixo (`chat-chat_…`).
+Mediu-se: o mesmo sidecar, no mesmo binário, serve num instante em `/tmp/rl.sock`
+e falha com `EINVAL` no caminho a sério.
+
+O nome passa a ser um resumo de 16 hex da chave em vez da chave, o que devolve
+uma conta normal a 98 bytes e mantém o socket em appdata. Se mesmo assim não
+couber — uma home comprida, uma raiz funda — o socket muda-se para `/tmp/relay-
+<utilizador>` com `0700` em vez de o run falhar. Um socket é um ponto de
+encontro e não um registo: mudá-lo de sítio não custa nada, e quem o guarda
+continua a ser a conferência da chave ao ligar (#111), que não depende do sítio.
+
+**O que isto escondia.** O sintoma não era "um socket não abre", era "perdi a
+minha sessão" — e por causa da #115 abaixo, era verdade.
+
+### 115. Uma falha de transporte deixava de haver história (bug)
+
+O `record_resume_failure` limpava o `session_id` da conversa a qualquer falha
+durante um resume, com o comentário "drop it rather than retrying forever". Só
+que "falhou durante um resume" e "a sessão já não existe" não são a mesma coisa:
+com a #114 em cima, um socket que não abria — um problema de processo, com a
+sessão inteira no disco — desligava uma conversa da sua própria história de
+forma permanente. Uma conversa real ficou assim: 2480 eventos na transcrição,
+14,6 MB de sessão do lado da Claude, e um `session_id: null` a apontar para
+nada.
+
+A regra passa a ser assimétrica de propósito (`conversations::session_was_lost`):
+só se esquece a sessão quando a falha **nomeia a sessão**, e o desconhecido
+guarda-se. Deitar fora um ponteiro bom não se desfaz; guardar um ponteiro velho
+custa um turno e uma frase a dizê-lo.
+
+### 116. Um turno morto trancava a conversa (bug)
+
+O `Turns::register` recusa um segundo turno na mesma conversa, e com razão. Mas
+o `finish` que desregista está no fim do corpo da tarefa, e um `panic` ou um
+`abort` não passam por lá — o turno ficava registado para sempre e tudo o que o
+operador escrevesse a seguir ia para a fila de um morto. Viu-se: a mesma
+resposta ("esta sessão ainda está agarrada pela execução anterior") três vezes
+ao longo de dez minutos.
+
+Um guarda com `Drop` cancela o token do turno em qualquer saída, escrita ou não.
+Não desregista — o `Drop` não pode esperar por um actor — e não precisa: o
+`register` já trata um token cancelado como um turno acabado.

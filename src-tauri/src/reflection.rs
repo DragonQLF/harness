@@ -126,15 +126,15 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
 
     let inbox = harness_app::chatqueue::Queue::new(&conversation.id);
     let spec = RunSpec {
-        provider: harness_app::providers::find(&ws.settings().providers, &profile.provider)
-            .and_then(|p| p.resolve()),
+        backend: profile.backend,
+        provider: profile.resolved_provider(&ws.settings()),
         prompt: asked,
         cwd: ws.paths.root().to_path_buf(),
         model: profile.model.clone(),
         // Everything he needs sits in the read set; board tools stay out of his
         // hands tonight on purpose — proposing is the whole job.
         allowed_tools: Some(crate::chat::READ_ONLY_TOOLS.iter().map(|t| t.to_string()).collect()),
-        max_budget_usd: Some(BUDGET_USD),
+        max_budget_usd: profile.backend.meters_cost().then_some(BUDGET_USD),
         permission_mode: Some("manual".to_string()),
         approver: Some(ws.router.approver_for("workspace")),
         resume_session: None,

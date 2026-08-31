@@ -93,6 +93,61 @@ function commandOf(request: PendingApproval): string {
  *  kind: a streamed answer is always mid-token — an unclosed fence, half a
  *  `**bold`, a table three rows in — and it completes those blocks for display
  *  so the text settles instead of flickering as the rest arrives. */
+/** An image an agent produced, fetched over the IPC boundary.
+ *
+ *  The path in the markdown is a real file on this machine, and the webview
+ *  cannot open one: the page is served from a custom protocol, so `/Users/…`
+ *  in a `src` resolves against the page rather than against the disk. The
+ *  bytes come across as a data URL — the road a pasted attachment already
+ *  travels — and the backend decides which paths are allowed to make that
+ *  trip, because the path was written by a model.
+ *
+ *  A remote `src` is left exactly as it is. The CSP already refuses it, and a
+ *  broken image is the honest outcome of an answer that pointed at the web. */
+function InlineImage({ src, alt }: { src?: string; alt?: string }) {
+  const [data, setData] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const local = !!src && !/^[a-z]+:/i.test(src);
+
+  useEffect(() => {
+    if (!local || !src) return;
+    let alive = true;
+    api
+      .previewImage(src)
+      .then((url) => alive && setData(url))
+      .catch((e) => alive && setFailed(reason(e)));
+    return () => {
+      alive = false;
+    };
+  }, [src, local]);
+
+  if (!local) return <img src={src} alt={alt ?? ""} className="max-w-full rounded-8px" />;
+
+  // Não se pinta um rectângulo cinzento à espera: uma imagem que falhou e uma
+  // que ainda vem seriam a mesma caixa. Enquanto vem não há nada; se falhar,
+  // diz-se porquê e mostra-se o caminho, que é o que o operador precisa para
+  // ir vê-la ele próprio.
+  if (failed) {
+    return (
+      <span className="block text-sm leading-relaxed text-text4 dark:text-text4-d">
+        {alt || "image"} — {failed}
+        <br />
+        <span className={mono}>{src}</span>
+      </span>
+    );
+  }
+  if (!data) return null;
+  return (
+    <img
+      src={data}
+      alt={alt ?? ""}
+      className="max-w-full rounded-8px border border-line dark:border-line-d"
+    />
+  );
+}
+
+const PROSE_COMPONENTS = { img: InlineImage };
+
 function Prose({ text }: { text: string }) {
   // Streamdown ships its own chip for inline code — dark and heavy, sized for
   // a white page rather than for this thread. The old hand-rolled Prose used
@@ -100,7 +155,7 @@ function Prose({ text }: { text: string }) {
   // own tokens win here. `:not(pre) > code` leaves fenced blocks alone: those
   // are meant to be a slab, and only the inline chips were shouting.
   return (
-    <Streamdown className="[&_:not(pre)>code]:rounded-5px [&_:not(pre)>code]:bg-active [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-body [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:text-ink2 [&_:not(pre)>code]:before:content-none [&_:not(pre)>code]:after:content-none dark:[&_:not(pre)>code]:bg-active-d dark:[&_:not(pre)>code]:text-ink2-d">
+    <Streamdown components={PROSE_COMPONENTS} className="[&_:not(pre)>code]:rounded-5px [&_:not(pre)>code]:bg-active [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-px [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-body [&_:not(pre)>code]:font-normal [&_:not(pre)>code]:text-ink2 [&_:not(pre)>code]:before:content-none [&_:not(pre)>code]:after:content-none dark:[&_:not(pre)>code]:bg-active-d dark:[&_:not(pre)>code]:text-ink2-d">
       {text}
     </Streamdown>
   );

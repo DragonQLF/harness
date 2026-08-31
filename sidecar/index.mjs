@@ -470,16 +470,47 @@ function harnessTools(runId) {
       ),
       tool(
         "set_agent_model",
-        "Point an existing agent at a different model, or a different endpoint, when the operator asks.",
+        "Point an existing agent at a different model, a different backend, or a different " +
+          "endpoint, when the operator asks. `backend` is which agent binary runs it: `claude`, " +
+          "or `codex` on the ChatGPT plan this machine is logged into. Changing backend clears " +
+          "the model unless this same call names a new one, because the two backends do not " +
+          "share model names — `sonnet` means nothing to Codex and `gpt-5.6-terra` means " +
+          "nothing to Claude. A Codex agent has no endpoint and no dollar budget: it runs on " +
+          "the plan, which is measured in a share of a window rather than in money.",
         {
           agent_id: z.string().describe("Which agent, by id"),
-          model: z.string().optional().describe("Model name the endpoint knows"),
+          backend: z
+            .enum(["claude", "codex"])
+            .optional()
+            .describe("Which agent binary runs it"),
+          model: z.string().optional().describe("Model name the chosen backend knows"),
           provider: z
             .string()
             .optional()
-            .describe("Endpoint id, or 'anthropic' for the Claude login this machine already has"),
+            .describe(
+              "Endpoint id, or 'anthropic' for the Claude login this machine already has. " +
+                "Refused on a Codex agent, which has no endpoint to point anywhere.",
+            ),
         },
         call("set_agent_model"),
+      ),
+      tool(
+        "generate_image",
+        "Make an image from a description. It runs on OpenAI's image model through the ChatGPT " +
+          "plan this machine is logged into — no API key, and nothing is billed per call. Takes " +
+          "up to a few minutes. You get back a file path; put it in your answer as " +
+          "`![description](path)` and it renders inline in the conversation. The file is saved " +
+          "outside the repository: copy it in yourself if it belongs there. Use it for a real " +
+          "asset or a mockup, not for a diagram or an icon that would be better as SVG.",
+        {
+          prompt: z
+            .string()
+            .describe(
+              "What the image shows, in a sentence or two. Say the subject, the style and the " +
+                "background — a vague prompt gets a generic picture.",
+            ),
+        },
+        call("generate_image"),
       ),
       tool(
         "approve_card",

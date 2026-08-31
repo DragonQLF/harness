@@ -397,6 +397,193 @@ impl Default for WorktreeMode {
     }
 }
 
+/// Where a run's socket lives, and why it is not simply where we would like it.
+///
+/// A unix domain socket is bound by writing its path into a `sockaddr_un`,
+/// whose `sun_path` is a **fixed 104-byte array** on macOS and BSD (108 on
+/// Linux). Past that, `listen()` fails with `EINVAL` — not a truncation, not a
+/// warning: the socket is never created at all.
+///
+/// Relay walked straight into it. The obvious path — app data, plus the run key
+/// as the file name — comes to 124 bytes on an ordinary macOS account:
+///
+/// ```text
+/// /Users/<name>/Library/Application Support/com.harness.app/run-sockets/chat-chat_<32 hex>.sock
+/// ```
+///
+/// so **every** run failed with "sidecar never served", whether it was resuming
+/// or starting fresh, and the reattachment of decision #111 was dead on macOS
+/// from the day it shipped. It presented as lost sessions, which is what sent
+/// the search somewhere else entirely.
+///
+/// Two things fix it and both are needed. The file name becomes a short digest
+/// of the run key rather than the key itself, which is what brings an ordinary
+/// account back under the limit. And if the path *still* does not fit — a long
+/// home directory, an app data root somewhere deep — the socket moves to a
+/// short directory of our own under `/tmp` instead of failing. A socket is a
+/// meeting point, not a record: nothing is kept in it, so moving it costs
+/// nothing. What guards it is unchanged, and is not the location — whoever
+/// connects checks the run key before adopting anything (#111).
+pub mod sockets {
+    use std::path::{Path, PathBuf};
+
+    /// Usable bytes for a socket path, kept under the smallest real limit with
+    /// room for the trailing NUL. macOS is 104 and Linux 108; 100 is under both
+    /// and is not worth splitting per platform.
+    pub const MAX_PATH: usize = 100;
+
+    /// A stable short name for a run key.
+    ///
+    /// FNV-1a, 64 bits, written out by hand: this needs to be the same string
+    /// on both sides of a restart, and `DefaultHasher` explicitly does not
+    /// promise that across builds. A collision would mean two runs meeting on
+    /// one socket, which is exactly what the run key check on connect exists to
+    /// refuse — so the cost of one is a refusal, not a mixed-up conversation.
+    pub fn file_name(run_key: &str) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in run_key.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        format!("{hash:016x}.sock")
+    }
+
+    /// Somewhere short enough that no home directory can push it over.
+    ///
+    /// Per-user so two accounts on one machine cannot collide, and created by
+    /// the caller with the same permissions app data has.
+    pub fn fallback_dir() -> PathBuf {
+        #[cfg(unix)]
+        let user = std::env::var("UID")
+            .ok()
+            .or_else(|| std::env::var("USER").ok().map(|u| {
+                let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+                for byte in u.as_bytes() {
+                    hash ^= *byte as u64;
+                    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+                format!("{:08x}", hash as u32)
+            }))
+            .unwrap_or_else(|| "0".to_string());
+        #[cfg(not(unix))]
+        let user = "0".to_string();
+        PathBuf::from(format!("/tmp/relay-{user}"))
+    }
+
+    /// The socket for this run: in `preferred` when it fits, and somewhere
+    /// short when it does not.
+    pub fn path_for(preferred: &Path, run_key: &str) -> PathBuf {
+        let name = file_name(run_key);
+        let wanted = preferred.join(&name);
+        if wanted.as_os_str().len() <= MAX_PATH {
+            return wanted;
+        }
+        fallback_dir().join(name)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The bug itself, pinned. This exact path is what an ordinary macOS
+        /// account produced, and it is 21 bytes over what `bind` accepts.
+        #[test]
+        fn the_path_that_broke_every_run_now_fits() {
+            let dir = Path::new(
+                "/Users/fernandopinto/Library/Application Support/com.harness.app/run-sockets",
+            );
+            let key = "chat-chat_3624cc14c96b4bb38468c7ae8fc19ca2";
+            let old = dir.join(format!("{key}.sock"));
+            assert_eq!(old.as_os_str().len(), 124, "what shipped");
+            assert!(old.as_os_str().len() > MAX_PATH, "and it could never bind");
+
+            let new = path_for(dir, key);
+            assert!(
+                new.as_os_str().len() <= MAX_PATH,
+                "{} is still {} bytes",
+                new.display(),
+                new.as_os_str().len()
+            );
+            assert!(new.starts_with(dir), "and it stays in app data on this account");
+        }
+
+        /// A root deep enough that even the short name does not help gets a
+        /// socket somewhere else rather than a run that cannot start.
+        #[test]
+        fn a_root_too_deep_moves_the_socket_instead_of_failing() {
+            let deep = PathBuf::from(format!("/Users/{}/run-sockets", "d".repeat(90)));
+            let path = path_for(&deep, "chat-x");
+            assert!(!path.starts_with(&deep));
+            assert!(path.as_os_str().len() <= MAX_PATH);
+            assert!(path.to_string_lossy().starts_with("/tmp/relay-"));
+        }
+
+        /// The name has to survive a restart: it is how a returning Relay finds
+        /// the run it left behind.
+        #[test]
+        fn the_same_key_always_names_the_same_socket() {
+            assert_eq!(file_name("chat-abc"), file_name("chat-abc"));
+            assert_ne!(file_name("chat-abc"), file_name("chat-abd"));
+            assert_eq!(file_name("chat-abc").len(), 21, "16 hex and an extension");
+        }
+    }
+}
+
+/// Which agent this profile actually runs on.
+///
+/// Not a provider. A [`ModelProvider`] is an endpoint that speaks the Anthropic
+/// Messages protocol, so pointing an agent at Ollama or OpenRouter is three
+/// environment variables and nothing else changes. Codex speaks nothing of the
+/// sort: it is a second agent binary with its own protocol, its own sandbox and
+/// its own login. So it is chosen *here*, next to the worktree mode, and the
+/// port is picked from it — which is why `providers.rs` still refuses to list
+/// it as an endpoint.
+///
+/// `Claude` is the default and stays the default: a stored profile written
+/// before this existed is a Claude profile, and reading it as anything else
+/// would move somebody's crew onto another vendor on upgrade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Backend {
+    Claude,
+    Codex,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Self::Claude
+    }
+}
+
+impl Backend {
+    /// The name stored in `agents.json` and shown in the UI's own words.
+    pub fn id(&self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    /// A backend named by something that was hand-edited or came from an older
+    /// build. Unknown falls back to Claude rather than failing the load: a
+    /// typo in one field must not cost the operator their whole crew.
+    pub fn parse(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "codex" => Self::Codex,
+            _ => Self::Claude,
+        }
+    }
+
+    /// Does this backend bill per token, so a cost and a budget mean something?
+    ///
+    /// Codex runs on a ChatGPT plan: there is no per-run price to report and no
+    /// budget to enforce. Whatever reads this must show its emptiness rather
+    /// than a zero, which would read as "this run was free".
+    pub fn meters_cost(&self) -> bool {
+        matches!(self, Self::Claude)
+    }
+}
+
 /// An endpoint that speaks the Anthropic Messages protocol, and the token it
 /// wants. Ollama serves one on localhost and OpenRouter serves one over the
 /// wire, so "run this agent on a local model" and "run it on someone else's
@@ -430,6 +617,8 @@ impl ModelProvider {
 #[derive(Debug, Clone)]
 pub struct RunProfile {
     pub agent_id: String,
+    /// Which agent binary carries this out.
+    pub backend: Backend,
     /// Where this agent's model actually lives. `None` is the ordinary case:
     /// the Claude subscription or API key already in the environment.
     pub provider: Option<ModelProvider>,
@@ -473,6 +662,10 @@ impl Default for Reviewer {
 #[derive(Clone)]
 pub struct RunSpec {
     pub prompt: String,
+    /// Which agent binary runs this. The port that reads it is one switch over
+    /// several adapters, so a run carries its own answer rather than the app
+    /// holding a mode.
+    pub backend: Backend,
     /// Set when this run should talk to something other than Anthropic.
     pub provider: Option<ModelProvider>,
     pub cwd: PathBuf,
@@ -555,6 +748,7 @@ impl RunSpec {
         Self {
             prompt: prompt.into(),
             cwd,
+            backend: Backend::default(),
             provider: None,
             model: None,
             allowed_tools: None,

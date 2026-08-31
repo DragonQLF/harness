@@ -502,6 +502,7 @@ fn test_config() -> EngineConfig {
 fn profile() -> RunProfile {
     RunProfile {
         provider: None,
+        backend: harness_ports::Backend::Claude,
         agent_id: "builder".into(),
         model: None,
         allowed_tools: None,

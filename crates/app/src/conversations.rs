@@ -99,6 +99,46 @@ impl Conversation {
     }
 }
 
+/// Did the **session** fail, or did something else fail on the way to it?
+///
+/// The difference decides whether a conversation keeps its `session_id`, and
+/// getting it wrong is not symmetric. Dropping a good pointer throws away the
+/// model's memory of a thread that is still sitting on disk — fourteen
+/// megabytes of it, in the case that prompted this — and nothing puts it back.
+/// Keeping a stale one costs a single failed turn and a message saying so.
+///
+/// So this answers "yes" only when the failure names the session itself, and
+/// **defaults to no**. Relay used to do the opposite: any failure during a
+/// resume cleared the pointer, which meant a socket that could not bind — a
+/// process problem, nothing to do with the session — permanently detached a
+/// conversation from its own history. See `harness_ports::sockets` for the bug
+/// that made that path fire on every macOS run.
+pub fn session_was_lost(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    // The transport, the process, the socket, the binary: all of these fail
+    // with the session perfectly intact behind them.
+    const NOT_THE_SESSION: [&str; 8] = [
+        "never served",
+        "socket",
+        "sidecar",
+        "failed to spawn",
+        "no such file",
+        "did not answer",
+        "refusing to adopt",
+        "connection refused",
+    ];
+    if NOT_THE_SESSION.iter().any(|s| message.contains(s)) {
+        return false;
+    }
+    const THE_SESSION: [&str; 4] = [
+        "no conversation found with session",
+        "session not found",
+        "session does not exist",
+        "no such session",
+    ];
+    THE_SESSION.iter().any(|s| message.contains(s))
+}
+
 /// A first message, shortened into something recognisable in a list.
 pub fn title_from(message: &str) -> String {
     const MAX: usize = 48;
@@ -772,4 +812,32 @@ mod tests {
         assert!(idx.get("chat_1").unwrap().project_id.is_none());
         assert_eq!(idx.get("chat_2").unwrap().project_id.as_deref(), Some("other"));
     }
+    /// A regra que decide se uma conversa fica ou não sem a sua memória. É
+    /// assimétrica de propósito: um ponteiro bom deitado fora não se recupera,
+    /// um ponteiro velho custa um turno.
+    #[test]
+    fn only_the_session_failing_costs_the_session() {
+        // O que partiu de facto: um socket que não liga não diz nada sobre a
+        // sessão, que está inteira no disco.
+        for transport in [
+            "sidecar never served on /Users/x/Library/Application Support/a.sock",
+            "failed to spawn 'node': No such file or directory",
+            "sidecar did not answer the attach",
+            "that socket is serving \"card-1\", not \"chat-2\" — refusing to adopt it",
+        ] {
+            assert!(!session_was_lost(transport), "{transport}");
+        }
+
+        for gone in [
+            "No conversation found with session ID f105a514",
+            "session not found",
+        ] {
+            assert!(session_was_lost(gone), "{gone}");
+        }
+
+        // O desconhecido guarda-se. É o lado barato de errar.
+        assert!(!session_was_lost("something nobody has seen before"));
+        assert!(!session_was_lost(""));
+    }
+
 }

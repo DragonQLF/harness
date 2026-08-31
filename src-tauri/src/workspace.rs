@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use harness_agent_claude::ClaudeCliAgent;
+use harness_agent_codex::CodexAgent;
 use harness_agent_sidecar::SidecarAgent;
 use harness_engine::{Engine, EngineConfig, EngineDeps, EngineHandle};
 use harness_git_cli::{ensure_workspace, CliGit};
@@ -55,11 +56,19 @@ impl ClockPort for SystemClock {
     }
 }
 
-/// Picks the sidecar or the command line adapter per run, so the Settings
-/// toggle applies immediately instead of at the next restart.
+/// Picks the adapter per run, so neither the Settings toggle nor an agent's
+/// backend needs a restart to take effect.
+///
+/// Two different questions, deliberately answered in this order. **Which agent
+/// binary** is the profile's (`spec.backend`) and belongs to the run — two
+/// agents on two backends work the same board at the same time. **How to reach
+/// Claude** is the operator's one preference (`settings.sidecar`) and applies
+/// to every Claude run at once. Reading the setting first would make the
+/// operator's Node/CLI choice silently decide a Codex run too.
 pub struct SwitchingAgent {
     pub sidecar: Arc<dyn AgentPort>,
     pub cli: Arc<dyn AgentPort>,
+    pub codex: Arc<dyn AgentPort>,
     pub settings: Arc<Mutex<Settings>>,
 }
 
@@ -70,11 +79,16 @@ impl AgentPort for SwitchingAgent {
         tx: mpsc::Sender<RunEvent>,
         cancel: CancellationToken,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<RunOutcome, String>> + Send>> {
-        let use_sidecar = self.settings.lock().map(|s| s.sidecar).unwrap_or(true);
-        if use_sidecar {
-            self.sidecar.run(spec, tx, cancel)
-        } else {
-            self.cli.run(spec, tx, cancel)
+        match spec.backend {
+            harness_ports::Backend::Codex => self.codex.run(spec, tx, cancel),
+            harness_ports::Backend::Claude => {
+                let use_sidecar = self.settings.lock().map(|s| s.sidecar).unwrap_or(true);
+                if use_sidecar {
+                    self.sidecar.run(spec, tx, cancel)
+                } else {
+                    self.cli.run(spec, tx, cancel)
+                }
+            }
         }
     }
 }
@@ -836,6 +850,7 @@ impl Workspace {
                 SidecarAgent::new("node", script).with_runs_dir(self.paths.run_sockets_dir()),
             ),
             cli: Arc::new(ClaudeCliAgent::new("claude")),
+            codex: Arc::new(CodexAgent::new("codex").with_home(&self.paths.codex_home())),
             settings: Arc::clone(&self.settings),
         });
         // O engine já não levanta um Director: a revisão corre na conversa

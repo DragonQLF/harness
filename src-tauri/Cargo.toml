@@ -34,6 +34,7 @@ harness-ports = { path = "../crates/ports" }
 harness-store-jsonl = { path = "../crates/adapters/store-jsonl" }
 harness-git-cli = { path = "../crates/adapters/git" }
 harness-agent-claude = { path = "../crates/adapters/model-claude" }
+harness-agent-codex = { path = "../crates/adapters/model-codex" }
 harness-agent-sidecar = { path = "../crates/adapters/agent-sidecar" }
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"] }
 tauri-plugin-dialog = "2.7.2"

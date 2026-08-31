@@ -2,7 +2,7 @@
 //! A profile is turned into a `RunProfile` at the moment a run starts, which is
 //! the only place policy meets the engine.
 
-use harness_ports::{McpGrant, Reviewer, RunProfile, SkillGrant, WorktreeMode};
+use harness_ports::{Backend, McpGrant, Reviewer, RunProfile, SkillGrant, WorktreeMode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -25,7 +25,14 @@ pub struct AgentProfile {
     pub brief: String,
     /// Accent used for this agent across the UI.
     pub tone: String,
-    /// `opus` | `sonnet` | `haiku`, or None to let Claude choose.
+    /// Which agent binary carries this profile's runs out — Claude, or Codex
+    /// on the ChatGPT plan this machine is logged into. It is not a provider:
+    /// see `harness_ports::Backend` for why the two cannot be the same field.
+    pub backend: Backend,
+    /// The model, in the chosen backend's own names: `opus` | `sonnet` |
+    /// `haiku` for Claude, `gpt-5.6-*` for Codex, or None to let the backend
+    /// choose. Switching backend leaves this behind, which is why
+    /// `normalise_backend` clears a name the new one has never heard of.
     pub model: Option<String>,
     /// Capability names, translated into allowed tools for the run.
     pub permissions: Vec<String>,
@@ -108,6 +115,7 @@ impl Default for AgentProfile {
             role: String::new(),
             brief: String::new(),
             tone: "accent".to_string(),
+            backend: Backend::Claude,
             model: None,
             permissions: vec!["Read".into(), "Search".into()],
             budget_usd: None,
@@ -176,6 +184,33 @@ impl AgentProfile {
         tools
     }
 
+    /// The endpoint this profile's runs actually reach.
+    ///
+    /// A [`ModelProvider`] is three environment variables that only an agent
+    /// speaking the Anthropic Messages protocol reads. Handing one to Codex
+    /// would set variables it never looks at and leave the operator believing
+    /// their run went somewhere it did not — so a Codex profile resolves to
+    /// nothing, whatever endpoint is stored on it.
+    ///
+    /// Lives here rather than inline in `run_profile` because two other places
+    /// build a `RunSpec` straight from a profile, and a rule about where a run
+    /// is sent that only holds in one of the three is not a rule.
+    pub fn resolved_provider(&self, settings: &Settings) -> Option<harness_ports::ModelProvider> {
+        match self.backend {
+            Backend::Claude => {
+                crate::providers::find(&settings.providers, &self.provider).and_then(|p| p.resolve())
+            }
+            Backend::Codex => None,
+        }
+    }
+
+    /// The ceiling in dollars, where dollars are a thing. A ChatGPT plan does
+    /// not bill per run, so there is nothing here to cap and a `0.0` would read
+    /// as a budget of nothing rather than as no budget at all.
+    pub fn resolved_budget(&self) -> Option<f64> {
+        self.backend.meters_cost().then_some(self.budget_usd).flatten()
+    }
+
     /// A raiz da aplicação entra aqui porque é onde vivem as pastas de
     /// concessões. Pedi-la torna impossível resolver um perfil e esquecer o
     /// que o agente pode usar: um run sem concessões seria um agente calado
@@ -183,9 +218,9 @@ impl AgentProfile {
     pub fn run_profile(&self, settings: &Settings, root: &std::path::Path) -> RunProfile {
         RunProfile {
             agent_id: self.id.clone(),
+            backend: self.backend,
             grants: crate::grants::for_profile(root, self),
-            provider: crate::providers::find(&settings.providers, &self.provider)
-                .and_then(|p| p.resolve()),
+            provider: self.resolved_provider(settings),
             model: self.model.clone(),
             allowed_tools: Some(self.allowed_tools()),
             permission_mode: Some(
@@ -193,7 +228,7 @@ impl AgentProfile {
                     .clone()
                     .unwrap_or_else(|| settings.permission_mode.clone()),
             ),
-            max_budget_usd: self.budget_usd,
+            max_budget_usd: self.resolved_budget(),
             worktree: self.worktree,
             reviewer: if settings.director_reviews_first {
                 self.reviewer
@@ -617,11 +652,57 @@ fn with_free_id(mut profile: AgentProfile, taken: &[String]) -> AgentProfile {
 }
 
 /// Fill in anything a hand-edited or older profile file left out.
+/// Does this model name belong to this backend?
+///
+/// The two vocabularies do not overlap and neither side validates the other's:
+/// handing `sonnet` to Codex is a thread that starts and then fails on the
+/// first turn, and handing `gpt-5.6-terra` to the agent SDK is the same failure
+/// mirrored. The check is by prefix rather than by list because a list goes
+/// stale the week a model ships — and a *stale* list would refuse a name that
+/// works, which is worse than letting an unknown one through.
+pub fn model_fits(backend: Backend, model: &str) -> bool {
+    let model = model.trim().to_ascii_lowercase();
+    if model.is_empty() {
+        return true;
+    }
+    let claude_shaped = model.starts_with("claude")
+        || matches!(model.as_str(), "opus" | "sonnet" | "haiku" | "fable")
+        || model.starts_with("opus-")
+        || model.starts_with("sonnet-")
+        || model.starts_with("haiku-");
+    let codex_shaped = model.starts_with("gpt-") || model.starts_with("codex-") || model.starts_with("o3");
+    match backend {
+        // Anything not obviously Codex's is allowed through: a Claude profile
+        // may legitimately name a model served by OpenRouter or Ollama, and
+        // those names look like nothing in particular.
+        Backend::Claude => !codex_shaped,
+        Backend::Codex => !claude_shaped,
+    }
+}
+
+/// A profile that changed backend keeps the model it had, and that model is
+/// usually meaningless to the new one. Clearing it means the backend picks its
+/// own default, which is the only choice here that cannot fail at run time.
+fn normalise_backend(agent: &mut AgentProfile) {
+    if let Some(model) = agent.model.clone() {
+        if !model_fits(agent.backend, &model) {
+            agent.model = None;
+        }
+    }
+    // A stored endpoint on a Codex profile is a setting with no effect. Kept in
+    // the file rather than deleted — switching back restores it — but the run
+    // profile already refuses to resolve it.
+    if agent.backend == Backend::Codex && agent.budget_usd.is_some() {
+        agent.budget_usd = None;
+    }
+}
+
 pub fn normalise(mut agents: Vec<AgentProfile>) -> Vec<AgentProfile> {
     if agents.is_empty() {
         return defaults();
     }
     for agent in &mut agents {
+        normalise_backend(agent);
         if agent.id.trim().is_empty() {
             agent.id = crate::paths::sanitize(&agent.name);
         }

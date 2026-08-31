@@ -48,6 +48,7 @@ import type { Project } from "./generated/Project";
 import type { Provider } from "./generated/Provider";
 import type { ProjectStats } from "./generated/ProjectStats";
 import type { Review } from "./generated/Review";
+import type { Backend } from "./generated/Backend";
 import type { Reviewer } from "./generated/Reviewer";
 import type { ActorFilter } from "./generated/ActorFilter";
 import type { RunId } from "./generated/RunId";
@@ -108,6 +109,7 @@ export type {
   Provider,
   ProjectStats,
   Review,
+  Backend,
   Reviewer,
   ActorFilter,
   RunId,
@@ -348,6 +350,32 @@ export interface ClaudeStatus {
   cli_version: string | null;
   logged_in: boolean;
   credentials_path: string | null;
+}
+
+/** Mirrors `commands::codex::CodexStatus`. Hand-written like `ClaudeStatus`
+ *  beside it — neither crosses the ts-rs boundary, because both are answers the
+ *  shell composes rather than state the engine holds. */
+export interface CodexStatus {
+  cli_found: boolean;
+  cli_version: string | null;
+  logged_in: boolean;
+  /** `chatgpt` for a subscription, `apikey` for a key. Only the first has a
+   *  plan window to show. The plan's *name* comes from `codexPlanUsage`, which
+   *  asks the provider rather than decoding a token here. */
+  auth_mode: string | null;
+}
+
+/** Mirrors `harness_agent_codex::PlanUsage`. Percentages of two rolling
+ *  windows, which is what a subscription has instead of a bill. */
+export interface PlanUsage {
+  plan: string;
+  primary_percent: number;
+  primary_resets_at: number | null;
+  primary_window_mins: number | null;
+  secondary_percent: number;
+  secondary_resets_at: number | null;
+  secondary_window_mins: number | null;
+  reached: string | null;
 }
 
 export interface SidecarStatus {

@@ -7,6 +7,9 @@ edition = "2021"
 ts-rs = { version = '10', features = ['serde-compat'] }
 harness-domain = { path = "../domain" }
 harness-ports = { path = "../ports" }
+# Only for the model catalogue: Codex names its own models, and the list has
+# to become `CatalogModel` somewhere the cargo can test it.
+harness-agent-codex = { path = "../adapters/model-codex" }
 harness-engine = { path = "../engine" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
