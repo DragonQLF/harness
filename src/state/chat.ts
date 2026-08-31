@@ -50,6 +50,10 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
       return line.text?.trim() ? { role: "agent", text: line.text, ts } : null;
     case "notice":
       return line.text?.trim() ? { role: "notice", text: line.text, ts } : null;
+    case "thought":
+      // Guardado, ao contrário das fatias que o formaram. Um troço vazio não é
+      // um pensamento — é um turno que não pensou.
+      return line.text?.trim() ? { role: "thinking", text: line.text, ts } : null;
     case "failed":
       return { role: "notice", text: line.message ?? "the answer did not arrive", ts };
     case "tool_use": {
@@ -421,7 +425,29 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
           schedule();
         }
         break;
+      case "thought":
+        // O troço fechou. Entra no fio como bloco fechado, e o balão de texto
+        // que estivesse aberto fecha com ele: o que o modelo disser a seguir é
+        // resposta ao que acabou de pensar, e vai por baixo.
+        if (u.text?.trim()) {
+          endStream();
+          setChat((cs) => [...cs, { role: "thinking", text: u.text!, ts: u.ts_ms }]);
+        }
+        break;
       case "tool_use": {
+        // A chamada fecha o balão que estava a ser escrito, e é isso que põe a
+        // resposta pela ordem em que aconteceu.
+        //
+        // Sem isto, o `streaming.current` continuava a apontar para o balão de
+        // cima e **todo** o texto do turno caía lá dentro, por muito que o
+        // modelo tivesse falado depois de chamar a ferramenta. O resultado era
+        // a prosa toda em cima e as chamadas todas empilhadas por baixo — a
+        // ordem trocada, que é a única coisa que uma transcrição promete. O
+        // texto que vier a seguir abre balão novo, por baixo da chamada.
+        //
+        // O `flush` no topo do `consume` já assentou o que estava por assentar,
+        // portanto o que estava escrito fica onde estava.
+        endStream();
         // A tool call is a transcript line, not a transient badge: five
         // calls in a row used to leave the trace of one, and a failed
         // one read like a clean one (#41 in the visual layer).

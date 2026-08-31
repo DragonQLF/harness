@@ -557,6 +557,8 @@ async fn send_message(
         };
 
         let seen = std::sync::Arc::clone(&answered);
+        // O troço de raciocínio que está a ser escrito, à espera de assentar.
+        let mut thought = String::new();
         let forward = async {
             while let Some(ev) = ev_rx.recv().await {
                 // The session id is the whole reason this conversation can be
@@ -586,6 +588,30 @@ async fn send_message(
                 // sessão. Guardada aqui, sobrevive ao reinício.
                 if let RunEvent::Commands { commands } = &ev {
                     ws.remember_slash_commands(commands);
+                }
+                // O raciocínio chega em fatias efémeras e desaparecia com a
+                // sessão: recarregada a conversa, o modelo parecia não ter
+                // pensado nada. As fatias juntam-se aqui e assentam como um
+                // `Thought` — que se guarda — assim que chega qualquer outra
+                // coisa. Por troço e não por turno: um turno pensa, age, e
+                // pensa outra vez, e um bloco só punha o raciocínio ao lado de
+                // trabalho que aconteceu depois dele.
+                match &ev {
+                    RunEvent::Thinking { text } => thought.push_str(text),
+                    _ if !thought.trim().is_empty() => {
+                        let sealed = RunEvent::Thought {
+                            text: std::mem::take(&mut thought),
+                        };
+                        ws.append_chat_line(
+                            &conversation_id,
+                            RunLogLine {
+                                ts_ms: SystemClock.now_millis(),
+                                event: sealed.clone(),
+                            },
+                        );
+                        publish(sealed);
+                    }
+                    _ => thought.clear(),
                 }
                 // Deltas are for the live view only; the `Text` that follows is
                 // what the transcript keeps (decision #25).

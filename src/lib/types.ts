@@ -160,6 +160,7 @@ export type RunEventKind =
   | "text"
   | "delta"
   | "thinking"
+  | "thought"
   | "tool_use"
   | "tool_result"
   | "turns"

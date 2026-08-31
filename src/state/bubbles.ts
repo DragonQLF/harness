@@ -17,8 +17,10 @@
 export interface ChatMsg {
   /** `notice` is Relay itself talking: a failed resume, a cancelled turn.
    *  `tool` is what the agent tried (`summary`) — its result arrives as a
-   *  second tool bubble matched by id, green or red, expandable. */
-  role: "user" | "agent" | "notice" | "tool";
+   *  second tool bubble matched by id, green or red, expandable.
+   *  `thinking` is a sealed stretch of reasoning: collapsed to one line, opened
+   *  when somebody wants to read it. */
+  role: "user" | "agent" | "notice" | "tool" | "thinking";
   text: string;
   /** When it was said, so the transcript can date itself. */
   ts: number;

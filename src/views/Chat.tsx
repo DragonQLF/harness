@@ -9,7 +9,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, Plus, Square } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { ago, bytes, clock, money, num, shortAgo } from "../lib/format";
+import { ago, bytes, clock, money, num, plural, shortAgo } from "../lib/format";
 import { cx } from "../lib/cx";
 import { paneIn, popover, rowIn } from "../lib/motion";
 import {
@@ -24,6 +24,7 @@ import {
   type PendingApproval,
 } from "../lib/types";
 import { toolName, useStore, type ChatMsg } from "../state/store";
+import { summariseTools } from "../state/toolgroup";
 import { api, reason } from "../lib/ipc";
 import { mono } from "../components/ui";
 
@@ -261,6 +262,97 @@ function Receipt({ msg }: { msg: ChatMsg }) {
         </pre>
       )}
     </>
+  );
+}
+
+/** Um troço de raciocínio, fechado.
+ *
+ *  Fechado por omissão e sempre: ao contrário de um grupo de ferramentas, isto
+ *  não é trabalho a acontecer — já aconteceu, e quem quer lê-lo diz que quer.
+ *  Aberto por omissão punha o raciocínio inteiro entre a pergunta e a resposta,
+ *  que é onde ele menos serve.
+ *
+ *  Ao vivo continua a haver o indicador de sempre por cima do compositor; isto
+ *  é o que fica depois, e o que sobrevive a recarregar a conversa — as fatias
+ *  que o formaram são efémeras e nunca chegam ao disco (#25). */
+function Thought({ text, ts }: { text: string; ts: number }) {
+  const [open, setOpen] = useState(false);
+  const words = text.trim().split(/\s+/).length;
+  return (
+    <div className="flex w-full min-w-0 max-w-[82%] flex-col gap-1.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex cursor-pointer items-center gap-2 text-left text-sm text-muted hover:text-ink2 dark:text-muted-d dark:hover:text-ink2-d"
+      >
+        <span className={cx(mono, "text-11")} aria-hidden="true">
+          {open ? "⌄" : "›"}
+        </span>
+        <span>Thought · {plural(words, "word")}</span>
+      </button>
+      {open && (
+        <div className="max-h-[340px] overflow-y-auto whitespace-pre-wrap break-words rounded-9px border border-line px-3 py-2.5 text-sm leading-[1.7] text-muted dark:border-line-d dark:text-muted-d">
+          {text}
+        </div>
+      )}
+      {!open && (
+        <span className={cx(mono, "text-2xs text-faint dark:text-faint-d")}>{clock(ts)}</span>
+      )}
+    </div>
+  );
+}
+
+/** Um grupo de chamadas consecutivas, embrulhado numa linha.
+ *
+ *  Era um `flex-wrap` de fichas sem tecto: vinte chamadas davam vinte fichas
+ *  empilhadas, a empurrar a resposta para fora do ecrã, e nada as fazia parar
+ *  de crescer. Agora o grupo diz-se numa linha — quantos ficheiros, quantos
+ *  comandos — e abre-se para uma lista com altura máxima e barra própria.
+ *
+ *  Fechado por omissão só quando **já acabou**. Enquanto alguma chamada está no
+ *  ar fica aberto: o que está a acontecer agora é a única coisa que não se pode
+ *  esconder atrás de um resumo. */
+function ToolGroup({ tools }: { tools: ChatMsg[] }) {
+  const flying = tools.some((t) => t.ok == null);
+  const failed = tools.filter((t) => t.ok === false).length;
+  const [open, setOpen] = useState<boolean | null>(null);
+  const shown = open ?? (flying || tools.length === 1);
+
+  const summary = summariseTools(tools);
+
+  if (tools.length === 1 && !shown) {
+    return <Receipt msg={tools[0]} />;
+  }
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-1.5">
+      <button
+        type="button"
+        aria-expanded={shown}
+        onClick={() => setOpen(!shown)}
+        className="flex w-full cursor-pointer items-center gap-2 text-left text-sm text-muted hover:text-ink2 dark:text-muted-d dark:hover:text-ink2-d"
+      >
+        <span className={cx(mono, "text-11")} aria-hidden="true">
+          {shown ? "⌄" : "›"}
+        </span>
+        <span className="min-w-0 truncate">{summary}</span>
+        {failed > 0 && (
+          <span className="shrink-0 text-bad dark:text-bad-d">
+            {failed} failed
+          </span>
+        )}
+        {flying && <span className="shrink-0">{SPINNING}</span>}
+      </button>
+
+      {shown && (
+        <div className="flex max-h-[340px] flex-col gap-1.5 overflow-y-auto rounded-9px border border-line px-2 py-2 dark:border-line-d">
+          {tools.map((t, i) => (
+            <Receipt key={t.toolUseId ?? i} msg={t} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -554,7 +646,7 @@ function baseName(path: string): string {
 /** A turn, once the flat transcript is folded: what was said, and the receipts
  *  the same turn left behind. */
 interface Block {
-  kind: "user" | "agent" | "notice";
+  kind: "user" | "agent" | "notice" | "thinking";
   msg: ChatMsg | null;
   tools: ChatMsg[];
 }
@@ -629,6 +721,8 @@ const Turn = memo(
           </div>
         )}
 
+        {kind === "thinking" && <Thought text={msg!.text} ts={msg!.ts} />}
+
         {kind === "notice" && (
           <div className="flex max-w-[82%] flex-col items-start gap-2">
             <div className="whitespace-pre-wrap break-words text-base leading-[1.65] text-bad dark:text-bad-d">
@@ -655,13 +749,7 @@ const Turn = memo(
                 )}
               </div>
             )}
-            {tools.length > 0 && (
-              <div className="flex flex-wrap gap-1.75">
-                {tools.map((t, ti) => (
-                  <Receipt key={ti} msg={t} />
-                ))}
-              </div>
-            )}
+            {tools.length > 0 && <ToolGroup tools={tools} />}
             {/* A hora em que a resposta começou a chegar. Enquanto está a
                 escrever não se diz: o carimbo mudaria por baixo do texto e
                 pareceria a resposta a saltar no tempo. */}

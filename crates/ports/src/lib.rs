@@ -888,6 +888,20 @@ pub enum RunEvent {
     Thinking {
         text: String,
     },
+    /// A finished stretch of reasoning, kept.
+    ///
+    /// The relationship to `Thinking` is the one `Text` has to `Delta`: the
+    /// slices make the screen feel live and are thrown away, and this is the
+    /// record. Without it the reasoning existed only while somebody was
+    /// watching — reload the conversation and the model appeared to have
+    /// thought nothing, which is the opposite of what it did.
+    ///
+    /// Sealed per stretch rather than per turn: a turn thinks, acts, and thinks
+    /// again, and folding those into one block would put reasoning next to work
+    /// it happened after.
+    Thought {
+        text: String,
+    },
     /// Interim progress while the run is alive: how many model turns have
     /// happened so far. Ephemeral like deltas - the total lands on `Done`.
     Turns {
