@@ -499,6 +499,12 @@ pub struct RunSpec {
     /// conversa no ecrã com as falas repetidas. O atraso não se perde — está na
     /// sessão em disco —, só não volta a ser desenhado.
     pub from_seq: Option<u64>,
+    /// Ligar-se a trabalho que já anda, sem mandar nenhum.
+    ///
+    /// É o arranque: a Relay reabre e vai ver se algum turno continuou sem ela.
+    /// Não havendo, isto acaba em silêncio — sem levantar nada e sem escrever
+    /// nada na conversa, porque não houve turno nenhum.
+    pub attach_only: bool,
     /// Relay's own tools, when this run is allowed to act on the app.
     pub tools: Option<ToolRunner>,
     /// What the operator says *during* this run. Absent for a card run: only a
@@ -558,6 +564,7 @@ impl RunSpec {
             resume_session: None,
             run_key: None,
             from_seq: None,
+            attach_only: false,
             tools: None,
             inbox: None,
             thinking_tokens: None,

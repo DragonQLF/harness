@@ -440,6 +440,7 @@ impl Engine {
             // às aprovações.
             run_key: Some(format!("card-{}", card_id.as_str())),
             from_seq: None,
+            attach_only: false,
             // The worker's one harness tool: its own account of the work. A
             // write to Relay, not to the repository, so it rides in
             // allowed_tools instead of the approval queue.

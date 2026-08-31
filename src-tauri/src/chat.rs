@@ -161,6 +161,47 @@ pub async fn queue(
     })
 }
 
+/// Ao reabrir, ver se algum turno continuou sem nós.
+///
+/// Um socket em `run-sockets` é um sidecar que sobreviveu — a Relay anterior
+/// morreu a meio de um turno e o trabalho seguiu sem ela. Liga-se a cada um,
+/// confere-se que é mesmo daquela conversa, e o que ele escreveu entretanto
+/// entra no fio a partir de onde a transcrição ficou.
+///
+/// Nada disto é um erro quando não encontra ninguém: o caso normal de um
+/// arranque é não haver socket nenhum, e aí não se levanta nem se escreve nada.
+pub async fn reattach_all(ws: &Arc<Workspace>) {
+    let Ok(entries) = std::fs::read_dir(ws.paths.run_sockets_dir()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(id) = name
+            .strip_suffix(".sock")
+            .and_then(|key| key.strip_prefix("chat-"))
+        else {
+            continue;
+        };
+        // Um socket de uma conversa que já não existe não é nosso para retomar.
+        if ws.conversation(id).await.is_none() {
+            continue;
+        }
+        if let Err(e) = send_message(
+            ws,
+            Some(id.to_string()),
+            String::new(),
+            Vec::new(),
+            false,
+            None,
+            true,
+        )
+        .await
+        {
+            eprintln!("could not reattach {id}: {e}");
+        }
+    }
+}
+
 /// Send one message. Returns as soon as the run is under way: the answer
 /// arrives on the `engine://run` channel, keyed by the conversation id.
 pub async fn send(
@@ -170,7 +211,7 @@ pub async fn send(
     attachments: Vec<String>,
     effort: Option<String>,
 ) -> Result<Conversation, String> {
-    send_message(ws, conversation_id, text, attachments, true, effort).await
+    send_message(ws, conversation_id, text, attachments, true, effort, false).await
 }
 
 /// The next turn, started from inside the one that just ended, carrying what
@@ -183,7 +224,7 @@ fn carried_turn(
     text: String,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Conversation, String>> + Send>> {
     Box::pin(async move {
-        send_message(&ws, Some(conversation_id), text, Vec::new(), false, None).await
+        send_message(&ws, Some(conversation_id), text, Vec::new(), false, None, false).await
     })
 }
 
@@ -197,6 +238,7 @@ async fn send_message(
     attachments: Vec<String>,
     record: bool,
     effort: Option<String>,
+    attach: bool,
 ) -> Result<Conversation, String> {
     // A file that is not there is worse than no file: the model would go
     // looking and report a failure the operator caused. Refuse now, by name.
@@ -206,7 +248,7 @@ async fn send_message(
         }
     }
     let message = director::with_attachments(&text, &attachments);
-    if message.is_empty() {
+    if message.is_empty() && !attach {
         return Err("nothing to send".to_string());
     }
 
@@ -263,14 +305,24 @@ async fn send_message(
     // Permission the operator granted between turns, on a screen he cannot
     // see. Read here rather than pushed at him when he clicks: the turn is
     // where he can act on it, and a resumed session has no other way to learn.
-    let accepted_proposals = ws.accepted_proposals();
+    // Tomadas, não lidas: quem as pede fica sem elas. Numa reatação não há
+    // prompt nenhum para as levar, portanto pedi-las era deitá-las fora — a
+    // operadora aprovava uma proposta e o Director nunca saberia dela.
+    let accepted_proposals = if attach {
+        Vec::new()
+    } else {
+        ws.accepted_proposals()
+    };
     // What his own reviewer decided while nobody was talking to him. Taken,
     // not read: this is the news, and the boards below carry the state.
     // A versão só se diz quando mudou. Numa sessão retomada nada mais lho
     // contaria: as ferramentas aparecem-lhe na lista sem explicação, e deduzir
     // uma actualização pelo efeito é a pior maneira de a saber.
     let running = env!("CARGO_PKG_VERSION");
-    let new_version = (conversation.seen_version.as_deref() != Some(running)).then_some(running);
+    // Pela mesma razão: marcar a versão como vista sem a dizer a ninguém fazia
+    // com que ela nunca fosse dita.
+    let new_version = (!attach && conversation.seen_version.as_deref() != Some(running))
+        .then_some(running);
     if new_version.is_some() {
         ws.record_chat_version(&conversation.id, running).await;
     }
@@ -303,7 +355,7 @@ async fn send_message(
 
     // The operator's own turn goes into the transcript first, so a conversation
     // reads as a conversation rather than as a list of answers.
-    let conversation = if record {
+    let conversation = if record && !attach {
         let now = SystemClock.now_millis();
         ws.append_chat_line(
             &conversation.id,
@@ -363,6 +415,7 @@ async fn send_message(
         // e responder-lhe às aprovações em nome dela.
         run_key: Some(format!("chat-{}", conversation.id)),
         from_seq: None,
+        attach_only: attach,
         tools: Some(tools),
         // The whole point of the queue: this run can be spoken to while it
         // works. Only a conversation carries one — nobody is typing at a card.

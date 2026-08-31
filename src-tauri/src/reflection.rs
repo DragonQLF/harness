@@ -142,6 +142,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
         // deixado para trás seria uma porta aberta que nada volta a abrir.
         run_key: None,
         from_seq: None,
+        attach_only: false,
         tools: Some(crate::director_tools::runner(
             ws,
             conversation.project_id.clone(),

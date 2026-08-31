@@ -105,6 +105,15 @@ pub fn run() {
                     eprintln!("outside the board: {said}");
                 }
             });
+            // Algum turno continuou sem nós? Lançado e não esperado: ligar-se a
+            // um sidecar sobrevivente não pode ficar entre a operadora e a
+            // janela dela.
+            {
+                let reopening = workspace.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::chat::reattach_all(&reopening).await;
+                });
+            }
             app.manage(workspace);
             // Setup made it to the end: this launch is healthy. The marker —
             // if this very boot was an update — can go.

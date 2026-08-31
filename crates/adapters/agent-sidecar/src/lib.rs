@@ -141,6 +141,7 @@ async fn drive(
     mut stdin: Writer,
     mut lines: tokio::io::Lines<BufReader<Reader>>,
     fresh: bool,
+    progress: Option<PathBuf>,
     spec: RunSpec,
     grants: Grants,
     tx: mpsc::Sender<RunEvent>,
@@ -247,6 +248,23 @@ async fn drive(
                     Some("event") => {
                         let ev = msg.get("event").cloned().unwrap_or_default();
                         let kind = ev.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+                        // Por onde vamos, para uma Relay futura poder pedir só
+                        // o que lhe falta. Guardado aqui e não do lado da Relay
+                        // porque é aqui que o número existe — atravessá-lo até
+                        // lá obrigava a mudar a forma de todos os eventos, e o
+                        // que se ganhava com isso era exactamente isto.
+                        //
+                        // Só o que fica escrito na transcrição conta. Os
+                        // efémeros — os tokens — não se guardam, e apontar para
+                        // um deles fazia a reatação saltar o texto assente que
+                        // veio antes.
+                        if let (Some(mark), Some(seq)) =
+                            (&progress, msg.get("seq").and_then(|s| s.as_u64()))
+                        {
+                            if !EPHEMERAL.contains(&kind) {
+                                let _ = std::fs::write(mark, seq.to_string());
+                            }
+                        }
                         match kind {
                             "started" => {
                                 session_id = ev
@@ -632,6 +650,13 @@ impl harness_ports::AgentPort for SidecarAgent {
             None
         };
         let from_seq = spec.from_seq;
+        #[cfg(unix)]
+        let progress = runs_dir
+            .as_ref()
+            .zip(spec.run_key.as_ref())
+            .map(|(dir, key)| dir.join(format!("{key}.seq")));
+        #[cfg(not(unix))]
+        let progress: Option<PathBuf> = None;
         Box::pin(async move {
             // Há trabalho a andar deste lado? Um socket que atende é um run
             // vivo, e a resposta certa a um run vivo é ligar-se a ele — não
@@ -642,18 +667,53 @@ impl harness_ports::AgentPort for SidecarAgent {
                     let (read, write) = stream.into_split();
                     let mut out: Writer = Box::new(write);
                     let key = spec.run_key.clone().unwrap_or_default();
+                    // Onde a transcrição desta conversa ficou. Sem marca
+                    // pede-se só o que vier a seguir, que é a omissão segura;
+                    // com marca recupera-se o que se perdeu enquanto a Relay
+                    // esteve fora, sem repetir o que já lá está.
+                    let resume_at = from_seq.or_else(|| {
+                        progress
+                            .as_ref()
+                            .and_then(|p| std::fs::read_to_string(p).ok())
+                            .and_then(|raw| raw.trim().parse::<u64>().ok())
+                    });
                     let (lines, running) =
-                        handshake(&mut out, Box::new(read), &key, from_seq).await?;
+                        handshake(&mut out, Box::new(read), &key, resume_at).await?;
                     // Vivo quer dizer "a meio": manda-se-lhe o `run` outra vez
                     // pedia ao modelo que refizesse o que já fez. Parado quer
                     // dizer que o sidecar sobreviveu ao turno mas não tem
                     // trabalho — nesse caso este é o turno novo dele.
-                    return drive(out, lines, !running, spec, grants, tx, cancel).await;
+                    if spec.attach_only && !running {
+                        // Atendeu, mas não tem trabalho a andar: não há nada a
+                        // retomar, e mandar-lhe um turno vazio era inventar uma
+                        // conversa que ninguém pediu.
+                        return Ok(RunOutcome::Completed {
+                            session_id: None,
+                            cost_usd: None,
+                            turns: None,
+                        });
+                    }
+                    return drive(out, lines, !running, progress, spec, grants, tx, cancel).await;
                 }
                 // Um socket que não atende é de um processo que já morreu. O
                 // ficheiro fica para trás e faria a próxima tentativa bater na
-                // mesma porta fechada.
+                // mesma porta fechada. A marca vai com ele: os números do
+                // sidecar seguinte começam do zero, e uma marca velha só podia
+                // apontar para um sítio que já não quer dizer nada.
                 let _ = std::fs::remove_file(path);
+                if let Some(mark) = &progress {
+                    let _ = std::fs::remove_file(mark);
+                }
+            }
+
+            if spec.attach_only {
+                // Ninguém atendeu: não havia turno nenhum a continuar. Isto é o
+                // caso normal de um arranque, e não é um erro.
+                return Ok(RunOutcome::Completed {
+                    session_id: None,
+                    cost_usd: None,
+                    turns: None,
+                });
             }
 
             let mut cmd = Command::new(&program);
@@ -710,7 +770,7 @@ impl harness_ports::AgentPort for SidecarAgent {
                 let key = spec.run_key.clone().unwrap_or_default();
                 // Run acabado de nascer: não há atraso possível.
                 let (lines, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
-                let outcome = drive(out, lines, true, spec, grants, tx, cancel).await;
+                let outcome = drive(out, lines, true, progress, spec, grants, tx, cancel).await;
                 // Destacado de propósito: não se mata. Ou acabou — e ele
                 // desliga-se sozinho — ou a Relay é que se foi, e o que fica de
                 // pé é precisamente o que uma Relay nova vai reencontrar.
@@ -724,6 +784,7 @@ impl harness_ports::AgentPort for SidecarAgent {
                 Box::new(stdin),
                 BufReader::new(Box::new(stdout) as Reader).lines(),
                 true,
+                None,
                 spec,
                 grants,
                 tx,
@@ -743,6 +804,14 @@ impl harness_ports::AgentPort for SidecarAgent {
         })
     }
 }
+
+/// O que a Relay nunca escreve na transcrição, e que por isso não serve de
+/// marca: são os tokens da escrita ao vivo, e o texto assente que os sucede é
+/// que fica. Apontar a reatação para um deles saltava esse texto.
+///
+/// Espelha o `RunEvent::is_ephemeral`; as duas listas descrevem a mesma decisão
+/// vista de lados diferentes do cano.
+const EPHEMERAL: [&str; 5] = ["delta", "thinking", "turns", "commands", "background_tasks"];
 
 /// Diz quem somos e confere quem atendeu.
 ///
@@ -805,8 +874,8 @@ async fn await_socket(path: &std::path::Path) -> Result<tokio::net::UnixStream, 
 
 #[cfg(test)]
 mod tests {
-    use super::{done_error, mcp_json, same_run};
-    use harness_ports::{Grants, McpGrant, McpTransport};
+    use super::{done_error, mcp_json, same_run, EPHEMERAL};
+    use harness_ports::{Grants, McpGrant, McpTransport, RunEvent};
     use serde_json::json;
 
     /// O contrato entre as duas linguagens. O sidecar manda `task_type` e
@@ -848,6 +917,36 @@ mod tests {
         // cegas é o que isto existe para impedir.
         assert!(same_run(&json!({}), "chat-c1").is_err());
         assert!(same_run(&json!({ "run_key": null }), "chat-c1").is_err());
+    }
+
+    /// As duas listas descrevem a mesma decisão de lados diferentes do cano, e
+    /// separá-las é como se estragam em silêncio: um evento que a Relay passasse
+    /// a guardar sem sair daqui fazia a marca da reatação apontar para trás
+    /// dele, e o texto voltava repetido; ao contrário, saltava-o.
+    #[test]
+    fn the_ephemeral_list_matches_what_relay_refuses_to_keep() {
+        let all = [
+            RunEvent::Delta { text: String::new() },
+            RunEvent::Thinking { text: String::new() },
+            RunEvent::Turns { count: 0 },
+            RunEvent::Commands { commands: vec![] },
+            RunEvent::BackgroundTasks { tasks: vec![] },
+            RunEvent::Text { text: String::new() },
+            RunEvent::Notice { text: String::new() },
+            RunEvent::LocalOutput { text: String::new() },
+            RunEvent::Failed { message: String::new() },
+        ];
+        for event in all {
+            let kind = serde_json::to_value(&event).unwrap()["kind"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                EPHEMERAL.contains(&kind.as_str()),
+                event.is_ephemeral(),
+                "{kind} discorda entre a marca e a transcrição",
+            );
+        }
     }
 
     #[test]
