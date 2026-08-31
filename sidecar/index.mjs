@@ -1131,3 +1131,31 @@ rl.on("line", (line) => {
     }
   }
 });
+
+/** A Relay foi-se.
+ *
+ *  O stdin é o único fio que nos prende a ela: enquanto está viva nunca o
+ *  fecha — mantém-no aberto para o comando seguinte — por isso um EOF aqui só
+ *  quer dizer uma coisa, e o sistema garante-o mesmo quando ela morre de
+ *  SIGKILL, que é o caso em que nada mais nos avisaria.
+ *
+ *  Sem isto ficávamos órfãos com o CLI ao colo, e um órfão continua a segurar a
+ *  sessão: as mensagens seguintes iam para a fila dele e as respostas saíam por
+ *  um stream que já ninguém lia (#108). A limpeza do lado da Rust não chega
+ *  para este caso — ela corre no fim do `drive`, e uma Relay morta a meio de um
+ *  turno nunca lá chega. Um deles apanhou doze horas assim.
+ *
+ *  Aborta primeiro, para o SDK ter a hipótese de desmontar em condições, e
+ *  leva o grupo a seguir — o grupo é o nosso, criado à nascença, e nós somos o
+ *  líder, portanto isto não alcança nada que a Relay não tenha levantado aqui.
+ *  Levar o grupo mata-nos também, que é o objectivo. */
+rl.on("close", () => {
+  for (const ac of controllers.values()) ac.abort();
+  setTimeout(() => {
+    try {
+      process.kill(-process.pid, "SIGKILL");
+    } catch {
+      process.exit(0);
+    }
+  }, 1500);
+});

@@ -38,6 +38,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 105 | Passagem de estrutura: a casca reparte-se por dono e a política sai dela |
 | 2026-08-30 | 108 | Uma execução leva consigo o que levantou; o turno vazio deixa de passar por resposta |
 | 2026-08-30 | 109 | O trabalho de fundo passa a ver-se: nível e não arestas, fora do fio |
+| 2026-08-31 | 110 | Um resto é um processo agarrado a uma sessão sem execução viva; descoberta em vez de lock |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -2538,3 +2539,55 @@ mesma linha a piscar. O segundo porque do outro lado isto desserializa para
 `String`: um `undefined` no meio faria a carga inteira cair fora, e o ecrã
 ficava com o conjunto anterior a dizer que ainda corria — a mentira que a
 semântica de nível existe para evitar.
+
+### 110. Um processo agarrado a uma sessão só é legítimo enquanto houver execução viva para ela
+A 0.3.16 tornou o silêncio legível: uma conversa que não responde passou a dizer
+porquê. Não impediu o silêncio. Na noite seguinte a mesma conversa passou dez
+horas a recusar tudo — três mensagens, uma delas com dez horas entre a anterior
+e ela — porque um processo continuava agarrado à sessão. Vivo, a gastar CPU, e
+havia dez horas que não lia a fila dele.
+
+**Vivo não é o mesmo que a servir, e é isso que dá o critério.** Não é uma
+heurística sobre saúde: é estrutural. Se a Relay não tem execução viva para uma
+sessão, ninguém está a ler o que aquele processo escreve — não serve nada nem
+ninguém, esteja como estiver. Às 23:13 a execução acabou em condições, com 28
+turnos e trinta e cinco dólares gastos; o processo ficou. A partir desse
+segundo era um resto, e podia ter sido dito naquele momento.
+
+**Por isso a limpeza é onde esse facto se sabe.** Logo a seguir à guarda das
+duas execuções ter deixado passar este turno: nesse ponto está provado que a
+conversa não tem turno vivo. Noutro sítio qualquer isto matava trabalho a sério.
+
+**Descoberta, não um ficheiro de lock.** Um lock é uma afirmação sobre o passado
+e mente de três maneiras — pid reaproveitado, processo que morreu sem limpar,
+ficheiro escrito por uma Relay que já não existe. Pergunta-se ao sistema agora,
+e o processo identifica-se sozinho: o id da sessão vem no `--resume` dele.
+
+**Duas metades no reconhecimento, e as duas fazem falta.** O `--resume` sozinho
+apanhava o Claude Code que a operadora tem aberto no terminal dela; o binário
+sozinho apanhava os nossos que estão a servir outras conversas. E o `--resume`
+compara-se até ao fim do argumento: com um `contains`, `--resume=abc` casava com
+`--resume=abcdef` e o que estava do outro lado do engano era um `SIGKILL` numa
+sessão alheia. Isso não se viu a ler o código — viu-se no teste que levanta
+processos a sério.
+
+**Ao arranque o critério é outro, e mais estreito.** A tentação era varrer tudo:
+a Relay que acaba de nascer não tem execução viva nenhuma, logo nada seria dela.
+Mas *nada dela* não é *de ninguém* — uma segunda Relay aberta ao mesmo tempo tem
+turnos a correr. Ao arranque leva-se só o sidecar sem pai (`ppid` 1), que é a
+única coisa que se pode provar de ninguém sem adivinhar de quem é.
+
+**E o grupo só se leva quando o grupo é nosso.** Nos restos anteriores à 0.3.16
+o grupo é o da própria Relay: levá-lo matava a aplicação. Confirma-se que o
+líder do grupo é um sidecar nosso; não sendo, mata-se processo a processo, que é
+mais lento e nunca é largo demais.
+
+**Windows fica de fora, e diz-se.** A enumeração lá é WMI e não `ps`, e um
+filtro errado aqui não devolve um resultado errado — mata um processo da
+operadora. Escrevê-lo sem o poder exercitar valia menos do que o risco. Lá fica
+a detecção do turno vazio, que é de plataforma nenhuma.
+
+**O sidecar também se defende sozinho.** O stdin é o único fio que o prende à
+Relay, que nunca o fecha enquanto viva; um EOF ali só quer dizer uma coisa, e o
+sistema entrega-o mesmo quando ela morre de SIGKILL. Aborta o que estiver a
+correr e leva o grupo. É a metade que não depende de ninguém o vir limpar.

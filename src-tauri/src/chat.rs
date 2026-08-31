@@ -411,6 +411,29 @@ async fn send_message(
         }
         return Ok(conversation);
     }
+
+    // A guarda acima acabou de dizer que esta conversa não tem turno vivo. Logo,
+    // qualquer processo agarrado a esta sessão não está a servir ninguém: não há
+    // quem lhe leia o que escreve. Este é o único sítio onde isso se sabe com
+    // certeza, e é por isso que a limpeza é aqui e não noutro lado.
+    //
+    // Sem ela, o turno que vem a seguir retoma uma sessão que é do resto: o CLI
+    // entrega-lhe a mensagem pela fila e sai sem correr nada. Foi assim que uma
+    // conversa passou dez horas a recusar tudo — o processo estava vivo, a gastar
+    // CPU, e há dez horas que não lia a fila dele. Vivo não é o mesmo que a
+    // servir, e é a execução viva do lado da Relay que separa os dois.
+    if let Some(session) = resume_session.clone() {
+        // O `ps` bloqueia, e isto corre num executor assíncrono.
+        let swept = tokio::task::spawn_blocking(move || {
+            harness_app::strays::reap_session(&session)
+        })
+        .await
+        .unwrap_or(0);
+        if swept > 0 {
+            eprintln!("swept {swept} stray process(es) still holding this session");
+        }
+    }
+
     let fut = agent.run(spec, ev_tx, token);
 
     let app = ws.app_handle();

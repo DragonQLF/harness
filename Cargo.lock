@@ -1513,6 +1513,7 @@ dependencies = [
  "harness-domain",
  "harness-engine",
  "harness-ports",
+ "libc",
  "serde",
  "serde_json",
  "tokio",

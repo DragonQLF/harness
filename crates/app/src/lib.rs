@@ -33,3 +33,4 @@ pub mod providers;
 pub mod vocabulary;
 pub mod selfreport;
 pub mod settings;
+pub mod strays;

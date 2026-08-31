@@ -14,3 +14,7 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+# Só para o `kill`/`killpg` do `strays`. Ver o comentário lá.
+libc = "0.2"

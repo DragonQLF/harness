@@ -76,6 +76,17 @@ pub fn run() {
             if let Some(reason) = &rollback {
                 eprintln!("{reason}");
             }
+            // Nada nosso devia ter sobrevivido à Relay anterior, mas sobrevive:
+            // uma que morra a meio de um turno — force quit, crash, o
+            // instalador a reiniciá-la — deixa o sidecar e o CLI dele de pé, e
+            // de pé continuam a segurar a sessão. Aqui não há execução viva
+            // nenhuma ainda, portanto qualquer um deles é, por definição, um
+            // resto: ninguém lhe lê o que escreve. Antes do workspace, para que
+            // a primeira conversa aberta já encontre as sessões livres.
+            let swept = harness_app::strays::reap_all_on_start();
+            if swept > 0 {
+                eprintln!("swept {swept} stray agent process(es) left by an earlier Relay");
+            }
             // O registo é um actor: levantá-lo e falar com ele acontece dentro
             // do runtime. Os engines também lá nascem, e levantá-los todos
             // agora deixa a Overview contar trabalho sem visitar cada quadro.
