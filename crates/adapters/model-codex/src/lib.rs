@@ -225,6 +225,14 @@ fn real_home() -> Option<std::path::PathBuf> {
         .map(|h| std::path::PathBuf::from(h).join(".codex"))
 }
 
+/// How an approval is answered. Two shapes, because the protocol has two: a
+/// command or a patch takes a yes/no, and a permissions request takes back the
+/// profile that ends up granted.
+enum Decide {
+    Decision,
+    Grant(Value),
+}
+
 /// Why a run stopped, when it stopped before the turn did.
 enum Stop {
     Cancelled,
@@ -250,6 +258,13 @@ struct Session {
     /// `item/completed` can be reported as its result instead of as a second
     /// call.
     open_items: BTreeMap<String, String>,
+    /// What each open item is *doing*, by id — the command line, the files.
+    ///
+    /// An approval request names the item and often not the work: it carries an
+    /// `itemId` and a reason, and the command itself was in the `item/started`
+    /// that announced it. Without this the sheet says "Bash" and nothing else,
+    /// which is asking somebody to authorise a thing that is not named.
+    commands: BTreeMap<String, String>,
     /// Images this turn saved, in the order Codex produced them.
     ///
     /// They also go into the transcript as markdown, which is what makes them
@@ -432,8 +447,22 @@ impl Session {
         params: Value,
         spec: &RunSpec,
     ) -> Result<(), Stop> {
+        // Os nomes são os do **fio**, não os dos tipos do esquema. Foi assim
+        // que a primeira versão disto falhou: derivei-os de
+        // `CommandExecutionRequestApprovalParams` e escrevi
+        // `commandExecutionRequestApproval`, quando o que o Codex manda é
+        // `item/commandExecution/requestApproval`. Medido — o pedido chegava,
+        // não batia com nada, respondia-se-lhe "não implementado" e a aprovação
+        // nunca chegava a quem a devia ver. Os antigos ficam como sinónimos:
+        // custam uma linha e cobrem uma versão anterior do protocolo.
         let decision = match method {
-            "execCommandApproval" | "commandExecutionRequestApproval" | "thread/shellCommand" => {
+            "item/commandExecution/requestApproval"
+            | "execCommandApproval"
+            | "thread/shellCommand" => {
+                // O comando não vem sempre no pedido — o que vem sempre é o
+                // `itemId`, e o comando ficou no `item/started` que o anunciou.
+                // Sem isto a folha dizia "Bash" e mais nada, que é pedir
+                // autorização para uma coisa que não se nomeia.
                 let command = params
                     .get("command")
                     .map(|c| match c {
@@ -445,6 +474,12 @@ impl Session {
                         Value::String(s) => s.clone(),
                         other => other.to_string(),
                     })
+                    .or_else(|| {
+                        params
+                            .get("itemId")
+                            .and_then(Value::as_str)
+                            .and_then(|id| self.commands.get(id).cloned())
+                    })
                     .unwrap_or_default();
                 let reason = params.get("reason").and_then(Value::as_str).unwrap_or("");
                 let summary = if reason.is_empty() {
@@ -452,9 +487,9 @@ impl Session {
                 } else {
                     format!("{} — {}", truncate(&command, 160), truncate(reason, 120))
                 };
-                Some(("Bash", summary, params.clone()))
+                Some(("Bash", summary, Decide::Decision))
             }
-            "applyPatchApproval" | "fileChangeRequestApproval" => {
+            "item/fileChange/requestApproval" | "applyPatchApproval" => {
                 let files: Vec<String> = params
                     .get("fileChanges")
                     .and_then(Value::as_object)
@@ -462,27 +497,47 @@ impl Session {
                     .unwrap_or_default();
                 let summary = if files.is_empty() {
                     params
-                        .get("reason")
+                        .get("itemId")
                         .and_then(Value::as_str)
-                        .unwrap_or("write outside the worktree")
-                        .to_string()
+                        .and_then(|id| self.commands.get(id).cloned())
+                        .or_else(|| {
+                            params.get("reason").and_then(Value::as_str).map(str::to_string)
+                        })
+                        .unwrap_or_else(|| "a write outside the worktree".to_string())
                 } else {
                     truncate(&files.join(", "), 200)
                 };
-                Some(("Edit", summary, params.clone()))
+                Some(("Edit", summary, Decide::Decision))
             }
-            "permissionsRequestApproval" => {
+            "item/permissions/requestApproval" | "permissionsRequestApproval" => {
                 let summary = params
                     .get("reason")
                     .and_then(Value::as_str)
-                    .unwrap_or("extra permissions")
-                    .to_string();
-                Some(("Permissions", truncate(&summary, 200), params.clone()))
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        format!(
+                            "extra permissions: {}",
+                            truncate(
+                                &params.get("permissions").map(|p| p.to_string()).unwrap_or_default(),
+                                140
+                            )
+                        )
+                    });
+                // Esta não se responde com um sim/não: responde-se com o que
+                // fica concedido. Negar é conceder nada; conceder é devolver
+                // exactamente o que foi pedido, e não mais — inventar um perfil
+                // aqui era alargar a permissão em nome de quem carregou no
+                // botão.
+                Some((
+                    "Permissions",
+                    truncate(&summary, 200),
+                    Decide::Grant(params.get("permissions").cloned().unwrap_or(Value::Null)),
+                ))
             }
             _ => None,
         };
 
-        let Some((tool, summary, input)) = decision else {
+        let Some((tool, summary, answer)) = decision else {
             // Anything else Codex asks for is answered with a JSON-RPC error
             // rather than silence. Silence stalls the turn forever; an error is
             // something Codex can fall back from.
@@ -514,7 +569,7 @@ impl Session {
                     request_id: request_id.clone(),
                     tool: tool.to_string(),
                     summary,
-                    input,
+                    input: params.clone(),
                 })
                 .await
             }
@@ -529,9 +584,16 @@ impl Session {
         })
         .await;
 
-        let decision = if allow { "accept" } else { "decline" };
-        self.write(json!({ "id": req_id, "result": { "decision": decision } }))
-            .await
+        let result = match answer {
+            Decide::Decision => json!({ "decision": if allow { "accept" } else { "decline" } }),
+            // Um perfil com os dois campos a nulo é "nada concedido", que é a
+            // recusa escrita na linguagem que este pedido fala.
+            Decide::Grant(asked) => json!({
+                "permissions": if allow { asked } else { json!({ "fileSystem": null, "network": null }) },
+                "scope": "turn",
+            }),
+        };
+        self.write(json!({ "id": req_id, "result": result })).await
     }
 
     /// Ask the live turn to stop. Best effort by design: we are on our way out
@@ -690,6 +752,9 @@ impl Session {
             _ => return,
         };
         self.open_items.insert(id.to_string(), tool.to_string());
+        if !summary.is_empty() {
+            self.commands.insert(id.to_string(), summary.clone());
+        }
         self.emit(RunEvent::ToolUse {
             tool: tool.to_string(),
             summary,
@@ -755,6 +820,7 @@ impl Session {
             return;
         }
         self.open_items.remove(id);
+        self.commands.remove(id);
 
         let (ok, summary, detail) = match kind {
             "commandExecution" => {
@@ -887,6 +953,7 @@ impl AgentPort for CodexAgent {
                 turn_id: None,
                 turns: 0,
                 open_items: BTreeMap::new(),
+                commands: BTreeMap::new(),
                 images: Vec::new(),
             };
 
@@ -1226,6 +1293,7 @@ pub async fn generate_image(
         turn_id: None,
         turns: 0,
         open_items: BTreeMap::new(),
+        commands: BTreeMap::new(),
         images: Vec::new(),
     };
 
