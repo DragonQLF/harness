@@ -125,6 +125,10 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
     );
 
     let inbox = harness_app::chatqueue::Queue::new(&conversation.id);
+    // A revisão nocturna corre no perfil do Director, portanto a pergunta é a
+    // mesma que na conversa: isto é um preço ou é um número da tabela errada?
+    let priced = profile.backend.meters_cost()
+        && profile.resolved_provider(&ws.settings()).is_none();
     let spec = RunSpec {
         backend: profile.backend,
         provider: profile.resolved_provider(&ws.settings()),
@@ -206,7 +210,9 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                     if let Some(sid) = session_id {
                         ws_forward.record_chat_session(&conversation_id, sid).await;
                     }
-                    ws_forward.record_chat_cost(&conversation_id, *cost_usd).await;
+                    ws_forward
+                        .record_chat_cost(&conversation_id, *cost_usd, priced)
+                        .await;
                     failed = error.is_some();
                 }
                 RunEvent::Failed { .. } => failed = true,

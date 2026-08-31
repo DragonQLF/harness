@@ -51,6 +51,22 @@ pub struct Conversation {
     /// session. The transcript is still readable; this is what the UI says out
     /// loud instead of pretending the thread continued.
     pub resume_failed: bool,
+    /// Is `cost_usd` the whole story?
+    ///
+    /// False once any turn ran somewhere that does not bill in dollars — a
+    /// custom endpoint, or Codex on a plan. The total is then a sum over *some*
+    /// of the turns, which is not a spend, and the screen shows an em-dash
+    /// rather than a number that reads as complete. See
+    /// `RunSpec::prices_in_dollars` for why the figure would otherwise be
+    /// wrong rather than merely partial.
+    #[serde(default = "yes")]
+    pub priced: bool,
+}
+
+/// `serde(default)` for a bool that must default to **true**: a conversation
+/// written before this field existed ran on the Claude login, which is priced.
+fn yes() -> bool {
+    true
 }
 
 impl Default for Conversation {
@@ -68,6 +84,7 @@ impl Default for Conversation {
             messages: 0,
             cost_usd: 0.0,
             resume_failed: false,
+            priced: true,
         }
     }
 }
@@ -175,8 +192,11 @@ pub fn title_from(message: &str) -> String {
 pub struct ConversationTotals {
     /// Every token the thread has spent, prompt and answer and cache alike.
     pub tokens: Option<u64>,
-    /// Carried here so the card is one response rather than two.
-    pub spend_usd: f64,
+    /// Carried here so the card is one response rather than two. `None` when
+    /// the thread ran, wholly or partly, somewhere that does not bill in
+    /// dollars — a sum over some of the turns is not a spend, and a number
+    /// here would be read as one.
+    pub spend_usd: Option<f64>,
     /// Tool invocations over the whole transcript, not just what is on screen.
     pub tool_calls: u32,
     /// What the model was holding on its last turn: the prompt it was handed,
@@ -246,7 +266,12 @@ pub fn context_window(model: &str) -> Option<u64> {
 
 /// Add up a stored transcript. `cost_usd` comes from the index, which is where
 /// spend is already accounted; everything else is read from the lines.
-pub fn totals(lines: &[RunLogLine], cost_usd: f64, fallback_model: Option<&str>) -> ConversationTotals {
+pub fn totals(
+    lines: &[RunLogLine],
+    cost_usd: f64,
+    priced: bool,
+    fallback_model: Option<&str>,
+) -> ConversationTotals {
     let mut spent = 0u64;
     let mut saw_usage = false;
     let mut tool_calls = 0u32;
@@ -292,7 +317,7 @@ pub fn totals(lines: &[RunLogLine], cost_usd: f64, fallback_model: Option<&str>)
 
     ConversationTotals {
         tokens: saw_usage.then_some(spent),
-        spend_usd: cost_usd,
+        spend_usd: priced.then_some(cost_usd),
         tool_calls,
         context_tokens,
         context_window: window,
@@ -443,9 +468,16 @@ impl ConversationIndex {
         Ok(true)
     }
 
-    pub fn record_cost(&mut self, id: &str, cost_usd: Option<f64>, now_ms: u64) {
+    /// `priced` is whether this turn *could* have a price, which is not the
+    /// same question as whether one arrived. A cancelled Anthropic turn reports
+    /// no cost and is still priced work; a turn on a custom endpoint reports a
+    /// number that is not a price at all. Only the second makes the total
+    /// incomplete, so the caller says which it was rather than this guessing
+    /// from a missing figure.
+    pub fn record_cost(&mut self, id: &str, cost_usd: Option<f64>, priced: bool, now_ms: u64) {
         if let Some(entry) = self.get_mut(id) {
             entry.cost_usd += cost_usd.unwrap_or(0.0);
+            entry.priced &= priced;
             entry.updated_ms = now_ms;
         }
     }
@@ -538,7 +570,7 @@ mod tests {
         });
         idx.record_session("chat_1", "sess-1", 6).unwrap();
         idx.record_message("chat_1", "how is the board looking?", 7).unwrap();
-        idx.record_cost("chat_1", Some(0.25), 8);
+        idx.record_cost("chat_1", Some(0.25), true, 8);
 
         let raw = serde_json::to_string(&idx).unwrap();
         let back: ConversationIndex = serde_json::from_str(&raw).unwrap();
@@ -681,10 +713,10 @@ mod tests {
             line(3, RunEvent::Text { text: "on it".into() }),
             line(4, usage(1_500, 300, 4_000, "claude-opus-4-5-20251101")),
         ];
-        let t = totals(&lines, 0.42, None);
+        let t = totals(&lines, 0.42, true, None);
         // Both turns, prompt and answer and cache alike.
         assert_eq!(t.tokens, Some(1_200 + 5_800));
-        assert_eq!(t.spend_usd, 0.42);
+        assert_eq!(t.spend_usd, Some(0.42));
         // Context is the last turn only, not the running total.
         assert_eq!(t.context_tokens, Some(5_800));
         assert_eq!(t.context_window, Some(200_000));
@@ -724,7 +756,7 @@ mod tests {
                 },
             ),
         ];
-        assert_eq!(totals(&lines, 0.0, None).tool_calls, 2);
+        assert_eq!(totals(&lines, 0.0, true, None).tool_calls, 2);
     }
 
     #[test]
@@ -733,18 +765,18 @@ mod tests {
             line(1, RunEvent::UserMessage { text: "hello".into() }),
             line(2, RunEvent::Text { text: "hi".into() }),
         ];
-        let t = totals(&lines, 1.25, Some("sonnet"));
+        let t = totals(&lines, 1.25, true, Some("sonnet"));
         assert_eq!(t.tokens, None, "no usage lines means no honest total");
         assert_eq!(t.context_tokens, None);
         assert_eq!(t.context_pct, None, "a window with nothing in it is not 0%");
         // Spend is accounted elsewhere, so it survives an empty transcript.
-        assert_eq!(t.spend_usd, 1.25);
+        assert_eq!(t.spend_usd, Some(1.25));
     }
 
     #[test]
     fn an_unknown_model_leaves_the_context_blank_instead_of_guessing() {
         let lines = vec![line(1, usage(100, 10, 0, "qwen3.5:latest"))];
-        let t = totals(&lines, 0.0, None);
+        let t = totals(&lines, 0.0, true, None);
         assert_eq!(t.tokens, Some(110), "tokens are still countable");
         assert_eq!(t.context_window, None);
         assert_eq!(t.context_pct, None);
@@ -781,7 +813,7 @@ mod tests {
             ),
             line(2, usage(20, 2, 0, "claude-sonnet-4-6")),
         ];
-        let t = totals(&lines, 0.0, Some("opus"));
+        let t = totals(&lines, 0.0, true, Some("opus"));
         assert_eq!(t.model.as_deref(), Some("claude-sonnet-4-6"));
         assert_eq!(t.tokens, Some(33));
     }
@@ -798,7 +830,7 @@ mod tests {
                 model: None,
             },
         )];
-        let t = totals(&lines, 0.0, Some("haiku"));
+        let t = totals(&lines, 0.0, true, Some("haiku"));
         assert_eq!(t.context_window, Some(200_000));
         assert_eq!(t.context_pct, Some(50.0));
     }
@@ -812,6 +844,41 @@ mod tests {
         assert!(idx.get("chat_1").unwrap().project_id.is_none());
         assert_eq!(idx.get("chat_2").unwrap().project_id.as_deref(), Some("other"));
     }
+    /// O caso do GLM: a Relay dizia $18.26 por trabalho que custou $0.67,
+    /// porque o SDK factura contra as tabelas da Anthropic seja para onde for
+    /// que o `ANTHROPIC_BASE_URL` mandou o run. Suprimido o número na origem,
+    /// o que fica aqui é a diferença entre um total e um total *parcial* — e um
+    /// parcial não se mostra como se fosse a conta toda.
+    #[test]
+    fn a_thread_that_ran_somewhere_unpriced_reports_no_spend_at_all() {
+        let mut idx = index();
+        idx.insert(Conversation::new("chat_1", "director", None, 1));
+
+        // Dois turnos na Anthropic: o total é um total.
+        idx.record_cost("chat_1", Some(0.25), true, 2);
+        idx.record_cost("chat_1", Some(0.25), true, 3);
+        let priced = idx.get("chat_1").unwrap();
+        assert!(priced.priced);
+        assert_eq!(totals(&[], priced.cost_usd, priced.priced, None).spend_usd, Some(0.5));
+
+        // Um turno num endpoint que não factura em dólares contamina o total:
+        // a partir daqui a soma é sobre *alguns* turnos, o que não é um gasto.
+        idx.record_cost("chat_1", None, false, 4);
+        let mixed = idx.get("chat_1").unwrap();
+        assert!(!mixed.priced);
+        assert_eq!(mixed.cost_usd, 0.5, "o que se sabia continua somado");
+        assert_eq!(
+            totals(&[], mixed.cost_usd, mixed.priced, None).spend_usd,
+            None,
+            "mas o ecrã não pode dizer 0,50 como se fosse a conta toda"
+        );
+
+        // E não se recupera: um turno pago a seguir não volta a tornar o total
+        // completo, porque o buraco continua lá.
+        idx.record_cost("chat_1", Some(1.0), true, 5);
+        assert!(!idx.get("chat_1").unwrap().priced);
+    }
+
     /// A regra que decide se uma conversa fica ou não sem a sua memória. É
     /// assimétrica de propósito: um ponteiro bom deitado fora não se recupera,
     /// um ponteiro velho custa um turno.

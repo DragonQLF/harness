@@ -42,4 +42,15 @@ messages: number, cost_usd: number,
  * session. The transcript is still readable; this is what the UI says out
  * loud instead of pretending the thread continued.
  */
-resume_failed: boolean, };
+resume_failed: boolean, 
+/**
+ * Is `cost_usd` the whole story?
+ *
+ * False once any turn ran somewhere that does not bill in dollars — a
+ * custom endpoint, or Codex on a plan. The total is then a sum over *some*
+ * of the turns, which is not a spend, and the screen shows an em-dash
+ * rather than a number that reads as complete. See
+ * `RunSpec::prices_in_dollars` for why the figure would otherwise be
+ * wrong rather than merely partial.
+ */
+priced: boolean, };

@@ -424,6 +424,33 @@ impl Default for WorktreeMode {
 /// meeting point, not a record: nothing is kept in it, so moving it costs
 /// nothing. What guards it is unchanged, and is not the location — whoever
 /// connects checks the run key before adopting anything (#111).
+#[cfg(test)]
+mod pricing_tests {
+    use super::*;
+
+    /// The 27× over-report, as a rule. A run only has a price when Anthropic
+    /// actually billed it; the SDK's figure is otherwise an invoice from the
+    /// wrong tables, and a plan has no per-run figure at all.
+    #[test]
+    fn only_a_run_anthropic_actually_billed_has_a_price() {
+        let mut spec = RunSpec::new("x", std::path::PathBuf::from("/tmp"));
+        assert!(spec.prices_in_dollars(), "the Claude login, billed per token");
+
+        // The GLM case: the SDK still reports `total_cost_usd`, priced against
+        // Anthropic, for a run that went somewhere else entirely.
+        spec.provider = Some(ModelProvider {
+            base_url: "https://openrouter.ai/api/v1".into(),
+            auth_token: "k".into(),
+        });
+        assert!(!spec.prices_in_dollars());
+
+        // And a plan has no per-run price to report, endpoint or no endpoint.
+        let mut codex = RunSpec::new("x", std::path::PathBuf::from("/tmp"));
+        codex.backend = Backend::Codex;
+        assert!(!codex.prices_in_dollars());
+    }
+}
+
 pub mod sockets {
     use std::path::{Path, PathBuf};
 
@@ -744,6 +771,30 @@ pub struct RunSpec {
 }
 
 impl RunSpec {
+    /// Is a dollar figure from this run a **price**, or an invoice for work
+    /// that was never billed that way?
+    ///
+    /// The agent SDK reports `total_cost_usd` against Anthropic's tables and
+    /// has no idea the run was pointed somewhere else — `ANTHROPIC_BASE_URL` is
+    /// what redirects it, and the SDK never sees the bill. So a run through
+    /// OpenRouter, Ollama or anything else comes back priced as if Anthropic
+    /// had served it. Measured on a real card: Relay reported **$18.26** for
+    /// work that cost **$0.67**, a 27× over-report, and the operator was
+    /// choosing models on that number.
+    ///
+    /// Codex is the same problem in its other form: a ChatGPT plan has no
+    /// per-run price at all, so any figure would be invented rather than
+    /// merely wrong.
+    ///
+    /// One rule for both: a cost is real only when the run actually billed
+    /// against Anthropic. Everywhere else the honest answer is *nothing* —
+    /// which the screen shows as an em-dash rather than as `$0.00`, because a
+    /// zero claims the work was free (`CLAUDE.md`: nothing on screen is
+    /// decorative).
+    pub fn prices_in_dollars(&self) -> bool {
+        self.backend.meters_cost() && self.provider.is_none()
+    }
+
     pub fn new(prompt: impl Into<String>, cwd: PathBuf) -> Self {
         Self {
             prompt: prompt.into(),

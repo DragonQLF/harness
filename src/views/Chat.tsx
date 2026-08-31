@@ -525,7 +525,15 @@ function ThreadTotals() {
       <div className="text-md font-bold text-ink dark:text-ink-d">This thread</div>
       <div className="mt-3 flex flex-col gap-2.25">
         <Total label="Tokens" value={totals?.tokens != null ? num(totals.tokens) : "—"} />
-        <Total label="Spend" value={totals ? money(totals.spend_usd) : "—"} />
+        {/* Um travessão e não `$0.00`. `spend_usd` é nulo quando o fio correu,
+            no todo ou em parte, num sítio que não factura em dólares — e um
+            zero ali dizia que o trabalho foi de graça. O SDK factura sempre
+            contra as tabelas da Anthropic, portanto o número que ele dava para
+            um endpoint qualquer estava 27× acima do que a coisa custou. */}
+        <Total
+          label="Spend"
+          value={totals?.spend_usd != null ? money(totals.spend_usd) : "—"}
+        />
         <Total label="Tool calls" value={totals ? num(totals.tool_calls) : "—"} />
         <Total
           label="Context"

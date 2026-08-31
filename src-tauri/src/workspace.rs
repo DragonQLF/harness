@@ -484,8 +484,8 @@ impl Workspace {
         self.chats.record_session(id, session_id).await
     }
 
-    pub async fn record_chat_cost(&self, id: &str, cost_usd: Option<f64>) {
-        self.chats.record_cost(id, cost_usd).await
+    pub async fn record_chat_cost(&self, id: &str, cost_usd: Option<f64>, priced: bool) {
+        self.chats.record_cost(id, cost_usd, priced).await
     }
 
     pub async fn record_chat_resume_failure(&self, id: &str) {

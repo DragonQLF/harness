@@ -14,9 +14,12 @@ export type ConversationTotals = {
  */
 tokens: number | null, 
 /**
- * Carried here so the card is one response rather than two.
+ * Carried here so the card is one response rather than two. `None` when
+ * the thread ran, wholly or partly, somewhere that does not bill in
+ * dollars — a sum over some of the turns is not a spend, and a number
+ * here would be read as one.
  */
-spend_usd: number, 
+spend_usd: number | null, 
 /**
  * Tool invocations over the whole transcript, not just what is on screen.
  */

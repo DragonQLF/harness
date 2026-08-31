@@ -56,6 +56,9 @@ async fn pump_lines(
     child: &mut Child,
     tx: mpsc::Sender<RunEvent>,
     cancel: CancellationToken,
+    // Is a dollar figure from this run a price at all? See
+    // `RunSpec::prices_in_dollars`.
+    priced: bool,
 ) -> Result<Option<(Option<String>, Option<f64>, Option<String>, Option<String>)>, String> {
     let mut stdout = child
         .stdout
@@ -152,7 +155,14 @@ async fn pump_lines(
                     }
                     Some("result") => {
                         done_seen = true;
-                        if let Some(c) = v.get("total_cost_usd").and_then(|c| c.as_f64()) {
+                        // Só quando é um preço. Ver `RunSpec::prices_in_dollars`:
+                        // o SDK factura contra as tabelas da Anthropic seja
+                        // qual for o endpoint a que o run foi.
+                        if let Some(c) = v
+                            .get("total_cost_usd")
+                            .and_then(|c| c.as_f64())
+                            .filter(|_| priced)
+                        {
                             cost_usd = Some(c);
                         }
                         if let Some(t) = v.get("num_turns").and_then(|t| t.as_u64()) {
@@ -257,7 +267,7 @@ impl AgentPort for ClaudeCliAgent {
                 .spawn()
                 .map_err(|e| format!("failed to spawn '{program}': {e}"))?;
 
-            match pump_lines(&mut child, tx, cancel).await? {
+            match pump_lines(&mut child, tx, cancel, spec.prices_in_dollars()).await? {
                 None => Ok(RunOutcome::Cancelled),
                 Some((_sid, cost, _result, None)) => Ok(RunOutcome::completed(_sid, cost)),
                 Some((_sid, _cost, _result, Some(msg))) => Ok(RunOutcome::Failed {

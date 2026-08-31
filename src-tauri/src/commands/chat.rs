@@ -123,6 +123,7 @@ pub async fn conversation_totals(
             &ws,
             &conversation.id,
             conversation.cost_usd,
+            conversation.priced,
             profile_model.as_deref(),
         )
     })

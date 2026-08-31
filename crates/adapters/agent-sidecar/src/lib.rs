@@ -148,6 +148,7 @@ async fn drive(
     cancel: CancellationToken,
 ) -> Result<RunOutcome, String> {
     let id = uuid::Uuid::new_v4().to_string();
+    let priced = spec.prices_in_dollars();
     let run_msg = serde_json::json!({
         "type": "run",
         "id": id,
@@ -425,7 +426,15 @@ async fn drive(
                             }
                             "done" => {
                                 saw_done = true;
-                                cost_usd = ev.get("cost_usd").and_then(|c| c.as_f64());
+                                // Um número só é um preço quando o run foi
+                                // mesmo facturado pela Anthropic. Ver
+                                // `RunSpec::prices_in_dollars`: o SDK não sabe
+                                // para onde o `ANTHROPIC_BASE_URL` o mandou, e
+                                // factura na mesma contra as tabelas dela.
+                                cost_usd = ev
+                                    .get("cost_usd")
+                                    .and_then(|c| c.as_f64())
+                                    .filter(|_| priced);
                                 turns = ev
                                     .get("turns")
                                     .and_then(|t| t.as_u64())

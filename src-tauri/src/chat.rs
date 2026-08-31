@@ -398,6 +398,10 @@ async fn send_message(
     // asks — the alternative was a Codex conversation with no connectors and
     // no sign of why.
     let granted = harness_app::grants::for_profile(ws.paths.root(), &profile);
+    // Whether a dollar figure from this thread is a price at all. Asked of the
+    // profile and not of the number: a cancelled Anthropic turn also reports
+    // nothing, and that is priced work with no total yet.
+    let priced = profile.backend.meters_cost() && profile.resolved_provider(&settings).is_none();
 
     let spec = RunSpec {
         backend: profile.backend,
@@ -574,7 +578,7 @@ async fn send_message(
                         if let Some(sid) = session_id {
                             ws.record_chat_session(&conversation_id, sid).await;
                         }
-                        ws.record_chat_cost(&conversation_id, *cost_usd).await;
+                        ws.record_chat_cost(&conversation_id, *cost_usd, priced).await;
                     }
                     _ => {}
                 }
@@ -854,12 +858,14 @@ pub fn totals(
     ws: &Workspace,
     conversation_id: &str,
     cost_usd: f64,
+    priced: bool,
     profile_model: Option<&str>,
 ) -> Result<harness_app::conversations::ConversationTotals, String> {
     let lines = transcript(ws, conversation_id)?;
     Ok(harness_app::conversations::totals(
         &lines,
         cost_usd,
+        priced,
         profile_model,
     ))
 }

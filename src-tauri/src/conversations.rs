@@ -96,6 +96,7 @@ enum Msg {
     RecordCost {
         id: String,
         cost_usd: Option<f64>,
+        priced: bool,
         reply: oneshot::Sender<()>,
     },
     RecordResumeFailure {
@@ -323,9 +324,10 @@ impl Conversations {
                 Msg::RecordCost {
                     id,
                     cost_usd,
+                    priced,
                     reply,
                 } => {
-                    self.index.record_cost(&id, cost_usd, now);
+                    self.index.record_cost(&id, cost_usd, priced, now);
                     self.save_quietly();
                     self.publish();
                     let _ = reply.send(());
@@ -516,11 +518,12 @@ impl ConversationsHandle {
             .await;
     }
 
-    pub async fn record_cost(&self, id: &str, cost_usd: Option<f64>) {
+    pub async fn record_cost(&self, id: &str, cost_usd: Option<f64>, priced: bool) {
         let _ = self
             .ask(|reply| Msg::RecordCost {
                 id: id.to_string(),
                 cost_usd,
+                priced,
                 reply,
             })
             .await;
