@@ -18,6 +18,13 @@ import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+/** Em Windows não há socket de domínio nesta pilha, e é por isso que o porto lá
+ *  continua pelos canos. Estes dois levantam o sidecar a servir num caminho que
+ *  lá não existe; o que eles guardam não se aplica a essa plataforma, e correr
+ *  lá só dava vermelho por uma razão que não é um defeito. A contabilidade do
+ *  `bus`, essa, é aritmética e corre em todo o lado. */
+const noSockets = process.platform === "win32";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, "index.mjs"), "utf8");
 
@@ -108,7 +115,7 @@ function firstLine(socket) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-test("o sidecar sobrevive ao cliente e volta a atender", async (t) => {
+test("o sidecar sobrevive ao cliente e volta a atender", { skip: noSockets }, async (t) => {
   const sock = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-sock-")), "run.sock");
   const child = spawn(
     process.execPath,
@@ -150,7 +157,7 @@ test("o sidecar sobrevive ao cliente e volta a atender", async (t) => {
   second.destroy();
 });
 
-test("o socket é apagado à saída, para ninguém bater a uma porta que não abre", async (t) => {
+test("o socket é apagado à saída, para ninguém bater a uma porta que não abre", { skip: noSockets }, async (t) => {
   const sock = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-sock-")), "run.sock");
   const child = spawn(process.execPath, [path.join(here, "index.mjs"), "--serve", sock], {
     stdio: ["ignore", "ignore", "ignore"],

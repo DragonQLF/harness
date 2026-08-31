@@ -55,7 +55,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 24 e não 20: o `test:ui` corre TypeScript directamente, e só a
+          # partir do 22.18/23.6 é que o node o lê sem passo de compilação.
+          # No 20 falhava com ERR_UNKNOWN_FILE_EXTENSION — e o 20 já vinha a ser
+          # forçado para 24 pelos próprios runners.
+          node-version: 24
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
