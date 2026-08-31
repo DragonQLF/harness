@@ -112,3 +112,34 @@ export function detailOf(content, cap = 8000) {
   const text = String(content ?? "");
   return text.length > cap ? text.slice(0, cap) + "\n…[truncated]" : text;
 }
+
+/** Quantas linhas uma chamada acrescentou e tirou, quando isso se sabe.
+ *
+ *  Do *input* da chamada e não do resultado: um `Edit` traz as duas versões do
+ *  troço, portanto a conta é exacta e faz-se sem ler o disco. `null` quando a
+ *  ferramenta não mexe em linhas — e `null` é o que faz o cabeçalho ficar sem
+ *  número em vez de dizer zero, que é uma afirmação diferente.
+ *
+ *  Um `Write` conta o que escreveu e não diz o que apagou: o conteúdo anterior
+ *  não vem na chamada, e adivinhá-lo era inventar metade da conta. */
+export function countLines(name, input = {}) {
+  const lines = (v) => (typeof v === "string" && v !== "" ? v.split("\n").length : 0);
+  switch (name) {
+    case "Edit":
+      return { added: lines(input.new_string), removed: lines(input.old_string) };
+    case "MultiEdit": {
+      const edits = Array.isArray(input.edits) ? input.edits : [];
+      return edits.reduce(
+        (acc, e) => ({
+          added: acc.added + lines(e?.new_string),
+          removed: acc.removed + lines(e?.old_string),
+        }),
+        { added: 0, removed: 0 },
+      );
+    }
+    case "Write":
+      return { added: lines(input.content), removed: 0 };
+    default:
+      return null;
+  }
+}

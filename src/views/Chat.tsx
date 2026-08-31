@@ -24,7 +24,7 @@ import {
   type PendingApproval,
 } from "../lib/types";
 import { toolName, useStore, type ChatMsg } from "../state/store";
-import { summariseTools } from "../state/toolgroup";
+import { countGroupLines, summariseTools } from "../state/toolgroup";
 import { api, reason } from "../lib/ipc";
 import { mono } from "../components/ui";
 
@@ -335,6 +335,7 @@ function ToolGroup({ tools }: { tools: ChatMsg[] }) {
   const shown = open ?? (flying || tools.length === 1);
 
   const summary = summariseTools(tools);
+  const lines = countGroupLines(tools);
 
   if (tools.length === 1 && !shown) {
     return <Receipt msg={tools[0]} />;
@@ -352,6 +353,12 @@ function ToolGroup({ tools }: { tools: ChatMsg[] }) {
           {shown ? "⌄" : "›"}
         </span>
         <span className="min-w-0 truncate">{summary}</span>
+        {lines && (
+          <span className={cx(mono, "shrink-0 text-11")}>
+            <span className="text-ok dark:text-ok-d">+{lines.added}</span>{" "}
+            <span className="text-bad dark:text-bad-d">−{lines.removed}</span>
+          </span>
+        )}
         {failed > 0 && (
           <span className="shrink-0 text-bad dark:text-bad-d">
             {failed} failed

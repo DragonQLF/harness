@@ -43,3 +43,26 @@ export function summariseTools(tools: ChatMsg[]): string {
   return startsWithVerb ? said.charAt(0).toUpperCase() + said.slice(1) : said;
 }
 
+/** Quantas linhas um grupo mexeu ao todo, ou nada.
+ *
+ *  `null` quando nenhuma chamada do grupo soube dizer — um grupo só de leituras
+ *  e comandos não mexeu em linha nenhuma que se possa contar, e `+0 −0` ali
+ *  seria uma afirmação sobre trabalho que ninguém mediu. Uma chamada que sabe
+ *  entre dez que não sabem conta na mesma: o que se mostra é o que se sabe, não
+ *  uma média.
+ */
+export function countGroupLines(
+  tools: ChatMsg[],
+): { added: number; removed: number } | null {
+  let added = 0;
+  let removed = 0;
+  let known = false;
+  for (const t of tools) {
+    if (t.added != null || t.removed != null) {
+      known = true;
+      added += t.added ?? 0;
+      removed += t.removed ?? 0;
+    }
+  }
+  return known ? { added, removed } : null;
+}

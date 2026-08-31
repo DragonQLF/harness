@@ -31,6 +31,10 @@ export interface ChatMsg {
   detail?: string | null;
   toolUseId?: string | null;
   parentToolUseId?: string | null;
+  /** Tool bubble only: lines this call adds and removes, when the call itself
+   *  said so. Absent — never zero — for a tool that does not touch lines. */
+  added?: number | null;
+  removed?: number | null;
   /** User bubble only: this was said while a turn was already running, and the
    *  backend has not yet said the model read it. Never a guess — it is set from
    *  the id `chat_queue` answered with, and cleared by the `user_read` that

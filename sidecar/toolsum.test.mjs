@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { summarizeUse, summarizeResult, detailOf } from "./toolsum.mjs";
+import { countLines, summarizeUse, summarizeResult, detailOf } from "./toolsum.mjs";
 
 test("use summaries name the attempt per tool", () => {
   assert.equal(
@@ -87,4 +87,27 @@ test("um Read de imagem guarda o caminho, e o resto continua pelo nome", () => {
   assert.equal(summarizeUse("Read", { file_path: "/a/b/logo.svg" }), "logo.svg");
   // Escrever num ficheiro não é olhar para ele.
   assert.equal(summarizeUse("Write", { file_path: "/a/b/hero.png" }), "hero.png");
+});
+
+/** As linhas contam-se do *input* da chamada, que traz as duas versões do
+ *  troço — exacto, e sem ler o disco. */
+test("um Edit conta as duas versões, e o que não mexe em linhas não conta", () => {
+  assert.deepEqual(
+    countLines("Edit", { old_string: "a\nb", new_string: "a\nb\nc\nd" }),
+    { added: 4, removed: 2 },
+  );
+  assert.deepEqual(
+    countLines("MultiEdit", {
+      edits: [
+        { old_string: "a", new_string: "a\nb" },
+        { old_string: "x\ny", new_string: "" },
+      ],
+    }),
+    { added: 2, removed: 3 },
+  );
+  // Um Write não sabe o que apagou — o conteúdo anterior não vem na chamada —,
+  // portanto diz o que escreveu e cala o resto em vez de o adivinhar.
+  assert.deepEqual(countLines("Write", { content: "one\ntwo" }), { added: 2, removed: 0 });
+  assert.equal(countLines("Bash", { command: "ls" }), null);
+  assert.equal(countLines("Read", { file_path: "/a/b" }), null);
 });

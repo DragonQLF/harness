@@ -185,6 +185,9 @@ export interface RunUpdate {
   run_id: string;
   ts_ms: number;
   kind: RunEventKind;
+  /** On `tool_use`: lines added and removed by this call. See `RunLogLine`. */
+  added?: number | null;
+  removed?: number | null;
   session_id?: string | null;
   text?: string;
   tool?: string;
@@ -284,6 +287,13 @@ export interface AttachmentPreview {
 export interface RunLogLine {
   ts_ms: number;
   kind: RunEventKind;
+  /** On a `tool_use` line: how many lines the call adds and removes, when the
+   *  call itself said so. Absent — never zero — for a tool that does not touch
+   *  lines, so a group header can show no number instead of claiming nothing
+   *  changed. */
+  added?: number | null;
+  removed?: number | null;
+
   text?: string;
   tool?: string;
   summary?: string;

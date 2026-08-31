@@ -401,7 +401,14 @@ async fn drive(
                                     .and_then(|t| t.as_str())
                                     .map(str::to_string);
                                 let _ =
-                                    tx.send(RunEvent::ToolUse { tool, summary, tool_use_id, parent_tool_use_id })
+                                    tx.send(RunEvent::ToolUse {
+                                        tool,
+                                        summary,
+                                        tool_use_id,
+                                        parent_tool_use_id,
+                                        added: ev.get("added").and_then(|v| v.as_u64()).map(|n| n as u32),
+                                        removed: ev.get("removed").and_then(|v| v.as_u64()).map(|n| n as u32),
+                                    })
                                         .await;
                             }
                             "tool_result" => {
@@ -526,6 +533,8 @@ async fn drive(
                                 summary: reply.text.chars().take(160).collect(),
                                 tool_use_id: None,
                                 parent_tool_use_id: None,
+                                added: None,
+                                removed: None,
                             })
                             .await;
 

@@ -666,6 +666,10 @@ impl Session {
                     summary: truncate(&item.get("arguments").map(|a| a.to_string()).unwrap_or_default(), 200),
                     tool_use_id: Some(id.to_string()),
                     parent_tool_use_id: None,
+                    // O Codex não diz quantas linhas um `fileChange` mexe nesta
+                    // notificação, portanto não se diz.
+                    added: None,
+                    removed: None,
                 })
                 .await;
                 return;
@@ -691,6 +695,8 @@ impl Session {
             summary,
             tool_use_id: Some(id.to_string()),
             parent_tool_use_id: None,
+                    added: None,
+                    removed: None,
         })
         .await;
     }

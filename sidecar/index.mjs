@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { inspect } from "./pathguard.mjs";
-import { summarizeUse, summarizeResult, detailOf } from "./toolsum.mjs";
+import { summarizeUse, summarizeResult, detailOf, countLines } from "./toolsum.mjs";
 
 const controllers = new Map();
 const approvals = new Map();
@@ -1076,6 +1076,9 @@ async function handleRun({ id, spec }) {
                   summary: summarizeUse(block.name, block.input),
                   tool_use_id: block.id ?? null,
                   parent_tool_use_id: parent,
+                  // Quantas linhas isto mexe, quando a chamada o diz. Ausente
+                  // — e não zero — quando a ferramenta não mexe em linhas.
+                  ...(countLines(block.name, block.input) ?? {}),
                 },
               });
             }

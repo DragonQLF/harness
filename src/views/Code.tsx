@@ -385,18 +385,43 @@ export function Code() {
   const [deciding, setDeciding] = useState(false);
   // Bumped by the engine's own broadcast: this screen re-reads, it never polls.
   const [beat, setBeat] = useState(0);
+  const pending = useRef<number | null>(null);
+
+  /** Uma batida junta as que vierem logo a seguir.
+   *
+   *  O `beat` é dependência de cinco leituras — a fila, os runs, a árvore, os
+   *  hunks e o ficheiro aberto —, portanto cada batida relê o repositório
+   *  inteiro e volta a passar o shiki por cima. Uma rajada de resultados de
+   *  ferramentas chega em dezenas de eventos seguidos; sem juntar, são dezenas
+   *  de releituras para chegar ao mesmo sítio. */
+  const beatSoon = useCallback(() => {
+    if (pending.current != null) return;
+    pending.current = window.setTimeout(() => {
+      pending.current = null;
+      setBeat((n) => n + 1);
+    }, 250);
+  }, []);
 
   useEffect(() => {
     const subs: Promise<UnlistenFn>[] = [
       events.onEngineEvent((e) => {
-        if (e.project_id === projectId) setBeat((n) => n + 1);
+        if (e.project_id === projectId) beatSoon();
       }),
       events.onRunUpdate((u) => {
-        if (u.project_id === projectId) setBeat((n) => n + 1);
+        // Só o que pode ter mexido em ficheiros. Isto reagia a **todos** os
+        // eventos de um run, e um `delta` é um token: com um modelo a escrever,
+        // o ecrã relia a árvore e o diff dezenas de vezes por segundo e
+        // re-realçava tudo de cada vez. Um token não muda um ficheiro; um
+        // resultado de ferramenta pode, e o fim do run também.
+        if (u.project_id !== projectId) return;
+        if (u.kind === "tool_result" || u.kind === "done" || u.kind === "failed") beatSoon();
       }),
     ];
-    return () => subs.forEach((s) => void s.then((off) => off()));
-  }, [projectId]);
+    return () => {
+      subs.forEach((s) => void s.then((off) => off()));
+      if (pending.current != null) window.clearTimeout(pending.current);
+    };
+  }, [projectId, beatSoon]);
 
   const [queue, reloadQueue] = useRead<QueueRow[]>(
     projectId ? () => api.reviewQueue(projectId) : null,

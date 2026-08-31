@@ -298,6 +298,8 @@ mod tests {
                     summary: String::new(),
                     tool_use_id: Some(format!("t{n}")),
                     parent_tool_use_id: None,
+                    added: None,
+                    removed: None,
                 },
             ));
             lines.push(line(
@@ -325,11 +327,11 @@ mod tests {
     #[test]
     fn reasons_that_differ_group_apart_and_whitespace_does_not_split_one() {
         let lines = vec![
-            line(NOW, RunEvent::ToolUse { tool: "Bash".into(), summary: String::new(), tool_use_id: Some("a".into()), parent_tool_use_id: None }),
+            line(NOW, RunEvent::ToolUse { tool: "Bash".into(), summary: String::new(), tool_use_id: Some("a".into()), parent_tool_use_id: None, added: None, removed: None }),
             line(NOW, RunEvent::ToolResult { tool_use_id: "a".into(), ok: false, summary: "failed — denied by operator".into(), detail: None }),
-            line(NOW, RunEvent::ToolUse { tool: "Bash".into(), summary: String::new(), tool_use_id: Some("b".into()), parent_tool_use_id: None }),
+            line(NOW, RunEvent::ToolUse { tool: "Bash".into(), summary: String::new(), tool_use_id: Some("b".into()), parent_tool_use_id: None, added: None, removed: None }),
             line(NOW, RunEvent::ToolResult { tool_use_id: "b".into(), ok: false, summary: "failed — denied\nby   operator".into(), detail: None }),
-            line(NOW, RunEvent::ToolUse { tool: "Read".into(), summary: String::new(), tool_use_id: Some("c".into()), parent_tool_use_id: None }),
+            line(NOW, RunEvent::ToolUse { tool: "Read".into(), summary: String::new(), tool_use_id: Some("c".into()), parent_tool_use_id: None, added: None, removed: None }),
             line(NOW, RunEvent::ToolResult { tool_use_id: "c".into(), ok: false, summary: "failed — file not found".into(), detail: None }),
         ];
         let report = aggregate(&[], &lines, &[], NOW, 7);

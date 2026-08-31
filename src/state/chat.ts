@@ -65,6 +65,8 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
         tool,
         toolUseId: line.tool_use_id ?? null,
         parentToolUseId: line.parent_tool_use_id ?? null,
+        added: line.added ?? null,
+        removed: line.removed ?? null,
         ok: null,
         detail: null,
       } as ChatMsg;
@@ -461,6 +463,8 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
             tool,
             toolUseId: u.tool_use_id ?? null,
             parentToolUseId: u.parent_tool_use_id ?? null,
+            added: u.added ?? null,
+            removed: u.removed ?? null,
             ok: null,
             detail: null,
           },

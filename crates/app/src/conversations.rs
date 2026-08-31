@@ -734,6 +734,8 @@ mod tests {
                     summary: String::new(),
                     tool_use_id: Some("t1".into()),
                     parent_tool_use_id: None,
+                    added: None,
+                    removed: None,
                 },
             ),
             line(
@@ -753,6 +755,8 @@ mod tests {
                     summary: String::new(),
                     tool_use_id: Some("t2".into()),
                     parent_tool_use_id: None,
+                    added: None,
+                    removed: None,
                 },
             ),
         ];

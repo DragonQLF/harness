@@ -918,6 +918,15 @@ pub enum RunEvent {
         tool_use_id: Option<String>,
         #[serde(default)]
         parent_tool_use_id: Option<String>,
+        /// Lines this call adds and removes, when the call itself says so — an
+        /// `Edit` carries both versions of the stretch, so the count is exact
+        /// and costs no disk read. Absent, not zero, for a tool that does not
+        /// touch lines: the group header then shows no number instead of
+        /// claiming nothing changed.
+        #[serde(default)]
+        added: Option<u32>,
+        #[serde(default)]
+        removed: Option<u32>,
     },
     /// What actually happened, matched to the call by id. Persisted like the
     /// ToolUse — a failed Bash that reads as a clean one is #41's shape again,

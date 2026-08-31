@@ -362,6 +362,8 @@ mod tests {
                     summary: "lib.rs".into(),
                     tool_use_id: None,
                     parent_tool_use_id: None,
+                    added: None,
+                    removed: None,
                 },
             },
         )

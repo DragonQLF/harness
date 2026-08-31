@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summariseTools } from "./toolgroup.ts";
+import { countGroupLines, summariseTools } from "./toolgroup.ts";
 import type { ChatMsg } from "./bubbles.ts";
 
 const call = (tool: string): ChatMsg => ({ role: "tool", text: "", ts: 0, tool, ok: true });
@@ -35,4 +35,30 @@ test("o que não se reconhece conta-se pelo nome", () => {
 
 test("um grupo vazio não diz nada", () => {
   assert.equal(summariseTools([]), "");
+});
+
+const edit = (added: number, removed: number): ChatMsg => ({
+  role: "tool",
+  text: "",
+  ts: 0,
+  tool: "Edit",
+  ok: true,
+  added,
+  removed,
+});
+
+/** `+0 −0` é uma afirmação sobre trabalho que ninguém mediu. Um grupo que não
+ *  mexeu em linhas não mostra número nenhum. */
+test("um grupo sem nada para contar não conta nada", () => {
+  assert.equal(countGroupLines([call("Bash"), call("Read")]), null);
+  assert.equal(countGroupLines([]), null);
+});
+
+test("o que se sabe soma-se, mesmo entre chamadas que não sabem", () => {
+  assert.deepEqual(countGroupLines([edit(7, 0), edit(56, 7), call("Bash")]), {
+    added: 63,
+    removed: 7,
+  });
+  // Uma só chamada que saiba chega para haver número.
+  assert.deepEqual(countGroupLines([call("Bash"), edit(2, 1)]), { added: 2, removed: 1 });
 });

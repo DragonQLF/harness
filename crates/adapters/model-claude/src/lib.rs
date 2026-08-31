@@ -147,7 +147,7 @@ async fn pump_lines(
                                         .get("input")
                                         .map(summarize_input)
                                         .unwrap_or_default();
-                                    emit(&tx, RunEvent::ToolUse { tool, summary, tool_use_id: None, parent_tool_use_id: None }).await;
+                                    emit(&tx, RunEvent::ToolUse { tool, summary, tool_use_id: None, parent_tool_use_id: None, added: None, removed: None }).await;
                                 }
                                 _ => {}
                             }
