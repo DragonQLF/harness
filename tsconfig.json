@@ -21,5 +21,10 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  /* Os testes de lógica pura correm no node (`pnpm run test:ui`), que os lê
+     directamente. Ficam fora daqui porque importam `node:test`, e o `src` é
+     compilado contra o browser — pô-los cá dentro obrigava a arrastar os tipos
+     do node para a app inteira só por causa de dois `import`. */
+  "exclude": ["src/**/*.test.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

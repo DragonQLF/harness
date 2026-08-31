@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../lib/ipc";
+import { appendStreamed, type ChatMsg } from "./bubbles";
 import type {
   BackgroundTask,
   Conversation,
@@ -20,29 +21,7 @@ import type {
 
 const DIRECTOR = "director";
 
-export interface ChatMsg {
-  /** `notice` is Relay itself talking: a failed resume, a cancelled turn.
-   *  `tool` is what the agent tried (`summary`) — its result arrives as a
-   *  second tool bubble matched by id, green or red, expandable. */
-  role: "user" | "agent" | "notice" | "tool";
-  text: string;
-  /** When it was said, so the transcript can date itself. */
-  ts: number;
-  /** Tool bubble only: which tool, whether its result closed it, and the
-   *  full output kept for expansion (#28: never dumped inline). */
-  tool?: string;
-  ok?: boolean | null;
-  detail?: string | null;
-  toolUseId?: string | null;
-  parentToolUseId?: string | null;
-  /** User bubble only: this was said while a turn was already running, and the
-   *  backend has not yet said the model read it. Never a guess — it is set from
-   *  the id `chat_queue` answered with, and cleared by the `user_read` that
-   *  names the same id. */
-  queueId?: string | null;
-  pending?: boolean;
-}
-
+export type { ChatMsg } from "./bubbles";
 /** One stored transcript line as a chat bubble. Deltas never reach here: the
  *  final `text` is the record (the backend does not log them). */
 function toChatMsg(line: RunLogLine): ChatMsg | null {
@@ -333,17 +312,25 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     [],
   );
 
+  /** O balão onde o turno em curso está a escrever. Nulo entre turnos. */
+  const streaming = useRef<string | null>(null);
+
   const appendToDirector = useCallback(
     (text: string) =>
       setChat((cs) => {
-        const last = cs[cs.length - 1];
-        if (last && last.role === "agent") {
-          return [...cs.slice(0, -1), { ...last, text: last.text + text }];
-        }
-        return [...cs, { role: "agent", text, ts: Date.now() }];
+        const placed = appendStreamed(cs, streaming.current, text, () =>
+          `s${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        );
+        streaming.current = placed.streamId;
+        return placed.list;
       }),
     [],
   );
+
+  /** O turno acabou: o balão dele fecha, e o que vier a seguir abre outro. */
+  const endStream = useCallback(() => {
+    streaming.current = null;
+  }, []);
 
   /** O que chegou desde o último quadro e ainda não foi para o estado.
    *
@@ -383,6 +370,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       frame.current = null;
     }
     held.current = { text: "", thinking: "", clearThinking: false };
+    streaming.current = null;
   }, []);
 
   const schedule = useCallback(() => {
@@ -412,6 +400,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
 
     switch (u.kind) {
       case "started":
+        endStream();
         // Por-processo: nada é emitido ao arrancar, por isso quem consome tem
         // de voltar ao conjunto vazio a cada sessão. Sem isto, tarefas de uma
         // execução anterior ficavam no ecrã como se ainda corressem.
@@ -496,6 +485,10 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         // yet" mark — the screen never decides that for itself.
         const id = u.queue_id;
         if (id) {
+          // A resposta em curso acabou de ser interrompida por esta: fecha-se o
+          // balão dela, e o que vier a seguir abre um novo — que fica por baixo
+          // da mensagem, porque é a resposta a ela.
+          endStream();
           readAlready.current.add(id);
           setChat((cs) =>
             cs.map((m) => (m.queueId === id && m.pending ? { ...m, pending: false } : m)),
@@ -529,6 +522,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         break;
       case "done":
         streamedRef.current = false;
+        endStream();
         setChatThinking("");
         setChatBusy(false);
         // A execução acabou e leva consigo o que levantou (#108): o que ficasse
@@ -537,6 +531,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         break;
       case "failed":
         streamedRef.current = false;
+        endStream();
         setChatThinking("");
         setChatBusy(false);
         setBackgroundTasks([]);
@@ -547,7 +542,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         break;
     }
     return true;
-  }, [appendToDirector, flush, schedule]);
+  }, [appendToDirector, endStream, flush, schedule]);
 
   const refreshConversations = useCallback(async () => {
     try {

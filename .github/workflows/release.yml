@@ -78,6 +78,7 @@ jobs:
           pnpm exec tsc --noEmit
           pnpm run check:styles
           pnpm run check:store
+          pnpm run test:ui
           cargo test --workspace
           pnpm run test:sidecar
 
