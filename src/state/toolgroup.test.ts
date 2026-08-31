@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countGroupLines, groupView, summariseTools } from "./toolgroup.ts";
+import { countGroupLines, decodePath, groupView, summariseTools } from "./toolgroup.ts";
 import type { ChatMsg } from "./bubbles.ts";
 
 const call = (tool: string): ChatMsg => ({ role: "tool", text: "", ts: 0, tool, ok: true });
@@ -83,4 +83,19 @@ test("um grupo a meio abre-se sozinho, um acabado fecha-se", () => {
   // E o operador ganha sempre à omissão, nos dois sentidos.
   assert.equal(groupView(3, true, false), "closed");
   assert.equal(groupView(3, false, true), "open");
+});
+
+/** O bug que se viu: a imagem existia, o caminho estava certo, e o que se
+ *  pedia ao disco era "Application%20Support" — que nunca foi um sítio. */
+test("um src de markdown volta a ser um caminho", () => {
+  assert.equal(
+    decodePath("/Users/f/Library/Application%20Support/com.harness.app/x.png"),
+    "/Users/f/Library/Application Support/com.harness.app/x.png",
+  );
+  // Um caminho que ninguém codificou passa intacto — é o caso do `Read`, que
+  // traz o caminho do disco e não uma URL.
+  assert.equal(decodePath("/tmp/shots/a b.png"), "/tmp/shots/a b.png");
+  // E um `%` literal não faz rebentar nada: fica o que veio, que é a leitura
+  // certa quando ninguém codificou.
+  assert.equal(decodePath("/tmp/100%/x.png"), "/tmp/100%/x.png");
 });

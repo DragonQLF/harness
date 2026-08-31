@@ -24,7 +24,7 @@ import {
   type PendingApproval,
 } from "../lib/types";
 import { toolName, useStore, type ChatMsg } from "../state/store";
-import { countGroupLines, groupView, summariseTools } from "../state/toolgroup";
+import { countGroupLines, decodePath, groupView, summariseTools } from "../state/toolgroup";
 import { api, reason } from "../lib/ipc";
 import { mono } from "../components/ui";
 
@@ -114,7 +114,7 @@ function InlineImage({ src, alt }: { src?: string; alt?: string }) {
     if (!local || !src) return;
     let alive = true;
     api
-      .previewImage(src)
+      .previewImage(decodePath(src))
       .then((url) => alive && setData(url))
       .catch((e) => alive && setFailed(reason(e)));
     return () => {

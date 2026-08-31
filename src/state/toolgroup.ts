@@ -90,3 +90,20 @@ export function groupView(
   if (count <= 1) return "chip";
   return (chosen ?? flying) ? "open" : "closed";
 }
+
+/** O caminho que a marcação diz, como o disco o escreve.
+ *
+ *  Um `src` de markdown é uma **URL**, portanto o espaço de "Application
+ *  Support" chega aqui como `%20` — e `%20` não é um ficheiro. Era o bug: a
+ *  imagem existia, o caminho estava certo, e o que se pedia ao Rust era um
+ *  caminho que nunca existiu.
+ *
+ *  Um caminho com um `%` literal faz o `decodeURIComponent` rebentar; nesse
+ *  caso fica o que veio, que é a leitura certa — ninguém o codificou. */
+export function decodePath(src: string): string {
+  try {
+    return decodeURIComponent(src);
+  } catch {
+    return src;
+  }
+}

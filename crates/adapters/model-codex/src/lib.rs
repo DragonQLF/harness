@@ -799,7 +799,12 @@ impl Session {
                     .and_then(Value::as_str)
                     .unwrap_or("generated image");
                 self.emit(RunEvent::Text {
-                    text: format!("![{}]({})", alt.replace(']', ""), path),
+                    // `<...>` à volta do caminho: um destino de markdown com
+                    // espaços — e "Application Support" tem um — não se escreve
+                    // em `](...)` nu, que o analisador corta no espaço ou
+                    // percent-codifica. Os angulares dizem "isto é um destino
+                    // só, do princípio ao fim".
+                    text: format!("![{}](<{}>)", alt.replace(']', ""), path),
                 })
                 .await;
             }
