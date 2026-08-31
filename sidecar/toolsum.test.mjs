@@ -73,3 +73,18 @@ test("detail is capped so one runaway cannot bloat the log", () => {
   assert.ok(d.length < 8100);
   assert.ok(d.endsWith("[truncated]"));
 });
+
+/** Uma leitura de imagem guarda o caminho; as outras continuam a dizer só o
+ *  nome. É o caminho que deixa a janela desenhá-la — o nome não abre nada. */
+test("um Read de imagem guarda o caminho, e o resto continua pelo nome", () => {
+  assert.equal(
+    summarizeUse("Read", { file_path: "/tmp/shots/image-1788207889430.png" }),
+    "/tmp/shots/image-1788207889430.png",
+  );
+  assert.equal(summarizeUse("Read", { file_path: "/a/b/notes.md" }), "notes.md");
+  // Um SVG não conta: embutido é um documento que pode trazer script, e por
+  // isso o `preview` também o recusa.
+  assert.equal(summarizeUse("Read", { file_path: "/a/b/logo.svg" }), "logo.svg");
+  // Escrever num ficheiro não é olhar para ele.
+  assert.equal(summarizeUse("Write", { file_path: "/a/b/hero.png" }), "hero.png");
+});

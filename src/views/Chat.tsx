@@ -214,6 +214,14 @@ const SPINNING = (
 /** One tool receipt. In flight while its result has not landed, then closed by
  *  the result — green when it worked, red when it did not. The full output is
  *  one click away rather than dumped into the thread (#28). */
+/** Uma leitura que se pode ver.
+ *
+ *  Um `Read` de uma imagem é a única leitura cujo resultado é para *olhar*, e
+ *  chegava como uma linha a dizer o nome do ficheiro. O caminho vem inteiro do
+ *  `toolsum` só neste caso; a etiqueta corta-o para o nome, e o que abre é a
+ *  imagem em vez de um bloco de texto que não existe. */
+const IMAGE_PATH = /^[^\s]*[\\/][^\s\\/]+\.(png|jpe?g|webp|gif)$/i;
+
 function Receipt({ msg }: { msg: ChatMsg }) {
   const [open, setOpen] = useState(false);
   const flying = msg.ok == null;
@@ -223,7 +231,9 @@ function Receipt({ msg }: { msg: ChatMsg }) {
   const said = (msg.text ?? "").replace(/^\s*(mcp__[a-z0-9_]+?__)?[a-z0-9_.-]+\s*[:·]\s*/i, (m) =>
     toolName(m.replace(/\s*[:·]\s*$/, "")) === msg.tool ? "" : m,
   );
-  const label = [msg.tool, said.trim()].filter(Boolean).join(" · ") || "tool";
+  const picture = msg.tool === "Read" && IMAGE_PATH.test(said.trim()) ? said.trim() : null;
+  const shownSaid = picture ? picture.split(/[\\/]/).pop()! : said.trim();
+  const label = [msg.tool, shownSaid].filter(Boolean).join(" · ") || "tool";
   const skin = cx(
     "flex max-w-full items-center gap-1.75 rounded-9px border px-2.5 py-1.5 font-mono text-11 font-medium",
     flying
@@ -238,7 +248,7 @@ function Receipt({ msg }: { msg: ChatMsg }) {
     </>
   );
 
-  if (!msg.detail) {
+  if (!msg.detail && !picture) {
     return (
       <span className={skin} title={label}>
         {face}
@@ -256,7 +266,12 @@ function Receipt({ msg }: { msg: ChatMsg }) {
       >
         {face}
       </button>
-      {open && (
+      {open && picture && (
+        <div className="w-full">
+          <InlineImage src={picture} alt={shownSaid} />
+        </div>
+      )}
+      {open && msg.detail && (
         <pre className="max-h-[240px] w-full overflow-auto whitespace-pre-wrap break-words rounded-sm border border-line2 bg-active px-2.5 py-2 font-mono text-sm leading-[1.7] text-muted dark:border-line2-d dark:bg-active-d dark:text-muted-d">
           {msg.detail}
         </pre>
@@ -895,6 +910,7 @@ export function Chat() {
     draftProfile,
     approvals,
     newConversation,
+    chatWithProfile,
     pinConversation,
     renameConversation,
     archiveConversation,
@@ -909,6 +925,7 @@ export function Chat() {
   const [dragging, setDragging] = useState(false);
   const [pickProfile, setPickProfile] = useState(false);
   const [pickProject, setPickProject] = useState(false);
+  const [pickAgent, setPickAgent] = useState(false);
   /** How hard to think, from here on. Null is the model's own default.
    *
    *  Sticky rather than per-message: chosen when a problem needs it and kept
@@ -1111,8 +1128,53 @@ export function Chat() {
       <div className="flex h-full min-w-[860px] flex-1 flex-row items-stretch gap-4">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3.5">
           <div className="flex-none">
-            <div className="text-title font-bold text-ink dark:text-ink-d">
-              {speaker?.name ?? "Director"}
+            {/* Trocar de agente é trocar de fio, não trocar o dono deste.
+                Uma sessão pertence ao perfil que a abriu — o modelo dela, as
+                ferramentas dela —, portanto reatribuir a conversa a outro
+                agente era pô-lo a continuar uma conversa que não teve. O
+                `chatWithProfile` abre a que esse agente já tem, e só cria uma
+                quando não há nenhuma. */}
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={pickAgent}
+                title="Talk to another agent"
+                onClick={() => setPickAgent((v) => !v)}
+                className="flex cursor-pointer items-center gap-1.5 border-none bg-transparent p-0 text-title font-bold text-ink dark:text-ink-d"
+              >
+                {speaker?.name ?? "Director"}
+                <span className={cx(mono, "text-body font-normal text-faint dark:text-faint-d")} aria-hidden="true">
+                  ⌄
+                </span>
+              </button>
+              <AnimatePresence>
+                {pickAgent && (
+                  <motion.div
+                    variants={popover}
+                    initial="hidden"
+                    animate="shown"
+                    exit="gone"
+                    className={cx(POPOVER, "left-0 top-[calc(100%+6px)] z-20")}
+                  >
+                    {agents.filter((a) => a.chat_enabled && !a.paused).map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => {
+                          setPickAgent(false);
+                          if (a.id !== speaker?.id) void chatWithProfile(a.id);
+                        }}
+                        className="flex w-full cursor-pointer items-center gap-2.5 rounded-sm border-none bg-transparent px-2.5 py-2 text-left text-md font-medium text-ink2 transition-colors duration-150 hover:bg-hovered dark:text-ink2-d dark:hover:bg-hovered-d"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                        <span className={cx(mono, "shrink-0 text-2xs text-faint dark:text-faint-d")}>
+                          {a.backend === "codex" ? "codex" : (a.model ?? "claude")}
+                        </span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div className="relative mt-0.75 flex flex-wrap items-center gap-x-1.5 text-body text-faint dark:text-faint-d">
               {facts && <span>{facts} ·</span>}

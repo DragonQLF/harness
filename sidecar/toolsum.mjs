@@ -4,6 +4,11 @@
 
 const basename = (p) => String(p ?? "").split(/[\\/]/).filter(Boolean).pop() ?? "";
 
+/** As imagens que a janela sabe desenhar. Sem SVG, pela razão do
+ *  `harness_app::preview`: um SVG embutido é um documento que pode trazer
+ *  script. */
+const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
+
 /** The line that names the attempt, per tool. */
 export function summarizeUse(name, input = {}) {
   const str = (k) => (typeof input[k] === "string" ? input[k].trim() : "");
@@ -11,8 +16,17 @@ export function summarizeUse(name, input = {}) {
     case "Edit":
     case "MultiEdit":
     case "Write":
-    case "Read":
       return basename(str("file_path")) || name;
+    case "Read": {
+      // O caminho inteiro quando é uma imagem, o nome quando não é.
+      //
+      // Um `Read` de uma imagem é a única leitura que se pode *mostrar*, e para
+      // a mostrar é preciso o caminho — o nome do ficheiro não abre nada. Quem
+      // desenha corta-o para o nome na etiqueta, portanto isto não torna a
+      // linha mais feia; só deixa de deitar fora o que ela precisa.
+      const path = str("file_path");
+      return (IMAGE.test(path) ? path : basename(path)) || name;
+    }
     case "Bash":
       return str("command").slice(0, 160) || "shell";
     case "Task":
