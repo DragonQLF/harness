@@ -116,4 +116,29 @@ async fn main() {
         "   => accept {}",
         if text5.to_lowercase().contains("fetched") { "LETS IT THROUGH" } else { "did not observably run" }
     );
+
+    // ---- 5. steer: falar com um turno que já anda ----
+    // O `turn/steer` só é aceite contra o turno vivo (`expectedTurnId`), por
+    // isso o que isto prova não é só que a mensagem chega — é que chega ao
+    // turno certo, a meio dele, e que o modelo lhe obedece.
+    println!("\n5. STEER (a message typed mid-turn)");
+    let inbox = harness_ports::queue::Queue::new("verify-steer");
+    let mut steered = spec(
+        "Count from 1 to 40, one number per line, sleeping 1 second between each using the \
+         shell. Do not stop early unless you are told to.",
+    );
+    steered.inbox = Some(inbox.clone());
+    let pushed = Arc::clone(&inbox);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(12)).await;
+        let _ = pushed.push("Stop counting right now and reply with only the word PINEAPPLE.");
+        println!("    [typed mid-turn] stop and say PINEAPPLE");
+    });
+    let (out6, text6, _) = run(steered, None).await;
+    println!("   => outcome {:?}", out6);
+    println!("   => answer: {:?}", text6.chars().take(200).collect::<String>());
+    println!(
+        "   => steer {}",
+        if text6.to_uppercase().contains("PINEAPPLE") { "REACHED THE LIVE TURN" } else { "NOT OBSERVED" }
+    );
 }
