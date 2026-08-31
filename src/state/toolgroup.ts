@@ -107,3 +107,33 @@ export function decodePath(src: string): string {
     return src;
   }
 }
+
+/** O que dizer enquanto se espera.
+ *
+ *  "Thinking…" era a única resposta, e quase sempre a errada: o modelo passa a
+ *  maior parte do tempo a correr comandos, não a pensar. Um indicador que diz
+ *  sempre a mesma coisa deixa de ser informação e passa a ser um sinal de vida
+ *  — e um sinal de vida que mente sobre o que está a acontecer é pior do que um
+ *  ponto a girar.
+ *
+ *  A ordem é a da verdade disponível: o raciocínio a sério quando o há, o nome
+ *  do que está a correr quando há uma chamada no ar, e "Working…" só quando não
+ *  se sabe nada — que é o caso curto entre mandar a mensagem e o modelo abrir a
+ *  boca. */
+export function workingLabel(thinking: string, inFlight: ChatMsg | null): string {
+  const thought = thinking.trim();
+  if (thought) return thought;
+  if (!inFlight) return "Working…";
+  const what = (inFlight.text ?? "").trim();
+  const verb = (() => {
+    const tool = inFlight.tool ?? "";
+    if (/^bash$/i.test(tool)) return "Running";
+    if (/^(edit|multiedit|write|notebookedit)$/i.test(tool)) return "Editing";
+    if (/^read$/i.test(tool)) return "Reading";
+    if (/^(grep|glob|search)$/i.test(tool)) return "Searching";
+    if (/^(webfetch|websearch)$/i.test(tool)) return "Looking up";
+    return null;
+  })();
+  if (!verb) return `${inFlight.tool ?? "Working"}…`;
+  return what ? `${verb} ${what}…` : `${verb}…`;
+}

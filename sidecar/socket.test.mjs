@@ -143,6 +143,13 @@ test("o sidecar sobrevive ao cliente e volta a atender", { skip: noSockets }, as
   // A identidade, e não só o sítio: é o que deixa o outro lado recusar um
   // socket que esteja a servir o run de outro agente.
   assert.equal(greeting.run_key, "chat-testes");
+  // **Qual** run, e não só que há um. Quem se liga a um turno vivo tem de o
+  // poder tratar pelo nome: sem isto cunhava um id novo e mandava-lhe as
+  // mensagens do operador endereçadas a um run que deste lado não existe — a
+  // conversa aceitava tudo e não entregava nada. Sem trabalho a andar é nulo,
+  // que é a resposta certa a "qual" quando não há nenhum.
+  assert.ok("run_id" in greeting, "o cumprimento tem de dizer qual é o run");
+  assert.equal(greeting.run_id, null, "e sem trabalho a andar não há nenhum");
 
   // A Relay vai-se embora — é isto que antes matava o turno.
   first.destroy();

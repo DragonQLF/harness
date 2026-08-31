@@ -1329,6 +1329,14 @@ function serveOnSocket(path) {
             run_key: runKey,
             seq: bus.seq,
             running: controllers.size > 0,
+            // **Qual** run, e não só que há um.
+            //
+            // Quem se liga a um turno vivo não lhe sabia o nome, e cunhava um
+            // id novo — depois mandava as mensagens do operador endereçadas a
+            // esse, que deste lado não existe, e caíam no chão. Uma conversa
+            // reatada aceitava tudo o que se lhe escrevesse e não entregava
+            // nada.
+            run_id: [...controllers.keys()][0] ?? null,
           }) + "\n",
         );
         bus.attach(socket, from);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countGroupLines, decodePath, groupView, summariseTools } from "./toolgroup.ts";
+import { countGroupLines, decodePath, groupView, summariseTools, workingLabel } from "./toolgroup.ts";
 import type { ChatMsg } from "./bubbles.ts";
 
 const call = (tool: string): ChatMsg => ({ role: "tool", text: "", ts: 0, tool, ok: true });
@@ -98,4 +98,31 @@ test("um src de markdown volta a ser um caminho", () => {
   // E um `%` literal não faz rebentar nada: fica o que veio, que é a leitura
   // certa quando ninguém codificou.
   assert.equal(decodePath("/tmp/100%/x.png"), "/tmp/100%/x.png");
+});
+
+const flying = (tool: string, text: string): ChatMsg => ({
+  role: "tool",
+  text,
+  ts: 0,
+  tool,
+  ok: null,
+});
+
+/** Um indicador que diz sempre "Thinking…" deixa de ser informação: o modelo
+ *  passa a maior parte do tempo a correr comandos. */
+test("a espera diz o que está mesmo a acontecer", () => {
+  assert.equal(workingLabel("", flying("Bash", "cargo test --workspace")), "Running cargo test --workspace…");
+  assert.equal(workingLabel("", flying("Edit", "lib.rs")), "Editing lib.rs…");
+  assert.equal(workingLabel("", flying("Read", "notes.md")), "Reading notes.md…");
+  assert.equal(workingLabel("", flying("Grep", "cost_usd")), "Searching cost_usd…");
+  // Uma ferramenta sem verbo diz o nome dela em vez de levar um inventado.
+  assert.equal(workingLabel("", flying("generate_image", "a cone")), "generate_image…");
+});
+
+test("o raciocínio ganha à ferramenta, e o vazio diz o mínimo honesto", () => {
+  // O que o modelo está mesmo a pensar é melhor do que o nome de um comando.
+  assert.equal(workingLabel("weighing two options", flying("Bash", "ls")), "weighing two options");
+  // Entre mandar a mensagem e o modelo abrir a boca não se sabe nada.
+  assert.equal(workingLabel("", null), "Working…");
+  assert.equal(workingLabel("   ", null), "Working…");
 });

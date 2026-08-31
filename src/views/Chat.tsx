@@ -24,7 +24,7 @@ import {
   type PendingApproval,
 } from "../lib/types";
 import { toolName, useStore, type ChatMsg } from "../state/store";
-import { countGroupLines, decodePath, groupView, summariseTools } from "../state/toolgroup";
+import { countGroupLines, decodePath, groupView, summariseTools, workingLabel } from "../state/toolgroup";
 import { api, reason } from "../lib/ipc";
 import { mono } from "../components/ui";
 
@@ -910,6 +910,7 @@ export function Chat() {
     chatBusy,
     chatLoading,
     chatThinking,
+    chatWriting,
     backgroundTasks,
     sendChat,
     agents,
@@ -983,8 +984,14 @@ export function Chat() {
     return out;
   }, [chat]);
 
-  const last = blocks[blocks.length - 1];
-  const streaming = chatBusy && last?.kind === "agent" && !!last.msg?.text;
+  // Está mesmo a escrever, e não "o último bloco por acaso é do agente".
+  // Deduzi-lo do fim do fio deixou de funcionar quando uma chamada de
+  // ferramenta passou a fechar o balão sem tirar o bloco de lá: o cursor
+  // piscava num balão acabado e o indicador desligava-se enquanto havia
+  // trabalho a decorrer, que é exactamente quando ele serve.
+  const streaming = chatBusy && chatWriting;
+  /** A chamada que está no ar, se houver: é ela que dá nome à espera. */
+  const inFlight = [...chat].reverse().find((m) => m.role === "tool" && m.ok == null) ?? null;
   const lastAsked = [...chat].reverse().find((m) => m.role === "user")?.text ?? "";
 
   /** Repetir a última pergunta. Tem de ser estável: é uma prop do `Turn`, e uma
@@ -1366,7 +1373,7 @@ export function Chat() {
             {chatBusy && !streaming && (
               <div className="flex max-w-[82%] flex-none items-start gap-2 text-base leading-[1.65] text-faint dark:text-faint-d">
                 <span className="mt-1 text-primary dark:text-primary-d">{SPINNING}</span>
-                <span className="min-w-0">{chatThinking || "Thinking…"}</span>
+                <span className="min-w-0">{workingLabel(chatThinking, inFlight)}</span>
               </div>
             )}
 

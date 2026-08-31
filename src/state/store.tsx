@@ -134,6 +134,7 @@ interface Store {
   chatLoading: boolean;
   /** The Director's reasoning as it arrives; cleared when it answers. */
   chatThinking: string;
+  chatWriting: boolean;
   /** Set when the Director asks the window to go somewhere; clear it after. */
   navigation: (Navigation & { at: number }) | null;
   clearNavigation: () => void;
@@ -1001,6 +1002,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chatBusy: chat.chatBusy,
       chatLoading: chat.chatLoading,
       chatThinking: chat.chatThinking,
+      chatWriting: chat.chatWriting,
       navigation,
       clearNavigation: () => setNavigation(null),
       toasts,
@@ -1064,6 +1066,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       chat.chatModel,
       chat.chatLoading,
       chat.chatThinking,
+      chat.chatWriting,
       chat.chatWithProfile,
       chat.backgroundTasks,
       chat.commands,

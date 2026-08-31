@@ -141,13 +141,16 @@ async fn drive(
     mut stdin: Writer,
     mut lines: tokio::io::Lines<BufReader<Reader>>,
     fresh: bool,
+    // O id do turno a que nos ligámos, quando nos ligámos a um. Um run novo
+    // cunha o seu; um adoptado tem de usar o que já existe do outro lado.
+    adopted: Option<String>,
     progress: Option<PathBuf>,
     spec: RunSpec,
     grants: Grants,
     tx: mpsc::Sender<RunEvent>,
     cancel: CancellationToken,
 ) -> Result<RunOutcome, String> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = adopted.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let priced = spec.prices_in_dollars();
     let run_msg = serde_json::json!({
         "type": "run",
@@ -706,7 +709,7 @@ impl harness_ports::AgentPort for SidecarAgent {
                             .and_then(|p| std::fs::read_to_string(p).ok())
                             .and_then(|raw| raw.trim().parse::<u64>().ok())
                     });
-                    let (lines, running) =
+                    let (lines, running, live) =
                         handshake(&mut out, Box::new(read), &key, resume_at).await?;
                     // Vivo quer dizer "a meio": manda-se-lhe o `run` outra vez
                     // pedia ao modelo que refizesse o que já fez. Parado quer
@@ -722,7 +725,11 @@ impl harness_ports::AgentPort for SidecarAgent {
                             turns: None,
                         });
                     }
-                    return drive(out, lines, !running, progress, spec, grants, tx, cancel).await;
+                    // Adopta-se o id do turno vivo. Cunhar um novo era falar
+                    // com um run que o sidecar não conhece — e foi por isso que
+                    // uma conversa reatada engolia tudo o que se lhe escrevia.
+                    return drive(out, lines, !running, live, progress, spec, grants, tx, cancel)
+                        .await;
                 }
                 // Um socket que não atende é de um processo que já morreu. O
                 // ficheiro fica para trás e faria a próxima tentativa bater na
@@ -811,8 +818,8 @@ impl harness_ports::AgentPort for SidecarAgent {
                 let mut out: Writer = Box::new(write);
                 let key = spec.run_key.clone().unwrap_or_default();
                 // Run acabado de nascer: não há atraso possível.
-                let (lines, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
-                let outcome = drive(out, lines, true, progress, spec, grants, tx, cancel).await;
+                let (lines, _, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
+                let outcome = drive(out, lines, true, None, progress, spec, grants, tx, cancel).await;
                 // Destacado de propósito: não se mata. Ou acabou — e ele
                 // desliga-se sozinho — ou a Relay é que se foi, e o que fica de
                 // pé é precisamente o que uma Relay nova vai reencontrar.
@@ -826,6 +833,9 @@ impl harness_ports::AgentPort for SidecarAgent {
                 Box::new(stdin),
                 BufReader::new(Box::new(stdout) as Reader).lines(),
                 true,
+                // Nada a adoptar (é um run novo) e nada onde marcar o sítio
+                // (sem socket, nada deste run sobrevive à Relay).
+                None,
                 None,
                 spec,
                 grants,
@@ -884,7 +894,7 @@ async fn handshake(
     read: Reader,
     expect_key: &str,
     from_seq: Option<u64>,
-) -> Result<(tokio::io::Lines<BufReader<Reader>>, bool), String> {
+) -> Result<(tokio::io::Lines<BufReader<Reader>>, bool, Option<String>), String> {
     LineSink { out }
         .send(serde_json::json!({ "type": "attach", "from_seq": from_seq }))
         .await?;
@@ -900,7 +910,13 @@ async fn handshake(
         .get("running")
         .and_then(|r| r.as_bool())
         .unwrap_or(false);
-    Ok((lines, running))
+    // Qual run, e não só que há um: é este id que as mensagens do operador têm
+    // de trazer para chegarem ao turno certo do outro lado.
+    let live = greeting
+        .get("run_id")
+        .and_then(|r| r.as_str())
+        .map(str::to_string);
+    Ok((lines, running, live))
 }
 
 /// O socket aparece um instante depois do processo. Espera-se por ele em vez de

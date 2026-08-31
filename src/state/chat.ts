@@ -205,6 +205,14 @@ export interface ChatState {
   chatLoading: boolean;
   /** The Director's reasoning as it arrives; cleared when it answers. */
   chatThinking: string;
+  /** Há um balão de resposta aberto neste momento?
+   *
+   *  É o que a `streaming.current` sabe e mais ninguém sabia. O ecrã deduzia-o
+   *  de "o último bloco é do agente e tem texto", o que passou a ser falso
+   *  assim que uma chamada de ferramenta fechou o balão sem tirar o bloco do
+   *  fim — e nessa altura o cursor piscava num balão acabado e o indicador de
+   *  actividade desligava-se justamente enquanto havia trabalho a acontecer. */
+  chatWriting: boolean;
   /** A lista vem do backend, tanto pelo arranque como pelo evento. */
   setConversations: (list: Conversation[]) => void;
   /** O que o bootstrap deixa: a lista, e a conversa a reabrir. */
@@ -249,6 +257,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatThinking, setChatThinking] = useState("");
+  const [chatWriting, setChatWriting] = useState(false);
   /** Em que modelo esta conversa correu, das linhas de `usage` dela. */
   const [chatModel, setChatModel] = useState<string | null>(null);
   // True while deltas are arriving for the current answer, so the final `text`
@@ -328,6 +337,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
           `s${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         );
         streaming.current = placed.streamId;
+        setChatWriting(true);
         return placed.list;
       }),
     [],
@@ -336,6 +346,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
   /** O turno acabou: o balão dele fecha, e o que vier a seguir abre outro. */
   const endStream = useCallback(() => {
     streaming.current = null;
+    setChatWriting(false);
   }, []);
 
   /** O que chegou desde o último quadro e ainda não foi para o estado.
@@ -377,6 +388,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     }
     held.current = { text: "", thinking: "", clearThinking: false };
     streaming.current = null;
+    setChatWriting(false);
   }, []);
 
   const schedule = useCallback(() => {
@@ -809,6 +821,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     chatBusy,
     chatLoading,
     chatThinking,
+    chatWriting,
     setConversations,
     hydrate,
     consume,
