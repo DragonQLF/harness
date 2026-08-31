@@ -140,6 +140,24 @@ pub fn find<'a>(providers: &'a [Provider], id: &str) -> Option<&'a Provider> {
     providers.iter().find(|p| p.id == id)
 }
 
+/// Is this what the operator means by "back to the Claude login"?
+///
+/// The empty string is how *absence* is stored, and a model cannot send an
+/// empty string through a tool argument that must be a non-empty name — so
+/// `anthropic` was the only way to clear an endpoint, and nothing said so out
+/// loud. The Director concluded it was impossible, worked around it by editing
+/// `agents.json` by hand, and wrote up "set_agent_model cannot unset a
+/// provider" as a Relay defect. It could; it just could not be discovered.
+///
+/// So every word somebody would reasonably try now means the same thing, and
+/// the tool says which one it is.
+pub fn clears_provider(named: &str) -> bool {
+    matches!(
+        named.trim().to_ascii_lowercase().as_str(),
+        "" | "anthropic" | "none" | "default" | "claude" | "claude login"
+    )
+}
+
 /// An id nobody is using, derived from the name.
 pub fn unique_id(name: &str, taken: &[Provider]) -> String {
     let base: String = name
@@ -234,5 +252,23 @@ mod tests {
         ];
         assert_eq!(unique_id("Ollama", &taken), "ollama-3");
         assert_eq!(unique_id("  ", &taken), "provider");
+    }
+}
+
+#[cfg(test)]
+mod clearing_tests {
+    use super::*;
+
+    /// Limpar um endpoint tinha uma palavra só e não estava escrita em lado
+    /// nenhum. Agora tem as que qualquer pessoa tentaria.
+    #[test]
+    fn every_reasonable_way_of_saying_the_claude_login_clears_it() {
+        for said in ["anthropic", "Anthropic", "none", "default", "claude", "Claude login", "  ", ""] {
+            assert!(clears_provider(said), "{said:?} should clear the endpoint");
+        }
+        // E um id a sério continua a ser um id a sério.
+        for said in ["openrouter", "ollama-cloud", "ollama"] {
+            assert!(!clears_provider(said), "{said:?} is an endpoint, not a clear");
+        }
     }
 }

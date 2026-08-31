@@ -280,9 +280,12 @@ pub(super) async fn set_agent_model(ws: &Arc<Workspace>, call: &ToolCall) -> Too
                      machine is logged into. Switch it back to `claude` first.",
                 );
             }
-            // The empty string is the Anthropic login, and is spelled
-            // "anthropic" here so the model never has to send a blank.
-            if provider.eq_ignore_ascii_case("anthropic") {
+            // Absence guarda-se como string vazia, e um modelo não manda uma
+            // string vazia num argumento que tem de ser um nome. Qualquer
+            // palavra que alguém tentaria para dizer "volta ao login da Claude"
+            // limpa — ver `providers::clears_provider` para o que isto custou
+            // quando só havia uma.
+            if harness_app::providers::clears_provider(&provider) {
                 slot.provider = harness_app::providers::ANTHROPIC.to_string();
             } else if harness_app::providers::find(&settings.providers, &provider).is_none() {
                 return ToolReply::refused(missing_endpoint(&provider, &settings.providers));

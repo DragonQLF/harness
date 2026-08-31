@@ -488,8 +488,11 @@ function harnessTools(runId) {
             .string()
             .optional()
             .describe(
-              "Endpoint id, or 'anthropic' for the Claude login this machine already has. " +
-                "Refused on a Codex agent, which has no endpoint to point anywhere.",
+              "Endpoint id — or 'anthropic' (also 'none', 'default') to CLEAR it and send the " +
+                "agent back to the Claude login this machine already has. Clearing is how you " +
+                "undo a custom endpoint: an agent left pointing at one it cannot serve the " +
+                "chosen model with fails at its first API call. Refused on a Codex agent, " +
+                "which has no endpoint to point anywhere.",
             ),
         },
         call("set_agent_model"),
