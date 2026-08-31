@@ -163,17 +163,30 @@ test("o socket é apagado à saída, para ninguém bater a uma porta que não ab
     stdio: ["ignore", "ignore", "ignore"],
     detached: true,
   });
+  const exited = new Promise((r) => child.on("exit", () => r(true)));
   t.after(() => {
     try {
-      process.kill(-child.pid, "SIGKILL");
+      process.kill(child.pid, "SIGKILL");
     } catch {
       /* já morreu */
     }
   });
-  for (let i = 0; i < 60 && !fs.existsSync(sock); i++) await wait(50);
+  for (let i = 0; i < 100 && !fs.existsSync(sock); i++) await wait(50);
   assert.ok(fs.existsSync(sock));
 
   process.kill(child.pid, "SIGTERM");
-  for (let i = 0; i < 60 && fs.existsSync(sock); i++) await wait(50);
-  assert.ok(!fs.existsSync(sock), "um socket órfão faz a Relay pensar que há run onde não há");
+
+  // Esperar pela saída antes de olhar para o ficheiro. Escrito ao contrário, o
+  // teste media a lentidão da máquina em vez do que quer guardar: num runner
+  // carregado o processo ainda não tinha saído quando se lhe perguntava pelo
+  // socket, e falhava por uma razão que não é a dele.
+  const left = await Promise.race([exited, wait(15000).then(() => false)]);
+  assert.ok(left, "o sidecar não saiu com o SIGTERM");
+
+  for (let i = 0; i < 100 && fs.existsSync(sock); i++) await wait(50);
+  // A rede de segurança verdadeira é do outro lado — o porto tenta ligar-se e,
+  // não atendendo ninguém, apaga o ficheiro antes de levantar um run novo. Isto
+  // é a boa educação de quem sai: sem ela, cada Relay começava por bater a uma
+  // porta que já não abre.
+  assert.ok(!fs.existsSync(sock), "saiu mas deixou o socket para trás");
 });
