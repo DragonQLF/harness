@@ -7,7 +7,7 @@ use harness_ports::{
     ToolCall,
 };
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -649,19 +649,27 @@ impl harness_ports::AgentPort for SidecarAgent {
             let _ = &runs_dir;
             None
         };
+        #[cfg(unix)]
         let from_seq = spec.from_seq;
         #[cfg(unix)]
         let progress = runs_dir
             .as_ref()
             .zip(spec.run_key.as_ref())
             .map(|(dir, key)| dir.join(format!("{key}.seq")));
+        // Em Windows nada disto tem uso: sem socket não há marca por onde
+        // retomar, e o `drive` recebe `None`.
         #[cfg(not(unix))]
-        let progress: Option<PathBuf> = None;
+        let _ = &runs_dir;
         Box::pin(async move {
             // Há trabalho a andar deste lado? Um socket que atende é um run
             // vivo, e a resposta certa a um run vivo é ligar-se a ele — não
             // levantar um segundo que lhe iria disputar a sessão. É a diferença
             // entre um agente que sobrevive a um reinício e um que não.
+            //
+            // Em Windows o `socket` é sempre `None`, mas isso não chega: o que
+            // está aqui dentro tem de *compilar* lá, e o `UnixStream` nem
+            // existe nessa plataforma. Daí o `cfg` no bloco e não só no valor.
+            #[cfg(unix)]
             if let Some(path) = &socket {
                 if let Ok(stream) = tokio::net::UnixStream::connect(path).await {
                     let (read, write) = stream.into_split();
@@ -763,6 +771,7 @@ impl harness_ports::AgentPort for SidecarAgent {
             #[cfg(unix)]
             let group = child.id();
 
+            #[cfg(unix)]
             if let Some(path) = &socket {
                 let stream = await_socket(path).await?;
                 let (read, write) = stream.into_split();
@@ -825,6 +834,7 @@ const EPHEMERAL: [&str; 5] = ["delta", "thinking", "turns", "commands", "backgro
 ///
 /// Separado para poder ser exercitado sem levantar processos: é uma decisão de
 /// três linhas com um `SIGKILL` e uma conversa alheia do outro lado.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn same_run(greeting: &serde_json::Value, expect_key: &str) -> Result<(), String> {
     let theirs = greeting.get("run_key").and_then(|k| k.as_str()).unwrap_or("");
     if theirs != expect_key {
@@ -835,6 +845,7 @@ fn same_run(greeting: &serde_json::Value, expect_key: &str) -> Result<(), String
     Ok(())
 }
 
+#[cfg(unix)]
 async fn handshake(
     out: &mut Writer,
     read: Reader,
@@ -862,6 +873,7 @@ async fn handshake(
 /// O socket aparece um instante depois do processo. Espera-se por ele em vez de
 /// se adivinhar um tempo: uma máquina cansada demora mais, e um `sleep` fixo ou
 /// falha nela ou faz toda a gente esperar por ela.
+#[cfg(unix)]
 async fn await_socket(path: &std::path::Path) -> Result<tokio::net::UnixStream, String> {
     for _ in 0..200 {
         if let Ok(stream) = tokio::net::UnixStream::connect(path).await {
