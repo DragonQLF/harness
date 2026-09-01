@@ -205,3 +205,45 @@ test("o socket é apagado à saída, para ninguém bater a uma porta que não ab
   // porta que já não abre.
   assert.ok(!fs.existsSync(sock), "saiu mas deixou o socket para trás");
 });
+
+/** Um caminho igual não quer dizer o mesmo ficheiro.
+ *
+ *  Visto a acontecer numa máquina a sério: dois sidecares vivos no mesmo
+ *  caminho — o primeiro perdeu o ficheiro, o segundo criou-o de novo — e quando
+ *  o primeiro morreu apagou, à saída, o socket **do segundo**, que ficou vivo e
+ *  inalcançável. A varredura apagava por caminho sem confirmar que o ficheiro
+ *  ainda era dela.
+ */
+test("quem morre não apaga o socket de outro", { skip: noSockets }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "relay-sock-"));
+  const sock = path.join(dir, "run.sock");
+  const start = () =>
+    spawn(
+      process.execPath,
+      [path.join(here, "index.mjs"), "--serve", sock, "--key", "chat-testes"],
+      { stdio: ["ignore", "ignore", "pipe"], detached: true },
+    );
+
+  const first = start();
+  t.after(() => { try { process.kill(-first.pid, "SIGKILL"); } catch { first.kill("SIGKILL"); } });
+  for (let i = 0; i < 60 && !fs.existsSync(sock); i++) await wait(50);
+  assert.ok(fs.existsSync(sock), "o primeiro devia estar de pé");
+  const firstInode = fs.statSync(sock).ino;
+
+  // O ficheiro desaparece por baixo dele — é o que aconteceu, e é o que faz a
+  // Relay concluir que o processo morreu e levantar outro.
+  fs.unlinkSync(sock);
+  const second = start();
+  t.after(() => { try { process.kill(-second.pid, "SIGKILL"); } catch { second.kill("SIGKILL"); } });
+  for (let i = 0; i < 60 && !fs.existsSync(sock); i++) await wait(50);
+  assert.ok(fs.existsSync(sock), "o segundo devia ter criado o seu");
+  assert.notEqual(fs.statSync(sock).ino, firstInode, "outro ficheiro, mesmo caminho");
+
+  // E agora o primeiro morre. À saída não pode levar o socket do segundo.
+  process.kill(first.pid, "SIGTERM");
+  await wait(600);
+  assert.ok(
+    fs.existsSync(sock),
+    "o socket do segundo tem de ficar de pé quando o primeiro morre",
+  );
+});

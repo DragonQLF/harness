@@ -1379,10 +1379,31 @@ function serveOnSocket(path) {
     process.stderr.write(`sidecar: cannot serve on ${path}: ${e.message}\n`);
     process.exit(1);
   });
+
+  // Qual ficheiro é o nosso, e não só qual caminho.
+  //
+  // O caminho vem da chave do run, portanto é um nome fixo: todos os sidecares
+  // daquela conversa querem aquele sítio. Dois chegaram a estar vivos no mesmo
+  // — o primeiro perdeu o ficheiro, o segundo criou-o de novo — e quando o
+  // primeiro morreu apagou, à saída, o socket **do segundo**, que ficou vivo e
+  // inalcançável para sempre. Visto a acontecer, não deduzido.
+  //
+  // O inode é o que distingue os dois: um caminho igual não quer dizer o mesmo
+  // ficheiro. Quem morre só varre o que ainda é seu.
+  let ours = null;
+  server.on("listening", () => {
+    try {
+      ours = fs.statSync(path).ino;
+    } catch {
+      /* sem inode não se varre nada, que é o lado seguro */
+    }
+  });
+
   // O socket é o nosso nome: sem ele ninguém nos volta a encontrar, e um
   // ficheiro deixado para trás faz a Relay bater a uma porta que já não abre.
   const sweep = () => {
     try {
+      if (ours !== null && fs.statSync(path).ino !== ours) return;
       fs.unlinkSync(path);
     } catch {
       /* já lá não estava */
@@ -1395,6 +1416,30 @@ function serveOnSocket(path) {
       process.exit(0);
     });
   }
+
+  // Sobreviver ao cliente é o ponto (#111); sobreviver a *todos* eles, para
+  // sempre, sem trabalho nenhum, é lixo — e lixo que segura uma sessão da
+  // Claude, portanto a conversa seguinte apanha "esta sessão ainda está
+  // agarrada pela execução anterior". Um destes ficou hora e três quartos
+  // assim.
+  //
+  // As três condições são todas necessárias. Sair com trabalho a andar desfazia
+  // exactamente aquilo que isto existe para fazer, e sair com alguém ligado
+  // fechava-lhe a porta na cara.
+  const ALONE_LIMIT_MS = 15 * 60 * 1000;
+  let aloneSince = Date.now();
+  const loitering = setInterval(() => {
+    if (controllers.size > 0 || bus.client) {
+      aloneSince = Date.now();
+      return;
+    }
+    if (Date.now() - aloneSince < ALONE_LIMIT_MS) return;
+    process.stderr.write("sidecar: nobody came back and there is no work; leaving\n");
+    sweep();
+    process.exit(0);
+  }, 60_000);
+  // Sem isto o próprio temporizador segurava o processo de pé.
+  loitering.unref();
 }
 
 const argAfter = (flag) => {
