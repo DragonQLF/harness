@@ -249,6 +249,31 @@ impl AgentProfile {
         self.chat_enabled && !self.paused
     }
 
+    /// Would a card run on this profile edit the operator's own checkout?
+    ///
+    /// `WorktreeMode::None` is described everywhere as "reads the main
+    /// checkout, never writes" — the words are in the Agents screen, in
+    /// `vocabulary.rs` and on the enum itself. Nothing enforced them. A `none`
+    /// run gets `cwd = repo_root`, and the path guard only refuses writes
+    /// *outside* `cwd`, so an agent with Write and no worktree edits the live
+    /// tree: no branch, no diff, nothing to approve or reject, and no way back
+    /// but git.
+    ///
+    /// The Director found this from the other side — it wanted to let an agent
+    /// write, saw that granting Write to a `none` profile was the wrong shape,
+    /// and had no tool to change the worktree. Both halves are fixed: it can
+    /// change the worktree now, and this is what makes the sentence true.
+    ///
+    /// A conversation is deliberately not covered. That is the operator's own
+    /// seat, with them watching; it is a card run — unattended, reviewed by a
+    /// diff that would not exist — that must not.
+    pub fn writes_into_the_live_checkout(&self) -> bool {
+        self.worktree == WorktreeMode::None
+            && self.permissions.iter().any(|p| {
+                matches!(p.trim().to_ascii_lowercase().as_str(), "write" | "edit")
+            })
+    }
+
     /// Can this profile be handed a card right now?
     pub fn can_take_work(&self) -> bool {
         self.tasks_enabled && !self.paused
@@ -1105,5 +1130,65 @@ mod tests {
         assert_eq!(find(&agents, "scout").unwrap().id, "scout");
         assert_eq!(find(&agents, "ghost").unwrap().id, DEFAULT_WORKER);
         assert!(find(&[], "anything").is_none());
+    }
+}
+
+#[cfg(test)]
+mod live_checkout_tests {
+    use super::*;
+
+    fn profile(worktree: WorktreeMode, permissions: &[&str]) -> AgentProfile {
+        AgentProfile {
+            id: "a".into(),
+            worktree,
+            permissions: permissions.iter().map(|p| p.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A frase estava em três sítios e não era verdade em nenhum: um run sem
+    /// worktree recebe `cwd = repo_root`, e o guarda de caminhos só recusa
+    /// escritas *fora* do `cwd`.
+    #[test]
+    fn no_worktree_plus_write_is_the_live_tree() {
+        assert!(profile(WorktreeMode::None, &["Read", "Write"]).writes_into_the_live_checkout());
+        assert!(profile(WorktreeMode::None, &["Edit"]).writes_into_the_live_checkout());
+        // A grafia do operador não decide uma propriedade de segurança.
+        assert!(profile(WorktreeMode::None, &["write"]).writes_into_the_live_checkout());
+    }
+
+    #[test]
+    fn a_reader_without_a_worktree_is_exactly_what_it_says_it_is() {
+        // O `scout` que existe hoje: lê a checkout viva e não lhe toca.
+        assert!(
+            !profile(WorktreeMode::None, &["Read", "Search", "Web"])
+                .writes_into_the_live_checkout()
+        );
+    }
+
+    #[test]
+    fn a_worktree_is_what_makes_writing_safe() {
+        for isolated in [WorktreeMode::PerCard, WorktreeMode::Shared] {
+            assert!(
+                !profile(isolated, &["Read", "Write", "Edit"]).writes_into_the_live_checkout(),
+                "{isolated:?} dá ramo e diff — é para isso que existe",
+            );
+        }
+    }
+
+    /// Nenhum perfil que a Relay instala nasce na combinação recusada, e o
+    /// único que a tem hoje (`director`) não pega em cartões. Se um template
+    /// novo a criar, isto parte aqui e não na cara do operador.
+    #[test]
+    fn no_shipped_template_is_born_refused() {
+        for template in templates() {
+            if template.tasks_enabled {
+                assert!(
+                    !template.writes_into_the_live_checkout(),
+                    "{} pega em cartões e escreveria na checkout viva",
+                    template.id,
+                );
+            }
+        }
     }
 }

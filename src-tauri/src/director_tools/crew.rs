@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use harness_app::agents::AgentProfile;
-use harness_ports::{Reviewer, ToolCall, ToolReply};
+use harness_ports::{Reviewer, ToolCall, ToolReply, WorktreeMode};
 
 use super::text;
 use crate::workspace::Workspace;
@@ -217,6 +217,24 @@ pub(super) async fn edit_agent(ws: &Arc<Workspace>, call: &ToolCall) -> ToolRepl
         if let Some(paused) = call.input.get("paused").and_then(|v| v.as_bool()) {
             changed.push(if paused { "paused it".into() } else { "resumed it".to_string() });
             slot.paused = paused;
+        }
+        // Onde o trabalho deste agente acontece. Estava de fora, e a ausência
+        // fechava a única saída: um agente com `worktree: none` corre contra a
+        // checkout viva, portanto dar-lhe escrita é editar a árvore do
+        // operador sem ramo, sem diff e sem nada para aprovar. O Director via o
+        // problema, via a correcção, e não lhe chegava.
+        if let Some(worktree) = text(&call.input, "worktree") {
+            slot.worktree = match worktree.as_str() {
+                "per_card" | "per-card" => WorktreeMode::PerCard,
+                "shared" => WorktreeMode::Shared,
+                "none" => WorktreeMode::None,
+                other => {
+                    return ToolReply::refused(format!(
+                        "{other} is not a worktree mode. Use per_card, shared or none."
+                    ))
+                }
+            };
+            changed.push(format!("worktree to {worktree}"));
         }
         if let Some(reviewer) = text(&call.input, "reviewer") {
             slot.reviewer = match reviewer.as_str() {

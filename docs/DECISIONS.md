@@ -2983,3 +2983,42 @@ depois.
 
 Dois testes: um prende a semântica do canal — que é o que a correcção assume — e
 o outro recusa qualquer dos dois fios voltar à forma antiga.
+
+### 126. Um agente sem worktree podia escrever na checkout viva (bug + feature)
+
+O Director encontrou isto pelo lado difícil, a tentar resolvê-lo: um cartão do
+`scout` precisava de escrever um ficheiro, e ele recusou-se a conceder-lhe
+`Write` com a razão certa — o `scout` tem `worktree: none`, portanto corre contra
+o repositório vivo. Dar-lhe escrita seria editar a árvore do operador sem ramo,
+sem diff, sem nada para aprovar ou rejeitar. Depois foi mudar o worktree e não
+tinha por onde: o `edit_agent` expõe nome, título, brief, orçamento, revisor e
+pausa. **Worktree não.**
+
+Duas coisas, e a segunda é pior do que ele disse.
+
+**O `edit_agent` passou a levar `worktree`.** O ecrã dos Agentes sempre o deixou
+mudar (`Agents.tsx`); só o Director é que não podia — via o problema, via a
+correcção, e a ferramenta não lha dava. Permissões continuam de fora de
+propósito: essas vão pelo `grant_agent_tools`, que o operador responde uma a uma
+e que nenhuma permissão permanente pode cobrir.
+
+**E "lê a checkout principal, nunca escreve" não era verdade.** A frase está no
+`vocabulary.rs`, no enum e no ecrã. Um run sem worktree recebe
+`cwd = repo_root`, e o `inspect` do sidecar só recusa escritas *fora* do `cwd` —
+portanto a frase descrevia uma intenção que nada guardava. Um cartão começado
+naquela combinação teria escrito na árvore do operador e ninguém saberia até ao
+`git status`.
+
+O `writes_into_the_live_checkout()` diz a combinação e o arranque de um cartão
+recusa-a, com as duas definições que discordam nomeadas. Recusar em vez de tirar
+as ferramentas em silêncio: um agente que dá pela falta do `Write` a meio de um
+cartão falha de uma maneira sobre a qual ninguém pode agir.
+
+Uma conversa não está coberta, e é de propósito — é a cadeira do operador, com
+ele a ver. É o cartão, que corre sozinho e é revisto por um diff que não
+existiria, que não pode.
+
+Nenhum perfil que a Relay instala nasce nesta combinação, e o único que a tem
+(`director`, que escreve e não tem worktree) não pega em cartões. Um teste
+percorre os templates para que um perfil novo parta aqui e não na cara do
+operador.

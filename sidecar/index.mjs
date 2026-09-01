@@ -443,7 +443,7 @@ function harnessTools(runId) {
       ),
       tool(
         "edit_agent",
-        "Change an existing agent's profile when the operator asks: what it is called, what it is for, its brief, its budget, who reviews it, or whether it is paused. Tools and permissions are not editable here.",
+        "Change an existing agent's profile when the operator asks: what it is called, what it is for, its brief, its budget, who reviews it, whether it is paused, and where its work happens. Tools and permissions are not editable here — those go through grant_agent_tools, which the operator answers each time.",
         {
           agent_id: z.string().describe("Which agent, by id"),
           name: z.string().optional(),
@@ -455,6 +455,15 @@ function harnessTools(runId) {
             .enum(["director", "human", "nobody"])
             .optional()
             .describe("Who reads the diff when a run finishes"),
+          worktree: z
+            .enum(["per_card", "shared", "none"])
+            .optional()
+            .describe(
+              "Where its work happens. `per_card` gives every card its own branch and checkout, " +
+                "which is what makes a diff to review; `shared` is one long-lived branch; `none` " +
+                "runs against the live repository and can only read. An agent that writes needs " +
+                "one of the first two — the board refuses to start it otherwise.",
+            ),
         },
         call("edit_agent"),
       ),

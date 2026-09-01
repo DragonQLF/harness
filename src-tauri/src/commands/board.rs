@@ -331,6 +331,23 @@ pub(crate) async fn start_run_inner(
     if profile.paused {
         return Err(format!("{} is paused", profile.name));
     }
+    // "Reads the main checkout, never writes" is what every screen says about
+    // a profile with no worktree. Until now nothing made it true: such a run
+    // gets `cwd = repo_root` and the path guard only refuses writes *outside*
+    // `cwd`, so an agent with Write and no worktree edits the operator's own
+    // tree — no branch, no diff, nothing to approve or reject.
+    //
+    // Refused here rather than by quietly withholding the tools, because an
+    // agent that finds Write missing halfway through a card fails in a way
+    // nobody can act on. This says which two settings disagree.
+    if profile.writes_into_the_live_checkout() {
+        return Err(format!(
+            "{} may write but has no worktree, so its work would land in the live checkout \
+             with no branch and no diff to review. Give it a per-card worktree, or take Write \
+             and Edit off it.",
+            profile.name
+        ));
+    }
 
     let settings = ws.settings();
     let mut prompt = profile.prompt_for(&card.title, extra.as_deref());
