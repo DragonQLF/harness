@@ -2947,3 +2947,39 @@ Não resolvido de propósito: **o que fazer com a prosa de um subagente**. Fica
 registada e atribuída — deixou de se fazer passar por outra coisa — mas ainda não
 tem forma própria no fio. Aninhá-la sob a chamada que a abriu é desenho, e este
 passo era parar de mentir sobre quem falou.
+
+### 125. Um leitor atrasado matava o fio para a janela (bug)
+
+O quadro ficava parado depois de o Director criar um cartão, e não voltava
+sozinho: só um refresh à mão ou um reinício o traziam de volta.
+
+Os dois reencaminhadores do `spawn_runtime` liam assim:
+
+```rust
+while let Ok(envelope) = events_rx.recv().await { … }
+while let Ok(update)   = runs_rx.recv().await   { … }
+```
+
+São `broadcast::Receiver`. O `recv` devolve `Err(Lagged(n))` quando **quem lê**
+ficou para trás, e a chamada seguinte volta a funcionar — é um aviso, não um
+fim. Lido como `while let Ok(..)`, terminava a tarefa, e a partir daí a janela
+não recebia mais nada daquele projecto.
+
+Criar um cartão é o que chegava ao buffer de 1024: o `create_card_inner` manda
+`CreateCard`, `AssignAgent` e `MoveCard` seguidos, e com `start` vem atrás a
+tempestade de uma execução. O fio das execuções é ainda mais fácil de encher —
+leva os `delta`, um token de cada vez.
+
+A parte amarga é que a defesa já existia e nunca foi alcançável: o `store.tsx`
+vigia a sequência e força um refresh imediato assim que vê um buraco
+(`env.seq > last + 1`). Nunca disparava, porque o evento que revelaria o buraco
+era precisamente o que a tarefa morta já não entregava.
+
+Passou a distinguir-se: `Lagged` continua e diz quantos se perderam, `Closed`
+acaba. No fio do quadro a recuperação é completa — o evento seguinte carrega o
+buraco e o ecrã actualiza-se. No das execuções perdem-se as linhas saltadas, que
+não têm sequência por onde voltar; o que deixou de se perder é tudo o que vinha
+depois.
+
+Dois testes: um prende a semântica do canal — que é o que a correcção assume — e
+o outro recusa qualquer dos dois fios voltar à forma antiga.

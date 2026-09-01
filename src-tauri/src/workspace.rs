@@ -895,7 +895,35 @@ impl Workspace {
         let check_engine = engine.clone();
         let check_paths = self.paths.clone();
         tauri::async_runtime::spawn(async move {
-            while let Ok(envelope) = events_rx.recv().await {
+            loop {
+                // `Lagged` is not the end of the stream — it is this reader
+                // having fallen behind, and the very next `recv` works. Read as
+                // `while let Ok(..)` it ended the task instead, and from that
+                // moment the window heard nothing more from this project: the
+                // board froze until a manual refresh or a restart.
+                //
+                // Creating a card is what reached the buffer. `create_card_inner`
+                // fires CreateCard, AssignAgent and MoveCard back to back, and
+                // with `start` a run's whole event storm comes in behind them.
+                //
+                // Carrying on is the right recovery and the screen is already
+                // built for it: the store watches the sequence and forces an
+                // immediate refresh the moment it sees a hole
+                // (`store.tsx`). That defence has simply never been reachable,
+                // because the event that would reveal the hole was the one
+                // event this task was no longer there to deliver.
+                let envelope = match events_rx.recv().await {
+                    Ok(envelope) => envelope,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                        eprintln!(
+                            "the board stream fell behind and skipped {missed} events; \
+                             the next one carries the hole and the screen refreshes on it"
+                        );
+                        continue;
+                    }
+                    // The engine is gone. Nothing more is coming.
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 // A completed run is the moment a card's checks mean
                 // something: the work is committed, it sits in that card's own
                 // worktree, and nothing will touch it before the review. Off
@@ -933,7 +961,21 @@ impl Workspace {
         let app = self.app.clone();
         let router = Arc::clone(&self.router);
         tauri::async_runtime::spawn(async move {
-            while let Ok(update) = runs_rx.recv().await {
+            loop {
+                // Same fix, and this stream is the likelier one to overrun: it
+                // carries the deltas, a token at a time. Falling behind costs
+                // the lines that were skipped — there is no sequence here to
+                // recover them from — but ending the task cost every line
+                // afterwards, and froze the transcript for the rest of the
+                // session.
+                let update = match runs_rx.recv().await {
+                    Ok(update) => update,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                        eprintln!("the run stream fell behind and skipped {missed} updates");
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
                 // The run stream is the only place that knows which card a
                 // permission request came from.
                 if let RunEvent::ApprovalRequested { request_id, .. } = &update.event {
@@ -1305,5 +1347,76 @@ impl Workspace {
         for runtime in self.runtimes() {
             let _ = runtime.engine.shutdown().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use tokio::sync::broadcast;
+
+    /// Regressão: um leitor atrasado matava o fio para sempre.
+    ///
+    /// O `broadcast::Receiver::recv` devolve `Err(Lagged(n))` quando quem lê
+    /// ficou para trás — e a chamada **seguinte** volta a funcionar. Lido como
+    /// `while let Ok(..)`, isso terminava a tarefa que reencaminha os eventos
+    /// para a janela, e a partir daí o ecrã não ouvia mais nada daquele
+    /// projecto: o quadro ficava parado até um refresh à mão ou um reinício.
+    ///
+    /// Criar um cartão é o que chegava ao buffer — o `create_card_inner` manda
+    /// `CreateCard`, `AssignAgent` e `MoveCard` seguidos, e com `start` vem
+    /// atrás a tempestade de eventos de uma execução.
+    ///
+    /// Este teste prende a semântica do canal, que é o que a correcção assume.
+    #[tokio::test]
+    async fn a_reader_that_falls_behind_keeps_reading() {
+        let (tx, mut rx) = broadcast::channel::<u64>(4);
+
+        // Enche-se e passa-se à frente, que é o que uma rajada faz.
+        for i in 0..10 {
+            let _ = tx.send(i);
+        }
+
+        // O que a versão antiga via, e por onde saía.
+        let first = rx.recv().await;
+        assert!(
+            matches!(first, Err(broadcast::error::RecvError::Lagged(_))),
+            "um leitor atrasado recebe Lagged, não Ok — era aqui que o `while let Ok` desistia",
+        );
+
+        // E o que ela nunca chegou a ver: o fio continua.
+        let next = rx.recv().await;
+        assert_eq!(
+            next.unwrap(),
+            6,
+            "a chamada seguinte entrega o que resta do buffer",
+        );
+
+        // Só o fim do emissor é o fim de facto.
+        drop(tx);
+        while rx.recv().await.is_ok() {}
+        assert!(matches!(
+            rx.recv().await,
+            Err(broadcast::error::RecvError::Closed)
+        ));
+    }
+
+    /// E o guarda contra a forma antiga voltar: nenhum dos dois
+    /// reencaminhadores pode voltar a tratar um erro como o fim do fio.
+    #[test]
+    fn neither_forwarder_reads_the_stream_with_while_let_ok() {
+        let source = include_str!("workspace.rs");
+        // A agulha é montada e não escrita: escrita, este teste continha-a e
+        // encontrava-se a si próprio.
+        let dying = |binding: &str, stream: &str| {
+            format!("while let Ok({binding}) = {stream}.{}()", "recv")
+        };
+        assert!(
+            !source.contains(&dying("envelope", "events_rx")),
+            "o fio do quadro voltou a morrer no primeiro Lagged",
+        );
+        assert!(
+            !source.contains(&dying("update", "runs_rx")),
+            "o fio das execuções voltou a morrer no primeiro Lagged",
+        );
     }
 }
