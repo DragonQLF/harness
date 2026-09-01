@@ -981,6 +981,73 @@ impl GitPort for CliGit {
         Ok(())
     }
 
+    fn merge_card(&self, card_id: &str, base: &str) -> Result<Option<String>, GitError> {
+        let branch = self.branch_for(card_id);
+        // No branch, nothing to integrate: the card ran in the repository
+        // itself and its commits are already where they belong.
+        if self
+            .git(&self.repo_root, &["rev-parse", "--verify", &branch])
+            .is_err()
+        {
+            return Ok(None);
+        }
+        // Already an ancestor of base: a card started, approved, and approved
+        // again. Answering with the current head keeps that idempotent rather
+        // than making the second approval an error.
+        if self
+            .git(
+                &self.repo_root,
+                &["merge-base", "--is-ancestor", &branch, base],
+            )
+            .is_ok()
+        {
+            return Ok(None);
+        }
+
+        // The two refusals below are the ones worth being loud about: merging
+        // into a checkout that is on another branch would put the work
+        // somewhere nobody asked for, and merging into a dirty one is how
+        // uncommitted work gets lost inside a conflict.
+        let on = self.git(&self.repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        if on != base {
+            return Err(GitError::Git(format!(
+                "the checkout is on {on}, not {base}; \
+                 switch it back before approving so the work lands where the next card will look for it"
+            )));
+        }
+        let dirty = self.git(&self.repo_root, &["status", "--porcelain"])?;
+        if !dirty.is_empty() {
+            return Err(GitError::Git(format!(
+                "{base} has uncommitted changes; \
+                 commit or stash them before approving, so a conflict cannot swallow them"
+            )));
+        }
+
+        match self.git(
+            &self.repo_root,
+            &["merge", "--no-ff", "--no-edit", &branch],
+        ) {
+            Ok(_) => Ok(Some(self.rev_parse_head(&self.repo_root)?)),
+            Err(e) => {
+                // Leave the checkout exactly as it was found. A half-merged
+                // base branch is worse than a card that stayed in review, and
+                // the operator gets told which files disagreed.
+                let conflicts = self
+                    .git(&self.repo_root, &["diff", "--name-only", "--diff-filter=U"])
+                    .unwrap_or_default();
+                let _ = self.git(&self.repo_root, &["merge", "--abort"]);
+                Err(GitError::Git(if conflicts.is_empty() {
+                    format!("could not merge {branch} into {base}: {e}")
+                } else {
+                    format!(
+                        "{branch} conflicts with {base} in:\n{conflicts}\n\
+                         the card stays in review until the conflict is settled"
+                    )
+                }))
+            }
+        }
+    }
+
     fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError> {
         let range = format!("{base}...HEAD");
         let stat = self.git(&wt.0, &["diff", "--stat", &range]).unwrap_or_default();

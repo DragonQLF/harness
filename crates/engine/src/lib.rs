@@ -795,8 +795,68 @@ impl Engine {
         }
     }
 
+    /// Put an approved card's branch on the base branch.
+    ///
+    /// Runs off the actor because a merge shells out to git, and the actor is
+    /// the one thread every board on this project talks through — the same
+    /// reason `build_done` stopped copying binaries inside the loop (#97).
+    /// The caller still waits: an approval must not be recorded before the
+    /// work it approves is actually there.
+    async fn integrate(&mut self, card_id: &CardId) -> Result<(), String> {
+        let git = Arc::clone(&self.git);
+        let base = self.config.base_branch.clone();
+        let id = card_id.as_str().to_string();
+        let merged = tokio::task::spawn_blocking(move || git.merge_card(&id, &base))
+            .await
+            .map_err(|e| format!("the merge did not run: {e}"))?;
+        match merged {
+            // No branch, or already an ancestor of base: nothing to do, and
+            // saying so is not an error.
+            Ok(None) => Ok(()),
+            Ok(Some(sha)) => {
+                // Said on the card's own run, which is where someone reading
+                // back how this card ended will look. A card approved without
+                // ever running has no such thread and no notice; the merge
+                // still happened.
+                if let Some(run_id) = self
+                    .sessions
+                    .get(card_id)
+                    .and_then(|session| session.run_id.clone())
+                {
+                    self.emit_run(
+                        card_id,
+                        &run_id,
+                        RunEvent::Notice {
+                            text: format!(
+                                "merged into {} as {}",
+                                self.config.base_branch,
+                                &sha[..sha.len().min(8)]
+                            ),
+                        },
+                    );
+                }
+                Ok(())
+            }
+            Err(e) => Err(format!("approved nothing: {e}")),
+        }
+    }
+
     async fn execute(&mut self, cmd: Command) -> Result<u64, String> {
         let events = self.board.decide(&cmd).map_err(|e| e.to_string())?;
+        // Approving is what puts the work on the base branch. It happens after
+        // the board has agreed the card *can* be approved and before the
+        // approval is written down, so the two cannot disagree: a merge that
+        // fails leaves the card in review, where the operator can still act on
+        // it, rather than marking it done over work that never landed.
+        //
+        // Every worktree is cut from `base_branch` and nothing used to merge
+        // back, so each card began from a tree without the last one's work.
+        // That is not a tidiness problem — a card told to grow an existing
+        // directory found no such directory and rebuilt the whole project
+        // beside it.
+        if let Command::ApproveCard { card_id, .. } = &cmd {
+            self.integrate(card_id).await?;
+        }
         let seq = self.persist(events).await?;
         // A discarded card leaves a branch and a checkout behind; the board no
         // longer knows about it, so nothing else would ever clean it up. The

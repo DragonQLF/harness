@@ -287,19 +287,27 @@ pub fn totals(
                 cache_read_tokens,
                 cache_creation_tokens,
                 model: turn_model,
+                subagent,
             } => {
                 saw_usage = true;
                 let prompt = input_tokens
                     .saturating_add(*cache_read_tokens)
                     .saturating_add(*cache_creation_tokens);
+                // Spend is spend, whoever spent it: a subagent's tokens are on
+                // the same bill.
                 spent = spent
                     .saturating_add(prompt)
                     .saturating_add(*output_tokens);
-                // The newest turn wins: what the model held last is what the
-                // session is carrying now.
-                context_tokens = Some(prompt.saturating_add(*output_tokens));
-                if let Some(name) = turn_model {
-                    model = Some(name.clone());
+                // The context is not. A subagent carries its own window, so
+                // reading the newest turn without asking whose it was made the
+                // gauge report the child's context as this session's — and it
+                // reads *lower*, which is the direction that hides a session
+                // about to run out of room. The newest turn of *ours* wins.
+                if !subagent {
+                    context_tokens = Some(prompt.saturating_add(*output_tokens));
+                    if let Some(name) = turn_model {
+                        model = Some(name.clone());
+                    }
                 }
             }
             _ => {}
@@ -702,6 +710,16 @@ mod tests {
             cache_read_tokens: cache_read,
             cache_creation_tokens: 0,
             model: Some(model.to_string()),
+            subagent: false,
+        }
+    }
+
+    /// O mesmo turno, gasto por um subagente.
+    fn child_usage(input: u64, output: u64, cache_read: u64, model: &str) -> RunEvent {
+        match usage(input, output, cache_read, model) {
+            RunEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, .. } =>
+                RunEvent::Usage { input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, model, subagent: true },
+            other => other,
         }
     }
 
@@ -802,6 +820,40 @@ mod tests {
         assert_eq!(context_window("llama4"), None);
     }
 
+    /// Regressão: o indicador de contexto lia o do subagente.
+    ///
+    /// Os turnos de um subagente chegam ao mesmo fluxo do run que o mandou
+    /// trabalhar, intercalados com os dele. Como o último turno ganhava sem se
+    /// perguntar de quem era, uma chamada `Task` fazia a leitura saltar
+    /// 34967 → 8544 → 34967 — e o salto é para *baixo*, que é o lado que
+    /// esconde uma sessão prestes a ficar sem espaço.
+    #[test]
+    fn a_subagents_turn_is_spend_but_never_this_sessions_context() {
+        let lines = vec![
+            line(1, usage(0, 0, 34_967, "claude-opus-5")),
+            // O filho, com o contexto pequeno dele.
+            line(2, child_usage(0, 0, 8_544, "claude-haiku-4-5")),
+            line(3, child_usage(0, 0, 8_544, "claude-haiku-4-5")),
+        ];
+        let t = totals(&lines, 0.0, true, None);
+
+        assert_eq!(
+            t.context_tokens,
+            Some(34_967),
+            "o contexto é o do último turno *desta* sessão",
+        );
+        assert_eq!(
+            t.tokens,
+            Some(34_967 + 8_544 + 8_544),
+            "o gasto do subagente está na mesma conta",
+        );
+        assert_eq!(
+            t.model.as_deref(),
+            Some("claude-opus-5"),
+            "e o modelo é o desta sessão, não o que o filho por acaso usou",
+        );
+    }
+
     #[test]
     fn the_last_turn_names_the_model_even_when_earlier_ones_did_not() {
         let lines = vec![
@@ -813,6 +865,7 @@ mod tests {
                     cache_read_tokens: 0,
                     cache_creation_tokens: 0,
                     model: None,
+                    subagent: false,
                 },
             ),
             line(2, usage(20, 2, 0, "claude-sonnet-4-6")),
@@ -832,6 +885,7 @@ mod tests {
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
                 model: None,
+                subagent: false,
             },
         )];
         let t = totals(&lines, 0.0, true, Some("haiku"));

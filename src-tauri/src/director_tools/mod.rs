@@ -215,8 +215,11 @@ pub async fn run(
         "create_card" => board::create_card(ws, &project_id, &where_, &call).await,
         "message_agent" => board::message_agent(&runtime, &where_, &call).await,
         "edit_card" => board::edit_card(&runtime, &where_, &call).await,
+        "set_dependencies" => board::set_dependencies(&runtime, &where_, &call).await,
         "move_card" => board::move_card(ws, &runtime, &project_id, &where_, &call).await,
-        "approve_card" | "reject_card" => board::review_card(&runtime, &where_, &call).await,
+        "approve_card" | "reject_card" => {
+            board::review_card(ws, &runtime, &project_id, &where_, &call).await
+        }
         "delete_card" => board::delete_card(&runtime, &call).await,
         "read_diff" => board::read_diff(&runtime, &call).await,
 
@@ -276,6 +279,7 @@ mod tests {
         for guarded in [
             "create_card",
             "edit_card",
+            "set_dependencies",
             "move_card",
             "approve_card",
             "reject_card",

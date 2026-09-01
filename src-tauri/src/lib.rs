@@ -246,7 +246,6 @@ pub fn run() {
             commands::system::open_agent_terminal,
             commands::system::prepare_shutdown,
             commands::system::close_now,
-            commands::project::curator_run,
             commands::crew::model_catalog,
             commands::crew::skill_offers,
             commands::crew::skill_grant,

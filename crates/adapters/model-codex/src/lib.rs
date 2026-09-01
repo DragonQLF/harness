@@ -563,7 +563,7 @@ impl Session {
         })
         .await;
 
-        let allow = match &spec.approver {
+        let outcome = match &spec.approver {
             Some(approver) => {
                 approver(ApprovalRequest {
                     request_id: request_id.clone(),
@@ -573,14 +573,20 @@ impl Session {
                 })
                 .await
             }
-            // No approver means nobody is watching this run. Denying is the
-            // honest default: approving on an agent's own authority is what
-            // decision #95 refused.
-            None => false,
+            // No approver means nobody is watching this run. Not answering is
+            // the honest default: approving on an agent's own authority is
+            // what decision #95 refused, and *refusing* in the operator's name
+            // would be putting words in their mouth.
+            None => harness_ports::ApprovalOutcome::Unanswered,
         };
+        // The Codex protocol has two answers, not three, so an unanswered
+        // question still declines on the wire. The transcript keeps the
+        // difference even where the protocol cannot.
+        let allow = outcome.allowed();
         self.emit(RunEvent::ApprovalAnswered {
             request_id,
             allow,
+            unanswered: matches!(outcome, harness_ports::ApprovalOutcome::Unanswered),
         })
         .await;
 
@@ -663,6 +669,10 @@ impl Session {
                         cache_read_tokens: n("cachedInputTokens"),
                         cache_creation_tokens: n("cacheWriteInputTokens"),
                         model: None,
+                        // O Codex reporta o uso do thread, uma vez por
+                        // actualização e já somado. Não há turno de subagente
+                        // a chegar por aqui separado do resto.
+                        subagent: false,
                     })
                     .await;
                 }

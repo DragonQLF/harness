@@ -201,6 +201,39 @@ function answeredNothing(message) {
   );
 }
 
+/** Um turno, a partir de uma mensagem do assistente — ou `null` quando esta
+ *  mensagem já foi contada.
+ *
+ *  Uma mensagem do assistente é um turno do modelo, mas o SDK entrega-a uma vez
+ *  **por bloco de conteúdo**, e cada entrega traz o `usage` inteiro da mensagem.
+ *  Contá-las à chegada cobrava três vezes um turno que fez três chamadas: o log
+ *  de 2026-09-01 tem 317 eventos de `usage` para 72 turnos, e os totais tirados
+ *  deles ficaram entre 1,45x e 2,01x acima da verdade. O que faz de um turno um
+ *  turno é o id da mensagem, portanto é ele que se conta.
+ *
+ *  O `subagent` acompanha o `usage` porque um subagente escreve neste mesmo
+ *  fluxo: o gasto é real e conta, mas o contexto é outro, e o indicador que
+ *  pergunta "quão cheia está esta sessão" não pode ler o dele. Sem isto a
+ *  leitura salta 34967 → 8544 → 34967 ao atravessar uma chamada `Task`. */
+function turnFrom(message, counted) {
+  const id = message?.message?.id ?? null;
+  if (id !== null && counted.has(id)) return null;
+  if (id !== null) counted.add(id);
+  const usage = message?.message?.usage;
+  if (!usage) return { usage: null };
+  return {
+    usage: {
+      kind: "usage",
+      input_tokens: usage.input_tokens ?? 0,
+      output_tokens: usage.output_tokens ?? 0,
+      cache_read_tokens: usage.cache_read_input_tokens ?? 0,
+      cache_creation_tokens: usage.cache_creation_input_tokens ?? 0,
+      model: message.message?.model ?? null,
+      subagent: (message.parent_tool_use_id ?? null) !== null,
+    },
+  };
+}
+
 /** O conjunto de trabalho de fundo vivo, na forma que a Relay guarda.
  *
  *  Nível e não aresta: cada carga traz tudo o que está vivo e substitui a
@@ -319,6 +352,24 @@ function harnessTools(runId) {
             .describe("Which project board. Defaults to the one this conversation is pinned to."),
         },
         call("message_agent"),
+      ),
+      tool(
+        "set_dependencies",
+        "Say which cards must reach Done before this one may start. Order, not file conflict. " +
+          "Use it when you have planned several cards at once: the board then starts each one " +
+          "as its dependencies land, instead of waiting for the operator to start them in the " +
+          "right sequence by hand. Pass an empty list to clear.",
+        {
+          card_id: z.string().describe("The card that has to wait, for example c_7b30"),
+          depends_on: z
+            .array(z.string())
+            .describe("Card ids that must be Done first. Empty clears the dependencies."),
+          project_id: z
+            .string()
+            .optional()
+            .describe("Which project board. Defaults to the one this conversation is pinned to."),
+        },
+        call("set_dependencies"),
       ),
       tool(
         "edit_card",
@@ -814,6 +865,11 @@ async function handleRun({ id, spec }) {
   // summary needs the name to be worth reading.
   const toolNames = new Map();
   let turnCount = 0;
+  // Assistant message ids already counted. The SDK repeats a message once per
+  // content block and the repeat carries the same usage, so without this the
+  // turn count and every token total scale with how many tool calls a turn
+  // happened to make.
+  const countedMessages = new Set();
   // A run answers one `result` per user message it was given, and a run that
   // was spoken to mid-turn was given more than one. These carry the totals
   // across all of them: reporting the last result's own numbers would lose
@@ -903,18 +959,39 @@ async function handleRun({ id, spec }) {
       input,
       summary: summarizeUse(toolName, input),
     });
-    let allow;
+    let answer;
     try {
-      allow = await Promise.race([
+      answer = await Promise.race([
         decision,
+        // The run was cancelled with the question still on screen. Nobody
+        // refused it; the run is going away.
         new Promise((resolve) =>
-          ac.signal.addEventListener("abort", () => resolve(false)),
+          ac.signal.addEventListener("abort", () =>
+            resolve({ allow: false, unanswered: true }),
+          ),
         ),
       ]);
     } finally {
       approvals.delete(request_id);
     }
-    if (!allow) return { behavior: "deny", message: "denied by operator" };
+    if (!answer?.allow) {
+      // The distinction this sentence carries is the whole of #3 in the
+      // 2026-08-31 write-up. Every refusal used to read "denied by operator",
+      // including a 30-minute timeout — so an agent working overnight was told
+      // the operator had refused, when the operator was asleep, and it went on
+      // to design around a decision that was never made. A refusal is a fact
+      // to work with; silence is a reason to stop and say what you were about
+      // to do.
+      return answer?.unanswered
+        ? {
+            behavior: "deny",
+            message:
+              "nobody answered this request — the operator did not see it, and did not refuse it. " +
+              "Do not work around it and do not try a different way to do the same thing. " +
+              "Stop here and say plainly what you were about to do and what you need permission for.",
+          }
+        : { behavior: "deny", message: "denied by operator" };
+    }
     if (toolName === "Task") childDepth++;
     return { behavior: "allow", updatedInput: input };
   };
@@ -1043,29 +1120,19 @@ async function handleRun({ id, spec }) {
           }
           break;
         case "assistant": {
-          // One assistant message is one model turn. Emitted live so the
-          // card shows progress toward the ceiling before the result lands.
-          turnCount++;
-          send({ type: "event", run_id: id, event: { kind: "turns", count: turnCount } });
-          // Per-turn usage. The result message only totals the query, so it
-          // cannot say how full the context is; the last assistant turn's
-          // input side can, which is why this rides here and not on `done`.
-          const usage = message.message?.usage;
-          if (usage) {
-            send({
-              type: "event",
-              run_id: id,
-              event: {
-                kind: "usage",
-                input_tokens: usage.input_tokens ?? 0,
-                output_tokens: usage.output_tokens ?? 0,
-                cache_read_tokens: usage.cache_read_input_tokens ?? 0,
-                cache_creation_tokens: usage.cache_creation_input_tokens ?? 0,
-                model: message.message?.model ?? null,
-              },
-            });
-          }
           const parent = message.parent_tool_use_id ?? null;
+          // A turn is counted once, however many blocks it arrives in. The
+          // usage rides here and not on `done` because the result message only
+          // totals the query: it cannot say how full the context is, and the
+          // last turn's input side can.
+          const turn = turnFrom(message, countedMessages);
+          if (turn) {
+            turnCount++;
+            send({ type: "event", run_id: id, event: { kind: "turns", count: turnCount } });
+            if (turn.usage) {
+              send({ type: "event", run_id: id, event: turn.usage });
+            }
+          }
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) {
               send({ type: "event", run_id: id, event: { kind: "text", text: block.text } });
@@ -1238,7 +1305,11 @@ function handleLine(line) {
     }
     case "approval_response": {
       answered(msg.request_id);
-      approvals.get(msg.request_id)?.(!!msg.allow);
+      approvals.get(msg.request_id)?.({
+        allow: !!msg.allow,
+        // Three outcomes reach here, not two. See `canUseTool`.
+        unanswered: !!msg.unanswered,
+      });
       break;
     }
     case "tool_response": {

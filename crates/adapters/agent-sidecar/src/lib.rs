@@ -381,6 +381,13 @@ async fn drive(
                                             .get("model")
                                             .and_then(|m| m.as_str())
                                             .map(str::to_string),
+                                        // O sidecar sabe de quem é o turno —
+                                        // tem o `parent_tool_use_id` da
+                                        // mensagem. Aqui só se transporta.
+                                        subagent: ev
+                                            .get("subagent")
+                                            .and_then(|s| s.as_bool())
+                                            .unwrap_or(false),
                                     })
                                     .await;
                             }
@@ -588,7 +595,7 @@ async fn drive(
                             })
                             .await;
 
-                        let allowed = match &spec.approver {
+                        let outcome = match &spec.approver {
                             Some(approve) => {
                                 approve(ApprovalRequest {
                                     request_id: request_id.clone(),
@@ -598,21 +605,34 @@ async fn drive(
                                 })
                                 .await
                             }
-                            // Nobody is listening, so the safe answer is no.
-                            None => false,
+                            // Nobody is listening. The call does not go
+                            // through — but nobody refused it either, and
+                            // telling the agent otherwise would put a decision
+                            // in the operator's mouth that they never made.
+                            None => harness_ports::ApprovalOutcome::Unanswered,
                         };
+                        let allowed = outcome.allowed();
+                        let unanswered =
+                            matches!(outcome, harness_ports::ApprovalOutcome::Unanswered);
 
                         let _ = tx
                             .send(RunEvent::ApprovalAnswered {
                                 request_id: request_id.clone(),
                                 allow: allowed,
+                                unanswered,
                             })
                             .await;
 
+                        // The sidecar turns this into what the agent is told.
+                        // `unanswered` is carried separately rather than as a
+                        // second falsy flag, because the sentence the model
+                        // reads is different: a refusal is a decision to work
+                        // around, and silence is a reason to stop.
                         let response = serde_json::json!({
                             "type": "approval_response",
                             "request_id": request_id,
                             "allow": allowed,
+                            "unanswered": unanswered,
                         });
                         if (LineSink { out: &mut stdin })
                             .send(response)

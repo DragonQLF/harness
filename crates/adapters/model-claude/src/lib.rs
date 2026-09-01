@@ -71,6 +71,8 @@ async fn pump_lines(
     let mut failure: Option<String> = None;
     let mut done_seen = false;
     let mut final_result: Option<String> = None;
+    // Assistant message ids already accounted for. See the `assistant` arm.
+    let mut counted_messages: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     loop {
         tokio::select! {
@@ -100,8 +102,22 @@ async fn pump_lines(
                     Some("assistant") => {
                         // The same per-turn usage the sidecar reports, so a
                         // conversation run through the command line accounts
-                        // for itself too.
-                        if let Some(usage) = v.pointer("/message/usage") {
+                        // for itself too — and with the same guard, because the
+                        // CLI repeats a message once per content block and each
+                        // repeat carries the whole message's usage. Counted as
+                        // they arrive, a turn with three tool calls is billed
+                        // three times.
+                        let message_id = v
+                            .pointer("/message/id")
+                            .and_then(|m| m.as_str())
+                            .map(str::to_string);
+                        let first_sight = match &message_id {
+                            // No id is not "already seen": an output that does
+                            // not number its messages would lose every turn.
+                            None => true,
+                            Some(id) => counted_messages.insert(id.clone()),
+                        };
+                        if let (true, Some(usage)) = (first_sight, v.pointer("/message/usage")) {
                             let tokens = |name: &str| {
                                 usage.get(name).and_then(|t| t.as_u64()).unwrap_or(0)
                             };
@@ -116,6 +132,9 @@ async fn pump_lines(
                                         .pointer("/message/model")
                                         .and_then(|m| m.as_str())
                                         .map(str::to_string),
+                                    subagent: v
+                                        .get("parent_tool_use_id")
+                                        .is_some_and(|p| !p.is_null()),
                                 },
                             )
                             .await;

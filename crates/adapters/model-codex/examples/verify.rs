@@ -90,7 +90,7 @@ async fn main() {
     ask.approver = Some(Arc::new(|req| {
         Box::pin(async move {
             println!("    [answered: deny] {}", req.tool);
-            false
+            harness_ports::ApprovalOutcome::Denied
         })
     }));
     let (out4, _, seen) = run(ask, None).await;
@@ -106,7 +106,7 @@ async fn main() {
     yes.approver = Some(Arc::new(|req| {
         Box::pin(async move {
             println!("    [answered: allow] {}", req.tool);
-            true
+            harness_ports::ApprovalOutcome::Allowed
         })
     }));
     let (out5, text5, seen5) = run(yes, None).await;

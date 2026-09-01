@@ -2770,3 +2770,135 @@ ao longo de dez minutos.
 Um guarda com `Drop` cancela o token do turno em qualquer saída, escrita ou não.
 Não desregista — o `Drop` não pode esperar por um actor — e não precisa: o
 `register` já trata um token cancelado como um turno acabado.
+
+### 117. Um turno era cobrado uma vez por bloco de conteúdo (bug)
+
+Uma mensagem do assistente é um turno do modelo, mas o SDK entrega-a uma vez por
+**bloco de conteúdo**, e cada entrega traz o `usage` inteiro da mensagem — não
+uma fatia dele. O sidecar contava-as à chegada, portanto um turno com três
+chamadas de ferramenta era contado três vezes.
+
+Está no log da execução `f6995015`: 317 eventos de `usage` para os 72 turnos que
+o próprio SDK reportou no `done`, e valores repetidos em sequência exactamente
+pelo número de blocos de cada turno. O `conversations::totals` soma esses
+eventos, portanto tudo o que deles saía vinha inflacionado — **1,45x** na
+execução, **2,01x** na conversa do Director (1292 eventos → 606 turnos, 566M →
+281M tokens). É o número que o operador usa para escolher um modelo.
+
+O que faz de um turno um turno é o id da mensagem, e é ele que se conta
+(`turnFrom`, e o mesmo guarda no `model-claude`, que lê o mesmo formato).
+
+Na mesma passagem, a segunda metade: os turnos de um subagente chegam ao mesmo
+fluxo, intercalados. São gasto real e contam para o total; **não** são o contexto
+desta sessão. Sem os distinguir, o indicador lia o do filho e saltava
+34967 → 8544 → 34967 ao atravessar uma chamada `Task` — e o salto é para baixo,
+que é o lado que esconde uma sessão prestes a ficar sem espaço. O `RunEvent::Usage`
+leva agora um `subagent`, posto de onde se sabe (`parent_tool_use_id`).
+
+### 118. Um resto trancava o cartão para sempre (bug)
+
+O `self.runs` só era limpo pelo `finish_run`, portanto uma tarefa que morresse
+sem entregar o `RunDone` — um pânico, a mensagem perdida, o sidecar morto por
+baixo — deixava lá a entrada. A partir daí todo o arranque era recusado com
+"card already has an active run", os controlos do quadro não a tiravam, e a
+única saída encontrada na prática foi achar o processo pelo `lsof` do directório
+de trabalho e mandar-lhe um sinal. Não é operação de utilizador.
+
+O `JoinHandle` é a prova: uma tarefa terminada não volta. O `reap_dead_runs`
+corre antes de recusar um arranque e fecha essas execuções como `Failed` — falhar
+em silêncio continua a ser falhar, e um cartão que não reporta nada é pior do que
+um que reporta uma falha. Há um tempo de graça de 5s porque o último acto da
+tarefa é enviar o `RunDone`: entre acabar e ser processado há uma janela em que
+uma execução viva parece morta.
+
+Não é o mesmo que o `100c89c`, que limpa **processos** do sidecar; esta entrada é
+do lado do engine e sobrevivia àquela limpeza.
+
+### 119. Aprovar passou a integrar (feature)
+
+Cada worktree é cortada do `base_branch` e o único `merge` em todo o código Rust
+era o `--ff-only <remote>` do `refresh_from_remote`. Não havia passo de
+integração nenhum: aprovar queria dizer que o quadro o dizia, e mais nada. Cada
+cartão começava numa árvore sem o trabalho do anterior — o `c_3626`, mandado
+crescer `src/art/`, não encontrou `src/` nenhum e reconstruiu o projecto inteiro
+ao lado. Trabalho excelente, inutilizável.
+
+O `GitPort` ganhou `merge_card`, e a ordem em `execute` é a correcção: o `decide`
+valida, a integração corre, e só depois a aprovação é persistida. Uma fusão que
+falha deixa o cartão em revisão, onde o operador ainda lhe pega, em vez de o
+marcar feito por cima de trabalho que não aterrou. Recusa-se — alto — a fundir
+para uma checkout que esteja noutro ramo ou com alterações por commitar: nos dois
+casos o trabalho ia parar onde ninguém o foi pôr.
+
+### 120. A memória deixou de ser uma passagem e passou a ser uma leitura
+
+O `report_work` sempre recolheu notas e o log sempre as guardou. Nada as lia de
+volta: o `curator` promovia-as para `memory/areas/` e regenerava um índice, mas
+**ninguém o chamava** — estava escrito, testado, registado como comando, e o
+`areas/` não existia em máquina nenhuma. Entretanto o `c_f50e` reportou nove
+notas e os cartões seguintes pagaram para redescobrir o mesmo chão: 3
+leituras/greps antes de o primeiro poder escrever, 71 antes do quinto.
+
+O `curator` foi apagado. As notas derivam-se do log no momento em que são
+precisas (`memory::notes_from`), como o `runstats` e o `insights` já faziam, e
+entram no prompt do run ao lado da charter. As razões são melhores do que ser
+menos código:
+
+- uma passagem tem de ser **disparada**, e memória que precisa de ser disparada
+  apodrece à primeira vez que ninguém a dispara — que foi o que aconteceu;
+- um ficheiro sobrevive ao cartão que o escreveu, portanto um cartão rejeitado
+  **depois** de reportar continuaria a afirmar o que aprendeu; derivado, deixa de
+  ensinar no instante em que sai de Done;
+- uma segunda cópia em disco é uma segunda coisa que pode discordar do log, e é
+  também um sítio por onde dois cartões concorrentes se pisam — exactamente o que
+  levou a charter para fora do repositório.
+
+Esquecer é orçamento, não julgamento: mais recentes primeiro, com tecto, e o que
+ficou de fora é dito em voz alta. Decidir que uma nota substitui outra precisa de
+juízo, juízo precisa de um modelo, e um modelo neste caminho é a passagem que
+isto veio substituir.
+
+### 121. Uma aprovação que expira deixou de ser uma recusa (bug)
+
+O `Approver` devolvia um `bool`, e um `timeout` de 30 minutos colapsava em
+`false`, que o sidecar traduzia para as palavras **"denied by operator"**. O
+operador não tinha recusado nada — estava a dormir. O agente seguia a contornar
+uma recusa que nunca houve, com confiança, sobre uma premissa que lhe foi
+entregue como facto. Para trabalho sem ninguém a ver, isso é pior do que parar.
+
+Passou a `ApprovalOutcome` de três variantes, e a correcção tem de viver no
+**tipo**: qualquer par de variantes volta a colapsar no momento em que alguém
+escrever `if allowed`. Uma pergunta sem resposta chega ao agente a dizer-lhe que
+pare e diga o que ia fazer — explicitamente **não** que arranje outra maneira. O
+fecho da janela também passou a ser "ninguém respondeu": a Relay a fechar não é o
+operador a recusar.
+
+O `RunEvent::ApprovalAnswered` leva um `unanswered` ao lado do `allow`, porque a
+transcrição é onde o operador mais tarde pergunta "fui eu que recusei aquilo?" —
+e por duas vezes, no histórico desta app, a resposta era não.
+
+### 122. Um check vermelho deixou de poder ser aprovado (feature)
+
+Os checks já corriam: o `card_checks_after_run` dispara no fim de uma execução e
+escreve o resultado contra o cartão. Ninguém o lia. O `CardChecks::failing()` era
+calculado, guardado, e consultado por **nenhum** consumidor — portanto um cartão
+podia ser aprovado com o build dele vermelho e nada em lado nenhum o dizia.
+
+É a forma de todos os defeitos do relato de 2026-08-31: seis foram entregues com
+a suite verde. A lição foi que um check que ninguém é obrigado a olhar não é um
+check. Isto é a obrigação, nos dois caminhos que aprovam — o botão do operador e
+a ferramenta do Director, pela mesma função. Não julga *quais* checks importam:
+o operador configurou-os, e um deles em vermelho é a resposta dele. Um cartão sem
+passagem registada passa — "não há checks" é um facto sobre o projecto, não uma
+falha do cartão.
+
+### 123. O Director pode planear em vez de ser escalonado (feature)
+
+O `depends_on` está no domínio desde sempre, o `SetDependencies` também, e o
+comando do ecrã igualmente. O Director é que não tinha por onde lhes chamar:
+das trinta ferramentas dele, nenhuma punha um cartão à espera de outro. Planear
+cinco cartões deixava o operador a arrancá-los à mão pela ordem certa — que é o
+"ter de explicar outra vez a seguir a cada passo" de que ele se queixou.
+
+`set_dependencies`, com a única recusa que o quadro não teria como dizer depois:
+um cartão à espera de si próprio nunca arrancaria.

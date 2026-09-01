@@ -8,11 +8,74 @@ use harness_ports::{
     RunEvent, RunProfile, RunSpec, Reviewer, Trailers, WorktreeMode, WorktreePath,
 };
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{Engine, Msg, RunEntry, SessionEntry, worktree_label, SHARED_WORKTREE};
 
+/// How long a finished task is given to deliver its `RunDone` before the entry
+/// it left behind is treated as a leftover.
+///
+/// The task's last act is to send that message, so between the handle
+/// completing and the actor processing it there is a window where a live run
+/// looks dead. It is milliseconds wide; this is two orders of magnitude wider,
+/// because reaping a run that is about to report itself is the one way this
+/// can do harm, and waiting costs only the operator pressing Start twice.
+const REAP_GRACE_MS: u64 = 5_000;
+
 impl Engine {
+    /// Drop entries whose task is over but whose `RunDone` never landed.
+    ///
+    /// `self.runs` was only ever cleared by `finish_run`, so a task that died
+    /// without delivering its outcome — a panic, a dropped message, a sidecar
+    /// killed underneath it — left the card owning a run forever. Every start
+    /// after that was refused with "card already has an active run", the
+    /// board's own controls could not clear it, and the only way out found in
+    /// practice was locating the process by `lsof` on its working directory
+    /// and sending it a signal. That is not an operator's job.
+    ///
+    /// The handle is the evidence: a `JoinHandle` that has finished is a task
+    /// that is not coming back. The card is finished as `Failed`, because
+    /// something did fail — silently, which is why this exists — and a card
+    /// that reports nothing is worse than one that reports a failure.
+    async fn reap_dead_runs(&mut self, now_ms: u64) {
+        let dead: Vec<(CardId, RunId)> = self
+            .runs
+            .iter()
+            .filter(|(_, entry)| {
+                entry.handle.as_ref().is_some_and(JoinHandle::is_finished)
+                    && now_ms.saturating_sub(entry.started_ms) > REAP_GRACE_MS
+            })
+            .map(|(card_id, entry)| (card_id.clone(), entry.run_id.clone()))
+            .collect();
+
+        for (card_id, run_id) in dead {
+            self.runs.remove(&card_id);
+            self.emit_run(
+                &card_id,
+                &run_id,
+                RunEvent::Notice {
+                    text: "this run's task ended without reporting an outcome; \
+                           clearing it so the card can start again"
+                        .to_string(),
+                },
+            );
+            let decided = self.board.decide(&Command::FinishRun {
+                card_id: card_id.clone(),
+                run_id: run_id.clone(),
+                outcome: RunOutcome::Failed,
+                cost_usd: None,
+                turns: None,
+            });
+            // A late `RunDone` for the same run is refused by the board, which
+            // is the outcome we want: whoever gets there first decides, and the
+            // other one changes nothing.
+            if let Ok(events) = decided {
+                let _ = self.persist(events).await;
+            }
+        }
+    }
+
     /// What must hold before a run may begin. Checked here for a fast answer
     /// and again in `launch_run`, because between asking for a worktree and
     /// being handed one, other messages get processed and the world can move.
@@ -76,6 +139,10 @@ impl Engine {
         profile: RunProfile,
         reply: oneshot::Sender<Result<RunId, String>>,
     ) {
+        // Before refusing, make sure what we are refusing on account of is
+        // still real. A leftover entry would otherwise refuse this card for
+        // the rest of the process's life.
+        self.reap_dead_runs(self.now()).await;
         if let Err(e) = self.check_run_start(&card_id, &profile) {
             let _ = reply.send(Err(e));
             return;

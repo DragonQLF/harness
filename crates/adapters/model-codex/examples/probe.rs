@@ -18,7 +18,7 @@ async fn main() {
     spec.approver = Some(Arc::new(|req| {
         Box::pin(async move {
             println!("[approval] {} — {} => allow", req.tool, req.summary);
-            true
+            harness_ports::ApprovalOutcome::Allowed
         })
     }));
 

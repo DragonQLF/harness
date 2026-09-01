@@ -194,6 +194,50 @@ pub async fn assign_agent(
         .await
 }
 
+/// Refuse to approve over a red check.
+///
+/// The checks already run — `card_checks_after_run` fires when a run ends and
+/// writes the result against the card. Nothing read it. `CardChecks::failing()`
+/// was computed, stored, and consulted by nobody, so a card could be approved
+/// with its own build failing and nothing anywhere would say so.
+///
+/// That is the shape of every defect in the 2026-08-31 write-up: six of them
+/// shipped with a green suite, and the lesson taken was that a check nobody is
+/// obliged to look at is not a check. This is the obligation. It is deliberately
+/// not a judgment about *which* checks matter — the operator configured them,
+/// and a check they configured going red is their answer, not Relay's.
+///
+/// A card with no configured checks passes. Saying "no checks" is a fact about
+/// this project, not a failure of this card, and inventing a gate the operator
+/// never asked for would stop work for no reason.
+pub(crate) fn refuse_approval_over_red_checks(
+    paths: &harness_app::paths::AppPaths,
+    project_id: &str,
+    card_id: &str,
+) -> Result<(), String> {
+    let Some(pass) = harness_app::checks::read_card_checks(
+        &paths.card_checks_file(project_id, card_id),
+    ) else {
+        return Ok(());
+    };
+    let failing = pass.failing();
+    if failing == 0 {
+        return Ok(());
+    }
+    let names: Vec<&str> = pass
+        .rows
+        .iter()
+        .filter(|r| r.status == "fail")
+        .map(|r| r.name.as_str())
+        .collect();
+    Err(format!(
+        "{failing} of this card's checks are failing ({}). \
+         Approving would put a red build on the base branch. \
+         Send the card back, or fix the check and run it again.",
+        names.join(", ")
+    ))
+}
+
 #[tauri::command]
 pub async fn approve_card(
     project_id: String,
@@ -201,6 +245,7 @@ pub async fn approve_card(
     reason: Option<String>,
     ws: Shared<'_>,
 ) -> Result<u64, String> {
+    refuse_approval_over_red_checks(&ws.paths, &project_id, &card_id)?;
     ws.runtime(&project_id).await?
         .engine
         .execute(Command::ApproveCard {
@@ -306,6 +351,24 @@ pub(crate) async fn start_run_inner(
     if let Some(global) = global {
         prompt.push_str("\n\nStanding notes from the operator:\n");
         prompt.push_str(&global);
+    }
+
+    // And what the cards before this one wrote down. `report_work` has always
+    // taken these notes and the log has always kept them; nothing ever read
+    // them back, so every card started blind and paid to rediscover the same
+    // ground — 3 reads before the first card could write, 71 before the fifth.
+    // Derived here rather than promoted to files: see `memory::notes_from`.
+    let history = {
+        let store = Arc::clone(&runtime.store);
+        tauri::async_runtime::spawn_blocking(move || {
+            harness_ports::StorePort::read_all(store.as_ref()).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())??
+    };
+    if let Some(notes) = harness_app::memory::notes_from(&history, &snap.cards) {
+        prompt.push_str("\n\nWhat earlier cards on this board learned:\n");
+        prompt.push_str(&notes);
     }
 
     runtime
@@ -545,4 +608,93 @@ pub async fn project_stats(
         &cards,
         tz_offset_minutes.unwrap_or(0),
     ))
+}
+
+#[cfg(test)]
+mod approval_gate_tests {
+    use super::*;
+    use harness_app::checks::{CardChecks, CheckRow};
+
+    fn paths(tag: &str) -> harness_app::paths::AppPaths {
+        let dir = std::env::temp_dir().join(format!(
+            "harness-approval-gate-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        harness_app::paths::AppPaths::new(dir).unwrap()
+    }
+
+    fn row(name: &str, status: &str) -> CheckRow {
+        CheckRow {
+            name: name.into(),
+            command: "pnpm build".into(),
+            status: status.into(),
+            detail: String::new(),
+            ran_ms: 0,
+            duration_ms: 0,
+        }
+    }
+
+    fn record(p: &harness_app::paths::AppPaths, card: &str, rows: Vec<CheckRow>) {
+        let file = p.card_checks_file("proj", card);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            serde_json::to_string(&CardChecks {
+                card_id: card.into(),
+                run_id: "r1".into(),
+                worktree: "/tmp/wt".into(),
+                ran_ms: 1,
+                rows,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// A card whose checks were never run, or whose project has none, is not a
+    /// card that failed. Inventing a gate the operator never configured would
+    /// stop work for no reason.
+    #[test]
+    fn a_card_with_no_recorded_pass_is_not_blocked() {
+        let p = paths("none");
+        assert!(refuse_approval_over_red_checks(&p, "proj", "c_1").is_ok());
+    }
+
+    #[test]
+    fn a_green_pass_approves() {
+        let p = paths("green");
+        record(&p, "c_2", vec![row("build", "ok"), row("tests", "ok")]);
+        assert!(refuse_approval_over_red_checks(&p, "proj", "c_2").is_ok());
+    }
+
+    /// The one that matters. The checks already ran and already wrote this
+    /// file; `failing()` was computed and read by nobody, so a card could be
+    /// approved with its own build red and nothing anywhere said so.
+    #[test]
+    fn a_red_check_refuses_the_approval_and_names_what_failed() {
+        let p = paths("red");
+        record(
+            &p,
+            "c_3",
+            vec![row("build", "ok"), row("tests", "fail"), row("types", "fail")],
+        );
+        let refused = refuse_approval_over_red_checks(&p, "proj", "c_3")
+            .expect_err("a red build must not be approvable");
+        assert!(refused.contains("tests"), "{refused}");
+        assert!(refused.contains("types"), "{refused}");
+        assert!(
+            refused.contains("2 of this card's checks are failing"),
+            "{refused}",
+        );
+    }
+
+    /// A warning is not a failure. The operator's own vocabulary decides what
+    /// blocks, and only `fail` does.
+    #[test]
+    fn a_warning_does_not_block() {
+        let p = paths("warn");
+        record(&p, "c_4", vec![row("lint", "warn"), row("build", "ok")]);
+        assert!(refuse_approval_over_red_checks(&p, "proj", "c_4").is_ok());
+    }
 }

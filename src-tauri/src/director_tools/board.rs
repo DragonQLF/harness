@@ -226,7 +226,9 @@ pub(super) async fn move_card(
 /// O veredicto da revisão é qual destas duas ele chama — não há um segundo
 /// relato em JSON ao lado (#102).
 pub(super) async fn review_card(
+    ws: &Arc<Workspace>,
     runtime: &ProjectRuntime,
+    project_id: &str,
     where_: &str,
     call: &ToolCall,
 ) -> ToolReply {
@@ -237,6 +239,19 @@ pub(super) async fn review_card(
         let approving = call.name == "approve_card";
         if !approving && reason.is_empty() {
             return ToolReply::refused("sending a card back needs a reason the agent can act on");
+        }
+        // The same gate the operator's own Approve goes through. The Director
+        // is not a second authority on whether a red build is acceptable — and
+        // it cannot see the game it just approved, which is exactly how six
+        // defects shipped green.
+        if approving {
+            if let Err(why) = crate::commands::board::refuse_approval_over_red_checks(
+                &ws.paths,
+                project_id,
+                &card_id,
+            ) {
+                return ToolReply::refused(why);
+            }
         }
         let cmd = if approving {
             Command::ApproveCard {
@@ -342,5 +357,61 @@ mod tests {
         assert_eq!(birth(Some("review"), false), None);
         assert_eq!(birth(Some("done"), false), None);
         assert_eq!(birth(Some("sideways"), false), None);
+    }
+}
+
+/// Dizer o que tem de estar feito antes de um cartão poder começar.
+///
+/// O `depends_on` existe no domínio desde sempre e o `SetDependencies` também;
+/// o Director é que não tinha por onde lhes chamar. Sem isto, planear cinco
+/// cartões deixava o operador a ser o escalonador — a arrancar cada um na
+/// ordem certa à mão, que é exactamente o "explicar outra vez a seguir a cada
+/// passo" de que ele se queixou.
+pub(super) async fn set_dependencies(
+    runtime: &ProjectRuntime,
+    where_: &str,
+    call: &ToolCall,
+) -> ToolReply {
+    let Some(card_id) = text(&call.input, "card_id") else {
+        return ToolReply::refused("that needs a card_id");
+    };
+    let depends_on: Vec<String> = call
+        .input
+        .get("depends_on")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Um cartão à espera de si próprio nunca arranca, e o quadro não teria como
+    // o dizer depois — recusa-se aqui, onde ainda há a quem dizê-lo.
+    if depends_on.iter().any(|d| d == &card_id) {
+        return ToolReply::refused(format!(
+            "{card_id} cannot depend on itself; it would never be startable"
+        ));
+    }
+
+    match runtime
+        .engine
+        .execute(Command::SetDependencies {
+            card_id: CardId::new(card_id.clone()),
+            depends_on: depends_on.iter().cloned().map(CardId::new).collect(),
+        })
+        .await
+    {
+        Ok(_) if depends_on.is_empty() => {
+            ToolReply::ok(format!("{card_id} now depends on nothing{where_}"))
+        }
+        Ok(_) => ToolReply::ok(format!(
+            "{card_id} waits for {}{where_}",
+            depends_on.join(", ")
+        )),
+        Err(e) => ToolReply::refused(format!("could not set those dependencies: {e}")),
     }
 }

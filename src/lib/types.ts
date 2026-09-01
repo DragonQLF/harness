@@ -218,6 +218,10 @@ export interface RunUpdate {
    *  failed Bash that reads as a clean one is the bug this pair closes. */
   ok?: boolean;
   detail?: string | null;
+  /** On `approval_answered`: nobody answered — it expired, or the run was torn
+   *  down with the question still on screen. Kept apart from `allow: false`,
+   *  which is the operator actually saying no. */
+  unanswered?: boolean;
   /** On `done`: set when the run ended in an error rather than an answer. It
    *  arrives on the same message as a success, so without it a failed run
    *  reads as a completed one. */
@@ -228,6 +232,10 @@ export interface RunUpdate {
   output_tokens?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  /** On `usage`: spent by a subagent, not by this session. It counts toward
+   *  the total — it is on the same bill — and never toward the context gauge,
+   *  because a subagent carries its own window. */
+  subagent?: boolean;
   /** On `background_tasks`: everything still running underneath the answer.
    *  Replace what you had — never merge. */
   tasks?: BackgroundTask[];
@@ -323,6 +331,10 @@ export interface RunLogLine {
    *  failed Bash that reads as a clean one is the bug this pair closes. */
   ok?: boolean;
   detail?: string | null;
+  /** On `approval_answered`: nobody answered — it expired, or the run was torn
+   *  down with the question still on screen. Kept apart from `allow: false`,
+   *  which is the operator actually saying no. */
+  unanswered?: boolean;
   /** On `done`: set when the run ended in an error rather than an answer. It
    *  arrives on the same message as a success, so without it a failed run
    *  reads as a completed one. */
@@ -333,6 +345,10 @@ export interface RunLogLine {
   output_tokens?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  /** On `usage`: spent by a subagent, not by this session. It counts toward
+   *  the total — it is on the same bill — and never toward the context gauge,
+   *  because a subagent carries its own window. */
+  subagent?: boolean;
 }
 
 // ---- shell wrappers that still live in src-tauri ---------------------------

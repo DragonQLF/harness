@@ -115,6 +115,17 @@ pub trait GitPort: Send + Sync {
     fn commit(&self, wt: &WorktreePath, msg: &str, trailers: &Trailers) -> Result<String, GitError>;
     fn commit_wip(&self, wt: &WorktreePath) -> Result<Option<String>, GitError>;
     fn remove_worktree(&self, wt: &WorktreePath) -> Result<(), GitError>;
+    /// Put an approved card's branch onto `base`, and answer with the commit
+    /// that did it. `Ok(None)` when the card has no branch to merge — it ran
+    /// in the repository itself, so its work is already there.
+    ///
+    /// Approving used to mean only that the board said so. Every worktree is
+    /// cut from `base`, nothing ever merged back, and so the next card started
+    /// from a tree that did not contain the last one: a card told to grow an
+    /// existing directory found no such directory and rebuilt the project
+    /// beside it. Good work, unusable. Integration is what makes approval mean
+    /// something to the card after it.
+    fn merge_card(&self, card_id: &str, base: &str) -> Result<Option<String>, GitError>;
     fn diff_summary(&self, wt: &WorktreePath, base: &str) -> Result<String, GitError>;
     /// Lines added / removed on this worktree against `base`.
     fn diff_numstat(&self, wt: &WorktreePath, base: &str) -> Result<(u64, u64), GitError>;
@@ -130,8 +141,36 @@ pub struct ApprovalRequest {
     pub input: JsonValue,
 }
 
-pub type Approver =
-    Arc<dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+/// What came back from asking the operator.
+///
+/// Three outcomes, not two, because a question nobody answered is not a "no".
+/// The router used to return a bare `bool` and a 30-minute timeout collapsed
+/// into `false`, which reached the agent as the words *"denied by operator"*.
+/// The operator had denied nothing — they were asleep. The agent then worked
+/// *around* a refusal that never happened, confidently, on a premise it had
+/// been handed as fact. For unattended work that is worse than stopping, and
+/// the fix has to live in the type: any pair of variants collapses again the
+/// moment someone writes `if allowed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalOutcome {
+    Allowed,
+    /// The operator said no. The agent should take that as a decision and
+    /// find another way.
+    Denied,
+    /// Nobody answered — it expired, or the run was cancelled out from under
+    /// the question. The agent should stop, not adapt.
+    Unanswered,
+}
+
+impl ApprovalOutcome {
+    pub fn allowed(self) -> bool {
+        matches!(self, Self::Allowed)
+    }
+}
+
+pub type Approver = Arc<
+    dyn Fn(ApprovalRequest) -> Pin<Box<dyn Future<Output = ApprovalOutcome> + Send>> + Send + Sync,
+>;
 
 /// A finished run the Director is meant to read.
 #[derive(Debug, Clone, Serialize)]
@@ -956,6 +995,15 @@ pub enum RunEvent {
         cache_creation_tokens: u64,
         #[serde(default)]
         model: Option<String>,
+        /// Spent by a subagent rather than by this session. It is real spend,
+        /// so it counts toward the total; it is a *different* context window,
+        /// so it must never be read as this session's. A run's own turns and
+        /// its subagents' turns arrive interleaved on one stream, and without
+        /// this the context reading swings 34967 → 8544 → 34967 across a
+        /// single `Task` call. Older logs have no such field and predate
+        /// subagents being separable at all, so absent means "mine".
+        #[serde(default)]
+        subagent: bool,
     },
     Done {
         session_id: Option<String>,
@@ -979,6 +1027,12 @@ pub enum RunEvent {
     },
     ApprovalAnswered {
         request_id: String,
+        /// Nobody answered: it expired, or the run was torn down while the
+        /// question was still on screen. Kept apart from `allow: false`
+        /// because the transcript is where an operator later asks "did I
+        /// refuse that?" — and twice, the answer was no, they were asleep.
+        #[serde(default)]
+        unanswered: bool,
         allow: bool,
     },
     /// A note from the harness itself rather than the model (verdicts, cancels).

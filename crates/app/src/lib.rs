@@ -17,7 +17,6 @@ pub use harness_ports::queue as chatqueue;
 pub mod conversations;
 pub mod checks;
 pub mod code;
-pub mod curator;
 pub mod devdocs;
 pub mod director;
 pub mod grants;

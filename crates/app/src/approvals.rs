@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use harness_ports::{ApprovalRequest, Approver, JsonValue};
+use harness_ports::{ApprovalOutcome, ApprovalRequest, Approver, JsonValue};
 use serde::Serialize;
 use tokio::sync::oneshot;
 use ts_rs::TS;
@@ -44,7 +44,9 @@ pub struct PendingApproval {
 
 struct Waiting {
     view: PendingApproval,
-    tx: oneshot::Sender<bool>,
+    /// Carries the outcome, not a bool: shutdown has to be able to say
+    /// "nobody answered" rather than forge a refusal in the operator's name.
+    tx: oneshot::Sender<ApprovalOutcome>,
 }
 
 /// Told when a request expired unanswered. A timeout is not an operator's no:
@@ -123,7 +125,11 @@ impl ApprovalRouter {
         let waiting = self.pending.lock().unwrap().remove(request_id);
         match waiting {
             Some(entry) => {
-                let _ = entry.tx.send(allow);
+                let _ = entry.tx.send(if allow {
+                    ApprovalOutcome::Allowed
+                } else {
+                    ApprovalOutcome::Denied
+                });
                 self.broadcast();
                 Ok(())
             }
@@ -133,11 +139,15 @@ impl ApprovalRouter {
         }
     }
 
-    /// Deny everything still waiting; used when shutting down.
+    /// Drop everything still waiting; used when shutting down.
+    ///
+    /// These come back as *unanswered*, which is what they are. Relay closing
+    /// is not the operator refusing, and an agent told it was refused would
+    /// carry that into the next session as a decision that was never made.
     pub fn deny_all(&self) {
         let waiting: Vec<Waiting> = self.pending.lock().unwrap().drain().map(|(_, w)| w).collect();
         for entry in waiting {
-            let _ = entry.tx.send(false);
+            let _ = entry.tx.send(ApprovalOutcome::Unanswered);
         }
         self.broadcast();
     }
@@ -156,7 +166,7 @@ impl ApprovalRouter {
                     &request.input,
                     &request.summary,
                 ) {
-                    return true;
+                    return ApprovalOutcome::Allowed;
                 }
 
                 let (tx, rx) = oneshot::channel();
@@ -184,17 +194,22 @@ impl ApprovalRouter {
                 let decision = tokio::time::timeout(WAIT, rx).await;
                 me.pending.lock().unwrap().remove(&request.request_id);
                 me.broadcast();
-                // Timed out, dropped or denied all mean the same thing to the
-                // caller — no — but only a timeout is an unanswered question.
+                // Three outcomes, and the difference is the whole point. A
+                // timeout and a dropped channel are both "nobody answered";
+                // only an explicit `false` is the operator saying no. These
+                // used to collapse into one `false`, and the agent was told
+                // the operator had refused when the operator was asleep.
                 match decision {
-                    Ok(Ok(true)) => true,
+                    Ok(Ok(outcome)) => outcome,
+                    // The sender went away without saying anything: the run
+                    // that asked died. Nobody decided.
+                    Ok(Err(_)) => ApprovalOutcome::Unanswered,
                     Err(_) => {
                         if let Some(sink) = me.expiry_sink.get() {
                             sink(Self::now_ms(), &view);
                         }
-                        false
+                        ApprovalOutcome::Unanswered
                     }
-                    Ok(_) => false,
                 }
             })
         })
@@ -264,7 +279,7 @@ mod tests {
         assert!(!recorder.queues.lock().unwrap().is_empty());
 
         router.resolve("req-7", true).unwrap();
-        assert!(waiting.await.unwrap());
+        assert_eq!(waiting.await.unwrap(), ApprovalOutcome::Allowed);
         assert!(router.pending_list().is_empty());
     }
 
@@ -277,7 +292,7 @@ mod tests {
             .allow_always("Bash", &serde_json::json!({ "command": "git push origin main" }))
             .expect("a scoped rule");
         let approve = router.approver_for("proj");
-        assert!(approve(request("req-1")).await);
+        assert_eq!(approve(request("req-1")).await, ApprovalOutcome::Allowed);
         assert!(router.pending_list().is_empty());
         assert!(
             recorder.asked.lock().unwrap().is_empty(),
@@ -318,7 +333,7 @@ mod tests {
         assert_eq!(recorder.asked.lock().unwrap().len(), 1);
 
         router.resolve("req-danger", false).unwrap();
-        assert!(!waiting.await.unwrap());
+        assert_eq!(waiting.await.unwrap(), ApprovalOutcome::Denied);
     }
 
     #[tokio::test]
@@ -333,13 +348,13 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         router.resolve("req-2", false).unwrap();
-        assert!(!waiting.await.unwrap());
+        assert_eq!(waiting.await.unwrap(), ApprovalOutcome::Denied);
         assert!(router.resolve("req-2", true).is_err());
         assert!(router.resolve("never-existed", true).is_err());
     }
 
     #[tokio::test]
-    async fn shutting_down_denies_everything_still_waiting() {
+    async fn shutting_down_leaves_the_question_unanswered_rather_than_refused() {
         let (router, _s, _recorder) = router();
         let approve = router.approver_for("proj");
         let waiting = tokio::spawn(async move { approve(request("req-3")).await });
@@ -350,12 +365,19 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         router.deny_all();
-        assert!(!waiting.await.unwrap());
+        // Relay closing is not the operator refusing. A run resumed later
+        // would otherwise carry a decision nobody made into its next session.
+        assert_eq!(waiting.await.unwrap(), ApprovalOutcome::Unanswered);
     }
 
-    /// A timeout and a click on "Deny" both refuse the agent, but they are not
-    /// the same fact: one means the operator never saw the question. Only the
-    /// first reaches the sink.
+    /// A timeout and a click on "Deny" are not the same fact, and the agent is
+    /// told which it got.
+    ///
+    /// They used to be the same `false`, and the sidecar turned every `false`
+    /// into the words *"denied by operator"*. Twice in this app's life the
+    /// operator denied nothing — they were asleep — and the agent went on to
+    /// work around a refusal that had never happened. Only an expiry reaches
+    /// the sink, and only a click is a denial.
     #[tokio::test(start_paused = true)]
     async fn expiries_are_recorded_and_deliberate_denials_are_not() {
         let (router, _s, _recorder) = router();
@@ -379,7 +401,11 @@ mod tests {
         assert_eq!(router.pending_list().len(), 1);
 
         tokio::time::advance(WAIT).await;
-        assert!(!waiting.await.unwrap(), "an expiry denies like any other no");
+        assert_eq!(
+            waiting.await.unwrap(),
+            ApprovalOutcome::Unanswered,
+            "nobody answered, so nobody denied",
+        );
         assert_eq!(
             expired.lock().unwrap().len(),
             1,
@@ -396,7 +422,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         router.resolve("req-click", false).unwrap();
-        assert!(!second.await.unwrap());
+        assert_eq!(second.await.unwrap(), ApprovalOutcome::Denied);
         assert_eq!(expired.lock().unwrap().len(), before);
     }
 }

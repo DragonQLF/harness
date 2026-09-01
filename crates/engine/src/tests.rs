@@ -100,6 +100,23 @@ impl ClockPort for FixedClock {
     }
 }
 
+/// Um relógio que o teste move à mão. Para o que precisa de ver tempo a passar
+/// sem esperar por ele.
+#[derive(Default)]
+struct SettableClock(std::sync::atomic::AtomicU64);
+
+impl SettableClock {
+    fn set(&self, ms: u64) {
+        self.0.store(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl ClockPort for SettableClock {
+    fn now_millis(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 enum FakeMode {
     Complete,
     WaitCancelled,
@@ -212,8 +229,9 @@ impl AgentPort for FakeAgent {
                         })
                         .await
                     }
-                    None => false,
+                    None => harness_ports::ApprovalOutcome::Unanswered,
                 };
+                let allowed = allowed.allowed();
                 let _ = tx
                     .send(RunEvent::Text {
                         text: format!("allowed={allowed}"),
@@ -241,6 +259,8 @@ struct FakeGit {
     /// When set, create_worktree takes this long — long enough that another
     /// message lands mid-start, which is the window these tests are about.
     create_delay_ms: u64,
+    /// Uma integração que recusa, como a de um ramo que conflitua com a base.
+    merge_fails: Option<String>,
 }
 
 impl FakeGit {
@@ -252,6 +272,7 @@ impl FakeGit {
             fail_worktree: false,
             order: None,
             create_delay_ms: 0,
+            merge_fails: None,
         }
     }
 
@@ -265,6 +286,7 @@ impl FakeGit {
             fail_worktree: false,
             order: None,
             create_delay_ms: 0,
+            merge_fails: None,
         }
     }
 
@@ -291,6 +313,17 @@ impl Default for FakeGit {
 impl GitPort for FakeGit {
     fn worktree_path(&self, name: &str) -> std::path::PathBuf {
         self.root.join(name)
+    }
+
+    fn merge_card(&self, card_id: &str, base: &str) -> Result<Option<String>, GitError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("merge:{card_id}->{base}"));
+        if let Some(reason) = &self.merge_fails {
+            return Err(GitError::Git(reason.clone()));
+        }
+        Ok(Some(format!("merge-sha-{card_id}")))
     }
 
     fn create_worktree(&self, card_id: &str, _base: &str) -> Result<WorktreePath, GitError> {
@@ -1494,7 +1527,11 @@ async fn the_approver_sees_the_request_id_the_adapter_minted() {
         let captured = Arc::clone(&captured);
         Box::pin(async move {
             captured.lock().unwrap().push(req.request_id.clone());
-            req.tool == "Bash"
+            if req.tool == "Bash" {
+                harness_ports::ApprovalOutcome::Allowed
+            } else {
+                harness_ports::ApprovalOutcome::Denied
+            }
         })
     });
 
@@ -2717,4 +2754,226 @@ async fn a_partial_rejection_lands_the_rest_and_survives_a_restart() {
     }
     let from_log: Vec<Card> = replayed.cards().into_iter().cloned().collect();
     assert_eq!(from_log, live.cards);
+}
+
+/// Um agente cuja tarefa acaba sem que ninguém a ouça: entra em pânico dentro
+/// do `tokio::spawn` que a conduz, portanto o `RunDone` nunca é enviado.
+///
+/// É a forma real do defeito. As três causas vistas em produção — um pânico, a
+/// mensagem perdida, o sidecar morto por baixo — chegam todas aqui: a tarefa
+/// terminou e a entrada em `self.runs` ficou.
+struct PanicsAgent;
+
+impl AgentPort for PanicsAgent {
+    fn run(
+        &self,
+        _spec: RunSpec,
+        _tx: mpsc::Sender<RunEvent>,
+        _cancel: CancellationToken,
+    ) -> PinBox<Result<RunOutcome, String>> {
+        Box::pin(async move { panic!("a tarefa morreu sem reportar nada") })
+    }
+}
+
+/// Regressão: um cartão ficava com uma execução para sempre.
+///
+/// O `self.runs` só era limpo pelo `finish_run`, portanto uma tarefa que
+/// morresse sem entregar o resultado deixava lá a entrada. A partir daí todo o
+/// `start` era recusado com "card already has an active run", os controlos do
+/// próprio quadro não a tiravam, e a única saída encontrada na prática foi
+/// achar o processo pelo `lsof` do directório de trabalho e mandar-lhe um
+/// sinal. O cartão ficava morto sem que nada o dissesse.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_whose_task_died_without_reporting_stops_owning_the_card() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let clock = Arc::new(SettableClock::default());
+    clock.set(1_000);
+
+    let (handle, _e, runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: clock.clone(),
+            agent: Arc::new(PanicsAgent),
+            review: None,
+            message: None,
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+    drop(runs);
+
+    let id = CardId::new("c_stuck");
+    card_ready(&handle, &id).await;
+
+    handle
+        .start_run(id.clone(), "one".into(), profile())
+        .await
+        .expect("o primeiro arranque é aceite");
+
+    // A tarefa morre sem entregar nada. Passa-se o tempo de graça: uma
+    // execução que ainda pode estar a reportar-se não é um resto.
+    clock.set(1_000 + 60_000);
+
+    // Sonda-se o facto que só acumula: uma vez ceifado, o cartão fica
+    // arrancável. Antes desta correcção respondia "card already has an active
+    // run" para sempre, e este `wait_for` estouraria aos 30s.
+    let started = Arc::new(Mutex::new(false));
+    let seen = Arc::clone(&started);
+    wait_for("o cartão volta a poder arrancar", async || {
+        if *seen.lock().unwrap() {
+            return true;
+        }
+        match handle.start_run(id.clone(), "two".into(), profile()).await {
+            Ok(_) => {
+                *seen.lock().unwrap() = true;
+                true
+            }
+            Err(_) => false,
+        }
+    })
+    .await;
+
+    // E o cartão não ficou a mentir que estava a correr: a execução perdida foi
+    // fechada como falhada, porque falhar em silêncio continua a ser falhar.
+    assert!(
+        store
+            .events()
+            .iter()
+            .any(|e| matches!(
+                e,
+                Event::RunFinished { outcome: harness_domain::RunOutcome::Failed, .. }
+            )),
+        "a execução perdida é registada como falhada, não esquecida",
+    );
+}
+
+/// Aprovar passou a integrar, e a ordem entre as duas coisas é a correcção.
+///
+/// Cada worktree é cortada do `base_branch` e nada voltava a fundir, portanto
+/// cada cartão começava numa árvore sem o trabalho do anterior. Não é arrumação:
+/// um cartão mandado crescer um directório que já existia não o encontrou e
+/// reconstruiu o projecto inteiro ao lado. Trabalho bom, inutilizável.
+#[tokio::test(flavor = "multi_thread")]
+async fn approving_a_card_puts_its_branch_on_the_base_branch() {
+    let store = Arc::new(MemStore::default());
+    let git = Arc::new(FakeGit::default());
+    let (handle, _e, runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
+            message: None,
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+    drop(runs);
+
+    let id = CardId::new("c_int");
+    card_ready(&handle, &id).await;
+    handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("o cartão chega a revisão", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    handle
+        .execute(Command::ApproveCard {
+            card_id: id.clone(),
+            by: Actor::Director,
+            reason: "fine".into(),
+            hunks: Vec::new(),
+        })
+        .await
+        .expect("aprovar corre");
+
+    assert!(
+        git.calls().iter().any(|c| c == "merge:c_int->main"),
+        "aprovar tem de integrar; chamadas: {:?}",
+        git.calls(),
+    );
+    assert_eq!(status_of(&handle, &id).await, Some(Status::Done));
+}
+
+/// A outra metade, e a que faz a primeira valer alguma coisa: se a integração
+/// não corre, a aprovação não fica escrita. Um cartão marcado como feito por
+/// cima de trabalho que não aterrou é precisamente a mentira que isto veio
+/// tirar do sistema.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_card_that_cannot_be_merged_is_not_approved() {
+    let store = Arc::new(MemStore::default());
+    let mut failing = FakeGit::default();
+    failing.merge_fails = Some("conflicts with main in:\nsrc/main.rs".into());
+    let git = Arc::new(failing);
+
+    let (handle, _e, runs) = Engine::spawn(
+        EngineDeps {
+            store: store.clone(),
+            clock: Arc::new(FixedClock),
+            agent: Arc::new(FakeAgent(FakeMode::Complete)),
+            review: None,
+            message: None,
+            git: git.clone(),
+            approver: None,
+            run_log: None,
+        },
+        test_config(),
+        EnginePolicy {
+            director_reviews_first: false,
+            commit_wip_on_close: true,
+        },
+        vec![],
+    );
+    drop(runs);
+
+    let id = CardId::new("c_conflict");
+    card_ready(&handle, &id).await;
+    handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("o cartão chega a revisão", async || {
+        status_of(&handle, &id).await == Some(Status::Review)
+    })
+    .await;
+
+    let refused = handle
+        .execute(Command::ApproveCard {
+            card_id: id.clone(),
+            by: Actor::Director,
+            reason: "fine".into(),
+            hunks: Vec::new(),
+        })
+        .await;
+
+    assert!(refused.is_err(), "uma integração que falha recusa a aprovação");
+    let said = refused.unwrap_err();
+    assert!(
+        said.contains("src/main.rs"),
+        "e diz onde está o conflito, para haver o que fazer a seguir: {said}",
+    );
+    assert_eq!(
+        status_of(&handle, &id).await,
+        Some(Status::Review),
+        "o cartão fica onde o operador ainda lhe pega",
+    );
 }
