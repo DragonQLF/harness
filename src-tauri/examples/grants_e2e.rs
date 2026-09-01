@@ -149,7 +149,7 @@ async fn ask_about(
     let sink = Arc::clone(&said);
     let pump = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let RunEvent::Text { text } = event {
+            if let RunEvent::Text { text, .. } = event {
                 sink.lock().unwrap().push_str(&text);
                 sink.lock().unwrap().push('\n');
             }

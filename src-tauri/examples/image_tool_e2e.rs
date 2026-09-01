@@ -68,7 +68,7 @@ async fn main() {
         let mut said = String::new();
         while let Some(ev) = rx.recv().await {
             match ev {
-                RunEvent::Text { text } => said.push_str(&text),
+                RunEvent::Text { text, .. } => said.push_str(&text),
                 RunEvent::ToolUse { tool, .. } => println!("  [tool] {tool}"),
                 _ => {}
             }

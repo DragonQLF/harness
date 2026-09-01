@@ -917,15 +917,29 @@ pub enum RunEvent {
     },
     Text {
         text: String,
+        /// Whose words these are: `None` for the run's own agent, the calling
+        /// tool's id for a subagent's. Only `ToolUse` carried this, so a
+        /// subagent's prose arrived on the stream indistinguishable from its
+        /// parent's — and the screen wove the two into one voice, cutting the
+        /// parent's own sentences at every point a child spoke.
+        #[serde(default)]
+        parent_tool_use_id: Option<String>,
     },
     /// A slice of the answer as it is written. Ephemeral: shown live, never
     /// written to the run log — the `Text` event that follows is the record.
     Delta {
         text: String,
+        /// Same question as `Text`, and the one the operator watches happen:
+        /// without it a subagent's tokens were appended, mid-word, to the
+        /// answer they were watching the parent write.
+        #[serde(default)]
+        parent_tool_use_id: Option<String>,
     },
     /// A slice of the model's reasoning, same rules as `Delta`.
     Thinking {
         text: String,
+        #[serde(default)]
+        parent_tool_use_id: Option<String>,
     },
     /// A finished stretch of reasoning, kept.
     ///
@@ -1064,6 +1078,23 @@ pub enum RunEvent {
 }
 
 impl RunEvent {
+    /// Did a subagent produce this, rather than the run's own agent?
+    ///
+    /// A subagent's events arrive interleaved on the parent's stream, and
+    /// until the text-bearing ones carried an author there was no way to ask.
+    /// The screen wove the two into one voice; worse, the chat sealed the
+    /// Director's reasoning every time a child spoke, so its own sentences
+    /// were cut mid-word.
+    pub fn from_subagent(&self) -> bool {
+        matches!(
+            self,
+            RunEvent::Text { parent_tool_use_id: Some(_), .. }
+                | RunEvent::Delta { parent_tool_use_id: Some(_), .. }
+                | RunEvent::Thinking { parent_tool_use_id: Some(_), .. }
+                | RunEvent::ToolUse { parent_tool_use_id: Some(_), .. }
+        )
+    }
+
     /// Deltas exist to make the UI feel live; keeping thousands of them in the
     /// transcript would bury the record they add up to.
     pub fn is_ephemeral(&self) -> bool {

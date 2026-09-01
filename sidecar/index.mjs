@@ -201,6 +201,19 @@ function answeredNothing(message) {
   );
 }
 
+/** É esta a chamada que abre um subagente?
+ *
+ *  Duas grafias porque o SDK renomeou a ferramenta: era `Task`, é `Agent`. Os
+ *  três guardas do `canUseTool` estavam escritos contra `Task` e o modelo já só
+ *  chamava `Agent`, portanto **nenhum deles disparava**. O `subagents: false`
+ *  que a conversa do Director põe não travava nada — nove subagentes numa só
+ *  conversa, e quatro deles abertos *por* subagentes, que é o tecto de
+ *  profundidade a nunca ter existido. Aceitam-se os dois nomes: o que já
+ *  mudou uma vez pode mudar outra, e falhar fechado é o lado certo. */
+function isSubagentTool(name) {
+  return name === "Agent" || name === "Task";
+}
+
 /** Um turno, a partir de uma mensagem do assistente — ou `null` quando esta
  *  mensagem já foi contada.
  *
@@ -933,7 +946,7 @@ async function handleRun({ id, spec }) {
       };
     }
 
-    if (toolName === "Task") {
+    if (isSubagentTool(toolName)) {
       if (!spec.subagents) {
         return { behavior: "deny", message: "subagents are off for this run" };
       }
@@ -992,7 +1005,7 @@ async function handleRun({ id, spec }) {
           }
         : { behavior: "deny", message: "denied by operator" };
     }
-    if (toolName === "Task") childDepth++;
+    if (isSubagentTool(toolName)) childDepth++;
     return { behavior: "allow", updatedInput: input };
   };
 
@@ -1014,17 +1027,18 @@ async function handleRun({ id, spec }) {
     strictMcpConfig: true,
     canUseTool,
     hooks: {
-      PostToolUse: [
-        {
-          matcher: "Task",
-          hooks: [
-            async () => {
-              childDepth = Math.max(0, childDepth - 1);
-              return {};
-            },
-          ],
-        },
-      ],
+      // Uma entrada por grafia em vez de uma expressão: o que o `matcher`
+      // aceita é do SDK, e este contador é o que impede um run de se abrir em
+      // árvore. Não se apoia em sintaxe que não controlamos.
+      PostToolUse: ["Agent", "Task"].map((matcher) => ({
+        matcher,
+        hooks: [
+          async () => {
+            childDepth = Math.max(0, childDepth - 1);
+            return {};
+          },
+        ],
+      })),
     },
   };
 
@@ -1060,15 +1074,23 @@ async function handleRun({ id, spec }) {
           // precedes it. Ephemeral — the final assistant message is what gets
           // logged.
           const ev = message.event;
+          // A stream event belongs to whoever is streaming it. Without this a
+          // subagent's tokens were appended to the answer the operator was
+          // watching the parent write, mid-word.
+          const from = message.parent_tool_use_id ?? null;
           if (ev?.type === "content_block_delta") {
             const d = ev.delta;
             if (d?.type === "text_delta" && d.text) {
-              send({ type: "event", run_id: id, event: { kind: "delta", text: d.text } });
+              send({
+                type: "event",
+                run_id: id,
+                event: { kind: "delta", text: d.text, parent_tool_use_id: from },
+              });
             } else if (d?.type === "thinking_delta" && d.thinking) {
               send({
                 type: "event",
                 run_id: id,
-                event: { kind: "thinking", text: d.thinking },
+                event: { kind: "thinking", text: d.thinking, parent_tool_use_id: from },
               });
             }
           }
@@ -1135,7 +1157,15 @@ async function handleRun({ id, spec }) {
           }
           for (const block of message.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) {
-              send({ type: "event", run_id: id, event: { kind: "text", text: block.text } });
+              // Whose words these are. Only `tool_use` carried this, so a
+              // subagent's prose arrived indistinguishable from its parent's
+              // and the screen wove the two into one voice — cutting the
+              // parent's own sentences at every point a child spoke.
+              send({
+                type: "event",
+                run_id: id,
+                event: { kind: "text", text: block.text, parent_tool_use_id: parent },
+              });
             } else if (block.type === "tool_use") {
               if (block.id) toolNames.set(block.id, block.name);
               send({

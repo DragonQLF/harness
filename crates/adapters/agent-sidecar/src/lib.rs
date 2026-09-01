@@ -289,9 +289,9 @@ async fn drive(
                                 if !text.is_empty() {
                                     let _ = tx
                                         .send(if kind == "delta" {
-                                            RunEvent::Delta { text }
+                                            RunEvent::Delta { text, parent_tool_use_id: None }
                                         } else {
-                                            RunEvent::Thinking { text }
+                                            RunEvent::Thinking { text, parent_tool_use_id: None }
                                         })
                                         .await;
                                 }
@@ -303,7 +303,7 @@ async fn drive(
                                     .unwrap_or_default()
                                     .to_string();
                                 if !text.trim().is_empty() {
-                                    let _ = tx.send(RunEvent::Text { text }).await;
+                                    let _ = tx.send(RunEvent::Text { text, parent_tool_use_id: None }).await;
                                 }
                             }
                             "turns" => {
@@ -1063,12 +1063,12 @@ mod tests {
     #[test]
     fn the_ephemeral_list_matches_what_relay_refuses_to_keep() {
         let all = [
-            RunEvent::Delta { text: String::new() },
-            RunEvent::Thinking { text: String::new() },
+            RunEvent::Delta { text: String::new(), parent_tool_use_id: None },
+            RunEvent::Thinking { text: String::new(), parent_tool_use_id: None },
             RunEvent::Turns { count: 0 },
             RunEvent::Commands { commands: vec![] },
             RunEvent::BackgroundTasks { tasks: vec![] },
-            RunEvent::Text { text: String::new() },
+            RunEvent::Text { text: String::new(), parent_tool_use_id: None },
             RunEvent::Notice { text: String::new() },
             RunEvent::LocalOutput { text: String::new() },
             RunEvent::Failed { message: String::new() },

@@ -597,7 +597,17 @@ async fn send_message(
                 // pensa outra vez, e um bloco só punha o raciocínio ao lado de
                 // trabalho que aconteceu depois dele.
                 match &ev {
-                    RunEvent::Thinking { text } => thought.push_str(text),
+                    // Só o raciocínio *deste* agente. Um subagente escreve no
+                    // mesmo fluxo, e sem esta pergunta o pensamento dele era
+                    // colado ao do Director.
+                    RunEvent::Thinking { text, parent_tool_use_id: None } => {
+                        thought.push_str(text)
+                    }
+                    // E nada do que um subagente faz fecha um pensamento que
+                    // não é dele. Era isto que cortava as frases do Director a
+                    // meio da palavra, uma vez por cada coisa que um filho
+                    // fazia enquanto ele escrevia.
+                    _ if ev.from_subagent() => {}
                     _ if !thought.trim().is_empty() => {
                         let sealed = RunEvent::Thought {
                             text: std::mem::take(&mut thought),

@@ -281,7 +281,7 @@ mod tests {
         for (ts, event) in [
             (1u64, RunEvent::UserMessage { text: "how is the board?".into() }),
             (2, RunEvent::Started { session_id: "sess-abc".into() }),
-            (3, RunEvent::Text { text: "Two cards are waiting.".into() }),
+            (3, RunEvent::Text { text: "Two cards are waiting.".into(), parent_tool_use_id: None }),
             (4, RunEvent::Notice { text: "the session could not be resumed".into() }),
         ] {
             log.append(id, &RunLogLine { ts_ms: ts, event }).unwrap();
@@ -307,7 +307,7 @@ mod tests {
         // Another conversation is another file: two chats never mix.
         log.append(
             "chat_other",
-            &RunLogLine { ts_ms: 9, event: RunEvent::Text { text: "elsewhere".into() } },
+            &RunLogLine { ts_ms: 9, event: RunEvent::Text { text: "elsewhere".into(), parent_tool_use_id: None } },
         )
         .unwrap();
         assert_eq!(log.read(id).unwrap().len(), 4);
@@ -349,7 +349,7 @@ mod tests {
             "run-1",
             &RunLogLine {
                 ts_ms: 5,
-                event: RunEvent::Text { text: "hello".into() },
+                event: RunEvent::Text { text: "hello".into(), parent_tool_use_id: None },
             },
         )
         .unwrap();

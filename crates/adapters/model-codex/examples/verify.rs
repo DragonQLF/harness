@@ -31,7 +31,7 @@ async fn run(spec: RunSpec, cancel_after_ms: Option<u64>) -> (RunOutcome, String
         let mut text = String::new();
         while let Some(ev) = rx.recv().await {
             match ev {
-                RunEvent::Text { text: t } => text.push_str(&t),
+                RunEvent::Text { text: t, .. } => text.push_str(&t),
                 RunEvent::ApprovalRequested { tool, summary, .. } => {
                     seen.fetch_add(1, Ordering::Relaxed);
                     println!("    [approval] {tool} — {}", summary.chars().take(90).collect::<String>());

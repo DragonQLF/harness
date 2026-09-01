@@ -647,6 +647,7 @@ impl Session {
                 if let Some(text) = params.get("delta").and_then(Value::as_str) {
                     self.emit(RunEvent::Delta {
                         text: text.to_string(),
+                        parent_tool_use_id: None,
                     })
                     .await;
                 }
@@ -655,6 +656,7 @@ impl Session {
                 if let Some(text) = params.get("delta").and_then(Value::as_str) {
                     self.emit(RunEvent::Thinking {
                         text: text.to_string(),
+                        parent_tool_use_id: None,
                     })
                     .await;
                 }
@@ -787,6 +789,7 @@ impl Session {
                 if !text.trim().is_empty() {
                     self.emit(RunEvent::Text {
                         text: text.to_string(),
+                        parent_tool_use_id: None,
                     })
                     .await;
                 }
@@ -815,6 +818,7 @@ impl Session {
                     // percent-codifica. Os angulares dizem "isto é um destino
                     // só, do princípio ao fim".
                     text: format!("![{}](<{}>)", alt.replace(']', ""), path),
+                    parent_tool_use_id: None,
                 })
                 .await;
             }

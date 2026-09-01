@@ -153,7 +153,7 @@ async fn pump_lines(
                                         .unwrap_or_default()
                                         .to_string();
                                     if !text.trim().is_empty() {
-                                        emit(&tx, RunEvent::Text { text }).await;
+                                        emit(&tx, RunEvent::Text { text, parent_tool_use_id: None }).await;
                                     }
                                 }
                                 Some("tool_use") => {

@@ -200,7 +200,7 @@ async fn run_bounded(ws: &Arc<Workspace>, skip: CancellationToken) -> Option<Str
                 RunEvent::Started { session_id } => {
                     ws_forward.record_chat_session(&conversation_id, session_id).await;
                 }
-                RunEvent::Text { text } => last_text = text.clone(),
+                RunEvent::Text { text, .. } => last_text = text.clone(),
                 RunEvent::Done {
                     session_id,
                     cost_usd,

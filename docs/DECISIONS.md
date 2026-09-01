@@ -2902,3 +2902,48 @@ cinco cartões deixava o operador a arrancá-los à mão pela ordem certa — qu
 
 `set_dependencies`, com a única recusa que o quadro não teria como dizer depois:
 um cartão à espera de si próprio nunca arrancaria.
+
+### 124. O `subagents: false` não travava nada, e a prosa de um subagente entrava na do Director (bugs)
+
+Dois defeitos, um a esconder o outro. O operador viu-os pelo ecrã: `Agent` a
+aparecer numa conversa do Director, e as frases dele cortadas a meio da palavra.
+
+**O primeiro é um nome.** Os três guardas do `canUseTool` comparavam com
+`"Task"`, e o SDK renomeou a ferramenta para `"Agent"` algures pelo caminho. Nos
+logs desta máquina há 7 chamadas `Agent` e **zero** `Task`, portanto nenhum dos
+três disparava:
+
+- a recusa — a conversa do Director põe `subagents: false` (`chat.rs`) e abriu
+  **nove** subagentes numa só conversa;
+- o contador de profundidade — que nunca subiu, portanto **quatro** desses foram
+  abertos *por* subagentes, e o tecto de um nível nunca existiu;
+- o `PostToolUse` que o devolve — que nunca correu, o que só não se notou porque
+  o contador também nunca subia.
+
+Passou a haver uma pergunta (`isSubagentTool`) e não uma comparação, com as duas
+grafias: o nome já mudou uma vez. O teste recusa qualquer um dos guardas voltar a
+comparar com uma literal — incluindo com `"Agent"`, que tem o mesmo defeito da
+próxima vez que o nome mudar.
+
+**O segundo é uma atribuição em falta.** Só o `ToolUse` levava
+`parent_tool_use_id`. O `Text`, o `Delta` e o `Thinking` não, portanto a prosa de
+um subagente chegava ao fio indistinguível da do pai — 162 chamadas de
+ferramenta atribuídas a filhos numa conversa, com o texto deles a aterrar no
+meio do texto do Director.
+
+E não era só o ecrã. O `chat.rs` juntava as fatias de raciocínio de **qualquer**
+origem, e fechava o troço à chegada de **qualquer** outro evento: cada coisa que
+um filho fazia enquanto o Director escrevia selava o pensamento dele e abria
+outro. É isso que se lê no ecrã como `"high-R"` seguido de `"PM, narrow
+audience"` — uma palavra partida em dois balões.
+
+Os três eventos levam agora o autor, o `RunEvent::from_subagent()` responde à
+pergunta num sítio só, e o chat ignora o que não é dele: nem acumula o raciocínio
+de um filho, nem deixa um filho fechar o troço do pai. Do lado do ecrã, um
+`delta` ou um `text` com pai não entra na resposta que o operador está a ver
+escrever.
+
+Não resolvido de propósito: **o que fazer com a prosa de um subagente**. Fica
+registada e atribuída — deixou de se fazer passar por outra coisa — mas ainda não
+tem forma própria no fio. Aninhá-la sob a chamada que a abriu é desenho, e este
+passo era parar de mentir sobre quem falou.

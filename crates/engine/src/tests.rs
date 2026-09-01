@@ -205,7 +205,7 @@ impl AgentPort for FakeAgent {
                         session_id: "sess-42".into(),
                     })
                     .await;
-                let _ = tx.send(RunEvent::Text { text: "working".into() }).await;
+                let _ = tx.send(RunEvent::Text { text: "working".into(), parent_tool_use_id: None }).await;
                 drop(tx);
                 Ok(RunOutcome::Completed {
                     session_id: Some("s1".into()),
@@ -235,6 +235,7 @@ impl AgentPort for FakeAgent {
                 let _ = tx
                     .send(RunEvent::Text {
                         text: format!("allowed={allowed}"),
+                        parent_tool_use_id: None,
                     })
                     .await;
                 drop(tx);
@@ -517,7 +518,7 @@ impl AgentPort for ReportingAgent {
                 )
                 .await;
             }
-            let _ = tx.send(RunEvent::Text { text: "done".into() }).await;
+            let _ = tx.send(RunEvent::Text { text: "done".into(), parent_tool_use_id: None }).await;
             drop(tx);
             Ok(RunOutcome::Completed {
                 session_id: Some("s9".into()),
@@ -2428,7 +2429,7 @@ impl AgentPort for WritesThenFailsAgent {
         Box::pin(async move {
             std::fs::create_dir_all(spec.cwd.join("site")).map_err(|e| e.to_string())?;
             std::fs::write(spec.cwd.join("site/feed.xml"), "rss").map_err(|e| e.to_string())?;
-            let _ = tx.send(RunEvent::Text { text: "wrote the feed".into() }).await;
+            let _ = tx.send(RunEvent::Text { text: "wrote the feed".into(), parent_tool_use_id: None }).await;
             drop(tx);
             Ok(RunOutcome::Failed {
                 message: "Reached maximum budget ($0.75)".into(),

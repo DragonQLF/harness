@@ -728,7 +728,7 @@ mod tests {
         let lines = vec![
             line(1, RunEvent::UserMessage { text: "go".into() }),
             line(2, usage(1_000, 200, 0, "claude-opus-4-5-20251101")),
-            line(3, RunEvent::Text { text: "on it".into() }),
+            line(3, RunEvent::Text { text: "on it".into(), parent_tool_use_id: None }),
             line(4, usage(1_500, 300, 4_000, "claude-opus-4-5-20251101")),
         ];
         let t = totals(&lines, 0.42, true, None);
@@ -785,7 +785,7 @@ mod tests {
     fn a_transcript_written_before_usage_existed_reports_nothing_rather_than_zero() {
         let lines = vec![
             line(1, RunEvent::UserMessage { text: "hello".into() }),
-            line(2, RunEvent::Text { text: "hi".into() }),
+            line(2, RunEvent::Text { text: "hi".into(), parent_tool_use_id: None }),
         ];
         let t = totals(&lines, 1.25, true, Some("sonnet"));
         assert_eq!(t.tokens, None, "no usage lines means no honest total");

@@ -47,7 +47,16 @@ function toChatMsg(line: RunLogLine): ChatMsg | null {
       // fold does by id.
       return { role: "user", text: "", ts, queueId: line.queue_id ?? null, pending: false };
     case "text":
-      return line.text?.trim() ? { role: "agent", text: line.text, ts } : null;
+      // Quem falou vem com o que foi dito. Um subagente escreve neste mesmo
+      // fio, e sem isto a prosa dele era um balão do Director.
+      return line.text?.trim()
+        ? {
+            role: "agent",
+            text: line.text,
+            ts,
+            parentToolUseId: line.parent_tool_use_id ?? null,
+          }
+        : null;
     case "notice":
       return line.text?.trim() ? { role: "notice", text: line.text, ts } : null;
     case "thought":
@@ -431,6 +440,11 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         }
         break;
       case "delta":
+        // Um subagente escreve no mesmo fluxo. Sem esta pergunta os tokens
+        // dele eram acrescentados, a meio de uma palavra, à resposta que o
+        // operador estava a ver o Director escrever — que é a frase cortada
+        // no ecrã: "high-R" / "PM, narrow audience".
+        if (u.parent_tool_use_id) break;
         if (u.text) {
           streamedRef.current = true;
           held.current.thinking = "";
@@ -519,6 +533,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       }
       case "text":
         // Already shown token by token; the full text would double it.
+        if (u.parent_tool_use_id) break;
         if (u.text && !streamedRef.current) appendToDirector(u.text);
         streamedRef.current = false;
         break;

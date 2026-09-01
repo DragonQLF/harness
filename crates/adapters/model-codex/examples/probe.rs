@@ -30,7 +30,7 @@ async fn main() {
 
     while let Some(ev) = rx.recv().await {
         match ev {
-            harness_ports::RunEvent::Delta { text } => print!("{text}"),
+            harness_ports::RunEvent::Delta { text, .. } => print!("{text}"),
             harness_ports::RunEvent::Thinking { .. } => print!("."),
             other => println!("\n[{other:?}]"),
         }

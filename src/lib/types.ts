@@ -209,10 +209,14 @@ export interface RunUpdate {
   /** On `turns`: how many model turns so far. Interim; the total lands on
    *  `done`. */
   count?: number;
-  /** On `tool_use` and `tool_result`: the id the model minted for the call,
-   *  and the parent call when it runs inside a subagent. What lets a result
-   *  fold into the call that asked for it. */
+  /** On `tool_use` and `tool_result`: the id the model minted for the call.
+   *  What lets a result fold into the call that asked for it. */
   tool_use_id?: string | null;
+  /** Whose this is: absent or null for the run's own agent, the calling tool's
+   *  id for a subagent's. It rides on `text`, `delta` and `thinking` too — a
+   *  subagent writes into the same stream, and until this was carried its
+   *  prose arrived indistinguishable from its parent's, cutting the parent's
+   *  own sentences at every point a child spoke. */
   parent_tool_use_id?: string | null;
   /** On `tool_result`: whether it worked, and the full (capped) output. A
    *  failed Bash that reads as a clean one is the bug this pair closes. */
@@ -322,10 +326,14 @@ export interface RunLogLine {
   /** On `turns`: how many model turns so far. Interim; the total lands on
    *  `done`. */
   count?: number;
-  /** On `tool_use` and `tool_result`: the id the model minted for the call,
-   *  and the parent call when it runs inside a subagent. What lets a result
-   *  fold into the call that asked for it. */
+  /** On `tool_use` and `tool_result`: the id the model minted for the call.
+   *  What lets a result fold into the call that asked for it. */
   tool_use_id?: string | null;
+  /** Whose this is: absent or null for the run's own agent, the calling tool's
+   *  id for a subagent's. It rides on `text`, `delta` and `thinking` too — a
+   *  subagent writes into the same stream, and until this was carried its
+   *  prose arrived indistinguishable from its parent's, cutting the parent's
+   *  own sentences at every point a child spoke. */
   parent_tool_use_id?: string | null;
   /** On `tool_result`: whether it worked, and the full (capped) output. A
    *  failed Bash that reads as a clean one is the bug this pair closes. */
