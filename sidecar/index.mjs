@@ -722,8 +722,9 @@ function reportWorkTool(runId, call) {
             ),
           memory_notes: z
             .array(z.string())
+            .default([])
             .describe(
-              "Durable facts, decisions or conventions worth remembering after this card is done. Empty array if none."
+              "Durable facts, decisions or conventions worth remembering after this card is done. Omit it, or send an empty array, when there are none."
             ),
         },
         call("report_work"),

@@ -189,3 +189,32 @@ test("the Rust dispatch answers nothing the model was never offered", () => {
   const dead = [...answeredByRust()].filter((name) => !offered.has(name));
   assert.deepEqual(dead, [], `answered by Relay, offered to nobody: ${dead}`);
 });
+
+/** Um relato sem notas tem de passar.
+ *
+ *  O `memory_notes` era obrigatório, e o modelo que só tem um resumo para dar
+ *  simplesmente não o manda — o SDK recusava contra o esquema antes de a
+ *  chamada chegar a lado nenhum, e o agente via "failed" com um erro de
+ *  validação em JSON. Visto num cartão a sério: sete relatos seguidos
+ *  rejeitados, e o oitavo a passar só porque o modelo aprendeu a incluir um
+ *  array vazio. O Rust do outro lado sempre tratou o campo como opcional
+ *  (`unwrap_or_default`), portanto os dois lados discordavam e quem pagava era
+ *  o agente.
+ */
+test("um relato sem notas de memória passa, e chega como lista vazia", async () => {
+  const { builders, recorded } = loadBuilders();
+  const worker = builders.reportWorkTool("run-worker", builders.callFor("run-worker"));
+  const report = worker.tools.find((t) => t.name === "report_work");
+
+  const parsed = report.inputSchema
+    ? report.inputSchema.parse?.({ summary: "só o resumo" })
+    : undefined;
+  if (parsed) {
+    assert.deepEqual(parsed.memory_notes, [], "o campo ausente vira uma lista vazia");
+  }
+
+  await report.cb({ summary: "só o resumo", memory_notes: [] });
+  const request = recorded.find((m) => m.type === "tool_request");
+  assert.ok(request, "a chamada tem de chegar à ponte");
+  assert.equal(request.name, "report_work");
+});
