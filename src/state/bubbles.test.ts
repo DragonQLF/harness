@@ -12,7 +12,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendStreamed, type ChatMsg } from "./bubbles.ts";
+import { appendStreamed, alreadySaid, type ChatMsg } from "./bubbles.ts";
 
 const ids = (n = 0) => () => `id${++n}`;
 const clock = () => 1000;
@@ -77,4 +77,52 @@ test("só se escreve em balões do agente", () => {
   const { list } = appendStreamed([tool], "id1", "texto", ids(), clock);
   assert.equal(list.length, 2, "abre um balão do agente em vez de sujar o recibo");
   assert.equal(list[0].text, "Bash");
+});
+
+/** Regressão: a mesma resposta desenhada duas vezes.
+ *
+ *  Um `text` chega por duas vias — o evento ao vivo e a linha lida do disco — e
+ *  as duas são entregas do mesmo registo. O ecrã juntava-as por acrescento
+ *  cego, e a ordem decidia: lida a transcrição primeiro (que é o que mandar uma
+ *  mensagem faz), a entrega atrasada acrescentava a resposta outra vez, igual
+ *  palavra por palavra e com o mesmo carimbo.
+ *
+ *  Foi visto assim: a mesma resposta duas vezes, ambas às 23:07 — e no disco a
+ *  linha existia **uma** vez só, que é o que prova que o defeito era do
+ *  desenho e não da transcrição. */
+
+const agent = (text: string, ts: number): ChatMsg => ({ role: "agent", text, ts });
+
+test("a mesma linha, entregue outra vez, não se desenha outra vez", () => {
+  const fio = [user("olá"), agent("Onde chegámos: repos do GitHub.", 1788294000000)];
+  assert.equal(
+    alreadySaid(fio, "Onde chegámos: repos do GitHub.", 1788294000000),
+    true,
+    "é a mesma linha: mesmo instante, mesmo texto",
+  );
+});
+
+test("a mesma frase dita outra vez mais tarde é uma linha nova", () => {
+  const fio = [agent("Vou tentar.", 1788294000000)];
+  assert.equal(
+    alreadySaid(fio, "Vou tentar.", 1788294005000),
+    false,
+    "cinco segundos depois é outra coisa que aconteceu, não um eco",
+  );
+});
+
+test("um texto diferente no mesmo instante continua a entrar", () => {
+  const fio = [agent("Vou tentar.", 1788294000000)];
+  assert.equal(alreadySaid(fio, "Já está.", 1788294000000), false);
+});
+
+test("o que o operador escreveu não conta como resposta repetida", () => {
+  // Uma pergunta e uma resposta podem partilhar o carimbo e o texto sem serem
+  // a mesma coisa — é o papel que as separa.
+  const fio: ChatMsg[] = [{ role: "user", text: "pronto?", ts: 1788294000000 }];
+  assert.equal(alreadySaid(fio, "pronto?", 1788294000000), false);
+});
+
+test("um fio vazio não tem nada repetido", () => {
+  assert.equal(alreadySaid([], "seja o que for", 1), false);
 });

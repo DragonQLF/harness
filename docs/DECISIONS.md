@@ -3022,3 +3022,42 @@ Nenhum perfil que a Relay instala nasce nesta combinação, e o único que a tem
 (`director`, que escreve e não tem worktree) não pega em cartões. Um teste
 percorre os templates para que um perfil novo parta aqui e não na cara do
 operador.
+
+### 127. A mesma resposta desenhada duas vezes (bug)
+
+O operador viu a mesma resposta do Director duas vezes seguidas, igual palavra
+por palavra e as duas às 23:07 — e descreveu o resto do defeito melhor do que
+qualquer log: *"once i send a message the thing i asked above will show
+answered, but now i need to answer to see it"*.
+
+A transcrição no disco tem aquela linha **uma vez**. Isso é o que separa as duas
+metades: o registo está certo e o defeito é do desenho.
+
+Um `text` chega por duas vias — o evento ao vivo e a linha lida do disco — e as
+duas são entregas do mesmo registo. O `openConversation` faz
+`setChat(toChat(lines))`, que substitui, portanto ler não duplica por si. O que
+duplica é a ordem:
+
+```
+transcrição lida        → balão B
+evento ao vivo chega a seguir → balão A     ← o dobrado
+```
+
+E é exactamente a ordem que mandar uma mensagem provoca: a leitura da
+transcrição é o que faz a resposta aparecer, e a entrega atrasada — ou repetida
+por um reatamento, que pede o histórico a partir de uma marca de progresso que
+pode estar atrás — acrescenta-a outra vez.
+
+A causa por baixo é que **uma linha de conversa não tinha identidade**. Duas
+fontes para um registo, juntas por acrescento cego. A identidade é o par que o
+log já escreve — quando aconteceu e o que disse — e nada numa transcrição colide
+com isso: duas respostas diferentes não partilham um milissegundo, e a mesma
+frase dita outra vez segundos depois traz outro carimbo e continua a ser uma
+linha nova. O `alreadySaid` vive no `bubbles.ts`, ao pé dos outros ajudantes
+puros, e por isso tem testes.
+
+Não corrigido aqui, e é a metade que resta: a **demora**. A resposta só aparecer
+quando se manda a mensagem seguinte é o fio ao vivo a não entregar, e o
+suspeito é o #125 — o reencaminhador que morria ao primeiro `Lagged` e a partir
+daí não entregava mais nada. Essa correcção existe e ainda não chegou a nenhuma
+instalação: a única versão que os instalados vêem é a 0.3.25.

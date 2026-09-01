@@ -83,3 +83,19 @@ export function appendStreamed(
     streamId: id,
   };
 }
+
+/** Já está este texto no fio, dito no mesmo instante?
+ *
+ *  Um `text` chega por duas vias — o evento ao vivo e a linha lida do disco — e
+ *  as duas são entregas do mesmo registo. Juntavam-se por acrescento cego:
+ *  bastava a transcrição ser lida primeiro (que é o que mandar uma mensagem
+ *  faz) para uma entrega atrasada, ou repetida por um reatamento, acrescentar a
+ *  mesma resposta outra vez — igual palavra por palavra e com o mesmo carimbo.
+ *
+ *  A identidade de uma linha é o par que o log escreve: quando aconteceu e o
+ *  que disse. Nada mais numa transcrição colide com isso — duas respostas
+ *  diferentes não partilham um milissegundo, e a mesma frase dita outra vez
+ *  segundos depois traz outro carimbo e continua a ser uma linha nova. */
+export function alreadySaid(list: ChatMsg[], text: string, tsMs: number): boolean {
+  return list.some((m) => m.role === "agent" && m.ts === tsMs && m.text === text);
+}

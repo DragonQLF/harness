@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { api } from "../lib/ipc";
-import { appendStreamed, type ChatMsg } from "./bubbles";
+import { appendStreamed, alreadySaid, type ChatMsg } from "./bubbles";
 import type {
   BackgroundTask,
   Conversation,
@@ -352,6 +352,26 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
     [],
   );
 
+  /** O mesmo, mas só se a transcrição ainda não o tiver.
+   *
+   *  Um `text` chega por duas vias — o evento ao vivo e a linha lida do disco —
+   *  e as duas são entregas do mesmo registo. Juntavam-se por acrescento cego:
+   *  bastava a transcrição ser lida primeiro (que é o que mandar uma mensagem
+   *  faz) para a resposta aparecer duas vezes, igual e com o mesmo carimbo. */
+  const appendUnlessPresent = useCallback(
+    (text: string, tsMs: number) =>
+      setChat((cs) => {
+        if (alreadySaid(cs, text, tsMs)) return cs;
+        const placed = appendStreamed(cs, streaming.current, text, () =>
+          `s${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        );
+        streaming.current = placed.streamId;
+        setChatWriting(true);
+        return placed.list;
+      }),
+    [],
+  );
+
   /** O turno acabou: o balão dele fecha, e o que vier a seguir abre outro. */
   const endStream = useCallback(() => {
     streaming.current = null;
@@ -534,7 +554,16 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
       case "text":
         // Already shown token by token; the full text would double it.
         if (u.parent_tool_use_id) break;
-        if (u.text && !streamedRef.current) appendToDirector(u.text);
+        // And the transcript may already hold it. A stored line and a live
+        // event are two deliveries of one record, and until now they were
+        // merged by blind append: read the transcript first — which is what
+        // sending a message does — and a late or replayed event added the same
+        // answer a second time, word for word, at the same timestamp.
+        //
+        // The line's identity is the pair the log writes: when it happened and
+        // what it said. Nothing else in a transcript can collide with that —
+        // two different answers do not share a millisecond.
+        if (u.text && !streamedRef.current) appendUnlessPresent(u.text, u.ts_ms);
         streamedRef.current = false;
         break;
       case "user_read": {
@@ -599,7 +628,7 @@ export function useChat({ toast, fail, projectRef }: ChatDeps): ChatState {
         break;
     }
     return true;
-  }, [appendToDirector, endStream, flush, schedule]);
+  }, [appendToDirector, appendUnlessPresent, endStream, flush, schedule]);
 
   const refreshConversations = useCallback(async () => {
     try {
