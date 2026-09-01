@@ -1340,6 +1340,23 @@ function serveOnSocket(path) {
             // reatada aceitava tudo o que se lhe escrevesse e não entregava
             // nada.
             run_id: [...controllers.keys()][0] ?? null,
+            // Com que autenticação é que este processo foi levantado.
+            //
+            // As variáveis do endpoint são do **processo**, não do run: quem
+            // sobrevive leva-as consigo. Um sidecar levantado para um run no
+            // OpenRouter e reatado por um run do login da Claude dava
+            // `401 Missing Authentication header` — o `ANTHROPIC_API_KEY` vem
+            // vazio de propósito, e o `BASE_URL` continuava a apontar para
+            // outro sítio. Quem se liga tem de poder recusar.
+            //
+            // O que se diz é o que a **Relay** mandou, e não o
+            // `ANTHROPIC_BASE_URL` que estiver no ambiente: numa máquina que o
+            // tenha exportado, o segundo não distingue um endpoint escolhido
+            // de um que já lá estava, e a comparação dava sempre diferente —
+            // matava e levantava um sidecar novo a cada run. Vazio quer dizer
+            // "o login da Claude", que é como a ausência se escreve.
+            auth: process.env.RELAY_PROVIDER ?? "",
+            pid: process.pid,
           }) + "\n",
         );
         bus.attach(socket, from);

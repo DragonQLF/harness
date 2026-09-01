@@ -709,13 +709,49 @@ impl harness_ports::AgentPort for SidecarAgent {
                             .and_then(|p| std::fs::read_to_string(p).ok())
                             .and_then(|raw| raw.trim().parse::<u64>().ok())
                     });
-                    let (lines, running, live) =
+                    let (lines, running, live, auth, pid) =
                         handshake(&mut out, Box::new(read), &key, resume_at).await?;
-                    // Vivo quer dizer "a meio": manda-se-lhe o `run` outra vez
-                    // pedia ao modelo que refizesse o que já fez. Parado quer
-                    // dizer que o sidecar sobreviveu ao turno mas não tem
-                    // trabalho — nesse caso este é o turno novo dele.
-                    if spec.attach_only && !running {
+                    // As variáveis do endpoint são do **processo**, não do run.
+                    // Um sidecar que sobreviveu leva-as consigo, portanto um
+                    // reatamento herda a autenticação de quem o levantou: um
+                    // processo do OpenRouter a servir um run do login da Claude
+                    // dá `401 Missing Authentication header`, e nada no ecrã
+                    // diz porquê. Antes da #114 isto não existia — nenhum
+                    // sidecar sobrevivia —, e passou a existir no dia em que
+                    // passaram a sobreviver.
+                    //
+                    // Não se adopta: mata-se e levanta-se um novo com as
+                    // variáveis certas. Um socket é um sítio, não uma
+                    // identidade (#111), e a autenticação faz parte de quem
+                    // ele é tanto como a chave do run.
+                    // O que **nós** lhe mandámos, não o que o ambiente tem: uma
+                    // máquina com `ANTHROPIC_BASE_URL` exportado faria isto
+                    // diferir sempre, e o remédio seria pior do que a doença —
+                    // um sidecar novo a cada run.
+                    let wanted = spec
+                        .provider
+                        .as_ref()
+                        .map(|p| p.base_url.clone())
+                        .unwrap_or_default();
+                    let mismatch = auth.unwrap_or_default() != wanted;
+                    if mismatch {
+                        // Mandado embora e apagado, e daqui cai-se para o
+                        // arranque de um novo — o mesmo caminho de um socket que
+                        // já não atende, que é o que este passou a ser.
+                        drop(out);
+                        if let Some(pid) = pid {
+                            let _ = std::process::Command::new("kill")
+                                .arg(pid.to_string())
+                                .status();
+                        }
+                        let _ = tx
+                            .send(RunEvent::Notice {
+                                text: "the agent process still running for this work was \
+                                       started with different credentials; it was replaced"
+                                    .to_string(),
+                            })
+                            .await;
+                    } else if spec.attach_only && !running {
                         // Atendeu, mas não tem trabalho a andar: não há nada a
                         // retomar, e mandar-lhe um turno vazio era inventar uma
                         // conversa que ninguém pediu.
@@ -724,12 +760,16 @@ impl harness_ports::AgentPort for SidecarAgent {
                             cost_usd: None,
                             turns: None,
                         });
-                    }
-                    // Adopta-se o id do turno vivo. Cunhar um novo era falar
-                    // com um run que o sidecar não conhece — e foi por isso que
-                    // uma conversa reatada engolia tudo o que se lhe escrevia.
-                    return drive(out, lines, !running, live, progress, spec, grants, tx, cancel)
+                    } else {
+                        // Adopta-se o id do turno vivo. Cunhar um novo era falar
+                        // com um run que o sidecar não conhece — e foi por isso
+                        // que uma conversa reatada engolia tudo o que se lhe
+                        // escrevia.
+                        return drive(
+                            out, lines, !running, live, progress, spec, grants, tx, cancel,
+                        )
                         .await;
+                    }
                 }
                 // Um socket que não atende é de um processo que já morreu. O
                 // ficheiro fica para trás e faria a próxima tentativa bater na
@@ -761,6 +801,15 @@ impl harness_ports::AgentPort for SidecarAgent {
                     cmd.env(key, value);
                 }
             }
+            // A impressão digital do que escolhemos, para quem se ligar a este
+            // processo mais tarde poder comparar com o que *ele* quer. Vazio é
+            // o login da Claude. Não se lê o `ANTHROPIC_BASE_URL` do ambiente
+            // para isto: numa máquina que o tenha exportado, ele não distingue
+            // um endpoint escolhido de um que já lá estava.
+            cmd.env(
+                "RELAY_PROVIDER",
+                provider.as_ref().map(|p| p.base_url.as_str()).unwrap_or(""),
+            );
             cmd.arg(&script);
             if let Some(path) = &socket {
                 if let Some(dir) = path.parent() {
@@ -818,7 +867,7 @@ impl harness_ports::AgentPort for SidecarAgent {
                 let mut out: Writer = Box::new(write);
                 let key = spec.run_key.clone().unwrap_or_default();
                 // Run acabado de nascer: não há atraso possível.
-                let (lines, _, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
+                let (lines, _, _, _, _) = handshake(&mut out, Box::new(read), &key, Some(0)).await?;
                 let outcome = drive(out, lines, true, None, progress, spec, grants, tx, cancel).await;
                 // Destacado de propósito: não se mata. Ou acabou — e ele
                 // desliga-se sozinho — ou a Relay é que se foi, e o que fica de
@@ -894,7 +943,7 @@ async fn handshake(
     read: Reader,
     expect_key: &str,
     from_seq: Option<u64>,
-) -> Result<(tokio::io::Lines<BufReader<Reader>>, bool, Option<String>), String> {
+) -> Result<(tokio::io::Lines<BufReader<Reader>>, bool, Option<String>, Option<String>, Option<u32>), String> {
     LineSink { out }
         .send(serde_json::json!({ "type": "attach", "from_seq": from_seq }))
         .await?;
@@ -916,7 +965,14 @@ async fn handshake(
         .get("run_id")
         .and_then(|r| r.as_str())
         .map(str::to_string);
-    Ok((lines, running, live))
+    // Com que endpoint é que ele foi levantado, e quem ele é — para o poder
+    // recusar e para o poder mandar embora.
+    let auth = greeting
+        .get("auth")
+        .and_then(|a| a.as_str())
+        .map(str::to_string);
+    let pid = greeting.get("pid").and_then(|p| p.as_u64()).map(|p| p as u32);
+    Ok((lines, running, live, auth, pid))
 }
 
 /// O socket aparece um instante depois do processo. Espera-se por ele em vez de

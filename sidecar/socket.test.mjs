@@ -150,6 +150,14 @@ test("o sidecar sobrevive ao cliente e volta a atender", { skip: noSockets }, as
   // que é a resposta certa a "qual" quando não há nenhum.
   assert.ok("run_id" in greeting, "o cumprimento tem de dizer qual é o run");
   assert.equal(greeting.run_id, null, "e sem trabalho a andar não há nenhum");
+  // Com que autenticação foi levantado. As variáveis do endpoint são do
+  // **processo**, não do run: um sidecar que sobrevive leva-as consigo, e um
+  // reatamento herdava-as em silêncio — um processo do OpenRouter a servir um
+  // run do login da Claude dá `401 Missing Authentication header`. Quem se liga
+  // tem de poder comparar e recusar, e de o poder mandar embora.
+  assert.ok("auth" in greeting, "o cumprimento tem de dizer com que endpoint corre");
+  assert.equal(greeting.auth, "", "sem endpoint escolhido é o login da Claude");
+  assert.equal(typeof greeting.pid, "number", "e quem é, para se poder substituir");
 
   // A Relay vai-se embora — é isto que antes matava o turno.
   first.destroy();
