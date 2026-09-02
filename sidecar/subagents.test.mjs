@@ -23,11 +23,12 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, "index.mjs"), "utf8");
 
+// Vem do módulo gerado, que é agora a única fonte: o `crates/app/src/protocol.rs`
+// escreve-o a partir do que o Rust serializa, e o `pnpm codegen` regenera-o.
+import { isSubagentTool, SUBAGENT_TOOLS } from "./protocol.generated.mjs";
+
 function loadIsSubagentTool() {
-  const start = source.indexOf("function isSubagentTool(");
-  const end = source.indexOf("/** Um turno, a partir de uma mensagem");
-  assert.ok(start > -1 && end > start, "isSubagentTool mudou de sítio");
-  return new Function(`${source.slice(start, end)}; return isSubagentTool;`)();
+  return isSubagentTool;
 }
 
 test("o nome que o SDK usa hoje conta como subagente", () => {
@@ -65,6 +66,23 @@ test("os três guardas perguntam pelo nome, não comparam com uma grafia", () =>
     2,
     "a recusa e o contador de profundidade, os dois pela mesma pergunta",
   );
+});
+
+test("o sidecar não tem cópia própria do nome — usa a gerada", () => {
+  // O defeito era uma literal deste lado do cano a discordar do outro. Uma
+  // segunda cópia, ainda que certa hoje, é a mesma armadilha adiada.
+  assert.ok(
+    !/function\s+isSubagentTool/.test(source),
+    "o sidecar voltou a escrever a sua própria versão em vez de importar a gerada",
+  );
+  assert.ok(
+    source.includes('from "./protocol.generated.mjs"'),
+    "o sidecar tem de importar o vocabulário gerado",
+  );
+});
+
+test("as grafias vêm do Rust e não deste ficheiro", () => {
+  assert.deepEqual([...SUBAGENT_TOOLS], ["Agent", "Task"]);
 });
 
 test("o PostToolUse cobre as duas grafias", () => {

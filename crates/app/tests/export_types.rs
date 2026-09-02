@@ -53,4 +53,12 @@ fn export_types() {
         harness_app::vocabulary::typescript(),
     )
     .unwrap();
+
+    // O vocabulário da outra fronteira, a que nenhum compilador atravessa: os
+    // nomes que o Rust e o sidecar dizem um ao outro em JSON. Escrito pela
+    // mesma razão que o de cima — os nomes vêm de serializar o `RunEvent`, e é
+    // isso que os torna verdadeiros dos dois lados.
+    let sidecar = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../sidecar/protocol.generated.mjs");
+    std::fs::write(sidecar, harness_app::protocol::javascript()).unwrap();
 }

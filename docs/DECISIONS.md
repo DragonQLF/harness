@@ -3103,3 +3103,48 @@ comando inexistente e um comando registado sem embrulho, os dois apanhados.
 Entra no `check`, no `CLAUDE.md` e no "Check before publishing" do CI. O que se
 quer impedir não são as listas de excepções — é elas crescerem sem ninguém
 decidir.
+
+### 129. A fronteira que nenhum compilador atravessa passou a ser gerada
+
+O #128 fechou a primeira classe de "declarado num sítio, sem nada a obrigá-lo".
+Esta é a segunda, e é a que custou mais: tudo entre o `agent-sidecar` e o
+`sidecar/index.mjs` viaja em JSON, e o JSON é onde os dois compiladores param de
+olhar. Um nome escrito de um lado e desconhecido do outro não estoira — é
+serializado, atravessa o cano, e cai num `match` sem braço para ele. Sem erro,
+sem aviso: um ramo que nunca corre.
+
+Foi assim que o `subagents: false` esteve desligado desde o dia em que foi
+escrito (#124). Nada podia ter falhado, porque as duas metades nunca foram
+apresentadas uma à outra.
+
+**As grafias deixaram de ser literais.** O `SUBAGENT_TOOLS` vive no
+`crates/ports`, e o `crates/app/src/protocol.rs` escreve o
+`sidecar/protocol.generated.mjs` que o sidecar importa — a mesma mecânica que o
+`vocabulary.rs` já usava para o frontend, e pela mesma razão. A regra que
+importa é a que se herda daí: **os nomes não são escritos ali.** Um `kind` sai
+de serializar um `RunEvent` de verdade, portanto o que o sidecar conhece é, por
+construção, o que o adaptador lê. Um teste do sidecar recusa-lhe voltar a ter
+cópia própria.
+
+O `one_of_each` é escrito à mão, e uma lista à mão que ninguém obriga a estar
+completa é a forma exacta do defeito que isto vem fechar — por isso o
+`every_variant_is_listed` lê o enum na fonte e exige cobertura. Viu-se a falhar
+com uma variante retirada antes de se acreditar nele.
+
+**E o resto do vocabulário ganhou guarda.** Os `kind` continuam a ser literais
+dos dois lados — são demasiados para valerem uma constante cada — portanto o
+`check:protocol` compara-os: todo o `kind` que o sidecar emite tem de ser um que
+o Rust serialize **ou** um braço do `match kind` do adaptador. Os dois conjuntos
+e não só o primeiro, porque nem tudo o que atravessa é um evento: o
+`message_read` é traduzido para `UserRead` e para uma marca na fila, portanto
+existe no cano e não existe no enum. Derivar os dois conjuntos é o que distingue
+uma tradução de uma gralha sem uma lista de excepções a envelhecer.
+
+Ao contrário não é erro: há `kind` que só o Rust produz — o `thought`, selado
+pelo `chat.rs` a partir das fatias — e que o sidecar nunca escreve. Folga, não
+deriva.
+
+Provado a partir-se com um `kind` trocado e com o módulo gerado desactualizado,
+que é o outro modo de falhar: um `pnpm codegen` esquecido deixa o sidecar a
+importar uma lista velha, e uma lista velha é a segunda cópia que isto veio
+remover.

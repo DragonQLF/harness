@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { inspect } from "./pathguard.mjs";
 import { summarizeUse, summarizeResult, detailOf, countLines } from "./toolsum.mjs";
+import { isSubagentTool } from "./protocol.generated.mjs";
 
 const controllers = new Map();
 const approvals = new Map();
@@ -199,19 +200,6 @@ function answeredNothing(message) {
     !(message.num_turns > 0) &&
     !(typeof message.result === "string" && message.result.trim())
   );
-}
-
-/** É esta a chamada que abre um subagente?
- *
- *  Duas grafias porque o SDK renomeou a ferramenta: era `Task`, é `Agent`. Os
- *  três guardas do `canUseTool` estavam escritos contra `Task` e o modelo já só
- *  chamava `Agent`, portanto **nenhum deles disparava**. O `subagents: false`
- *  que a conversa do Director põe não travava nada — nove subagentes numa só
- *  conversa, e quatro deles abertos *por* subagentes, que é o tecto de
- *  profundidade a nunca ter existido. Aceitam-se os dois nomes: o que já
- *  mudou uma vez pode mudar outra, e falhar fechado é o lado certo. */
-function isSubagentTool(name) {
-  return name === "Agent" || name === "Task";
 }
 
 /** Um turno, a partir de uma mensagem do assistente — ou `null` quando esta

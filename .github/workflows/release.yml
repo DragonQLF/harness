@@ -83,6 +83,7 @@ jobs:
           pnpm run check:styles
           pnpm run check:store
           pnpm run check:commands
+          pnpm run check:protocol
           pnpm run test:ui
           cargo test --workspace
           pnpm run test:sidecar

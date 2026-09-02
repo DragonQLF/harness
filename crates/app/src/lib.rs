@@ -24,6 +24,7 @@ pub mod inbox;
 pub mod insights;
 pub mod memory;
 pub mod paths;
+pub mod protocol;
 pub mod preview;
 pub mod projects;
 pub mod runstats;

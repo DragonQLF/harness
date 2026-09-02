@@ -38,11 +38,14 @@ pnpm exec tsc --noEmit
 pnpm run check:styles      # nenhum style={{}} feito só de literais
 pnpm run check:store       # nenhum campo do store fora das deps do useMemo
 pnpm run check:commands    # nenhum comando registado sem porta, nem porta sem ecrã
+pnpm run check:protocol    # o sidecar e o adaptador dizem as mesmas palavras
 cargo test --workspace
 pnpm run test:sidecar
 ```
 
-Depois de mexer num tipo com `#[derive(TS)]`: `pnpm codegen`. Os ficheiros em
+Depois de mexer num tipo com `#[derive(TS)]` **ou numa variante do `RunEvent`**:
+`pnpm codegen`. Escreve também o `sidecar/protocol.generated.mjs`, que é por onde
+o sidecar sabe os nomes que o Rust serializa. Os ficheiros em
 `src/lib/generated/` são gerados — nunca escritos à mão, e nunca corrigidos à
 mão quando o gerador os reescreve.
 

@@ -141,6 +141,29 @@ pub struct ApprovalRequest {
     pub input: JsonValue,
 }
 
+/// The tool a model calls to open a subagent, in every spelling the CLI has
+/// used for it.
+///
+/// Two names for one tool: it was `Task`, it is `Agent`. Nothing in either
+/// language checks that a guard is written against the current one, and the
+/// cost of getting it wrong is a guard that silently does nothing — which is
+/// exactly what happened. `subagents: false` was set on every Director
+/// conversation from the day the field existed and enforced on none of them:
+/// the check compared against `Task` while the model called `Agent`, so a
+/// conversation that forbade fan-out opened nine subagents, four of them
+/// opened *by* subagents, because the depth counter sat behind the same
+/// comparison.
+///
+/// Kept here, in the port both sides speak through, and written out to the
+/// sidecar by the codegen rather than typed a second time in JavaScript. A
+/// third spelling is then one line in one place.
+pub const SUBAGENT_TOOLS: [&str; 2] = ["Agent", "Task"];
+
+/// Is this the call that opens a subagent?
+pub fn is_subagent_tool(name: &str) -> bool {
+    SUBAGENT_TOOLS.contains(&name)
+}
+
 /// What came back from asking the operator.
 ///
 /// Three outcomes, not two, because a question nobody answered is not a "no".
