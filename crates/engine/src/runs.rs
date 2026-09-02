@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use harness_domain::{Actor, CardId, Command, RunId, RunOutcome};
+use harness_domain::{Actor, CardId, Command, RunId, RunOutcome, Status};
 use harness_ports::{
     RunEvent, RunProfile, RunSpec, Reviewer, Trailers, WorktreeMode, WorktreePath,
 };
@@ -769,13 +769,48 @@ impl Engine {
     }
 
     /// Put something in a working agent's inbox. See `EngineHandle::message_run`.
-    pub(crate) fn message_run(&mut self, card_id: &CardId, text: &str) -> Result<String, String> {
+    ///
+    /// Presence in `self.runs` used to be the whole guard, and presence is not
+    /// liveness. `execute()` moves a card off `Running` for every command that
+    /// touches the board — `OverrideCard` among them — without ever touching
+    /// `self.runs`, so a card forced out of Running by hand (Running -> Review
+    /// -> Ready is the shape found in practice) kept its run entry exactly as
+    /// it was: present, and answering as if a live, watched run had heard the
+    /// message. It confirmed two deliveries that way in one day, both to cards
+    /// minutes past leaving Running. The board's own status is the fact that
+    /// cannot go stale this way — it is the same state a caller already saw
+    /// when deciding the run was over — so it is checked first, and named in
+    /// the refusal rather than left for the caller to guess at.
+    ///
+    /// `reap_dead_runs` also runs here, not only before a start: a task that
+    /// ended without delivering `RunDone` (a panic, a killed process) must not
+    /// go on accepting messages into an inbox nobody will ever read again.
+    pub(crate) async fn message_run(
+        &mut self,
+        card_id: &CardId,
+        text: &str,
+    ) -> Result<String, String> {
         let text = text.trim();
         if text.is_empty() {
             return Err("nothing to say".to_string());
         }
+        self.reap_dead_runs(self.now()).await;
+        let status = match self.board.get(card_id) {
+            Some(card) => card.status,
+            None => return Err(format!("{card_id} is not a card on this board")),
+        };
+        if status != Status::Running {
+            return Err(format!(
+                "{card_id} is in {status:?}; nothing is running, put the instruction in the card"
+            ));
+        }
         let Some(entry) = self.runs.get(card_id) else {
-            return Err("nothing is running on that card".to_string());
+            // The board says Running but the engine has no run entry for it
+            // yet — the narrow window between a start being decided and being
+            // registered, not a live run with an inbox to speak to.
+            return Err(format!(
+                "{card_id} is starting but has no run yet; try again in a moment"
+            ));
         };
         let queued = entry
             .inbox

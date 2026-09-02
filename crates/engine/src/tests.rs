@@ -1416,6 +1416,50 @@ async fn a_working_agent_can_be_told_something_midway() {
     );
 }
 
+/// A run is not what `self.runs` says; it is what the board says.
+///
+/// `execute()` moves a card off `Running` for every command that touches
+/// it — `OverrideCard` among them — without ever touching `self.runs`. So a
+/// card forced out of Running by hand, the way an operator overriding a
+/// stuck card actually does it, left its run entry exactly as it was:
+/// present, and a naive guard would answer as if a live run were still
+/// listening. This is that guard's regression test: the agent is still
+/// genuinely running (`WaitCancelled` never returns on its own), the board
+/// has already moved the card to Ready, and the message must be refused —
+/// naming the state, not the generic "nothing is running".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_to_a_card_the_board_already_left_is_refused() {
+    let r = rig(FakeMode::WaitCancelled, ReviewMode::Unused);
+    let id = CardId::new("c_stale");
+    card_ready(&r.handle, &id).await;
+    r.handle
+        .start_run(id.clone(), "work".into(), profile())
+        .await
+        .unwrap();
+    wait_for("run registers as active", async || {
+        !r.handle.active_runs().await.unwrap().is_empty()
+    })
+    .await;
+
+    // Not a cancel: an override, the same move the operator makes from the
+    // board when a card looks stuck. The task behind it is untouched — still
+    // genuinely running — and only the board's status changes.
+    r.handle
+        .execute(Command::OverrideCard {
+            card_id: id.clone(),
+            to: Status::Ready,
+            reason: "operator moved it by hand".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(status_of(&r.handle, &id).await, Some(Status::Ready));
+
+    let sent = r.handle.message_run(id.clone(), "hello?".into()).await;
+    let err = sent.expect_err("the board says nothing is running; a message must not be accepted");
+    assert!(err.contains(&id.to_string()), "names the card: {err}");
+    assert!(err.contains("Ready"), "names the state it actually found: {err}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reviewerless_agent_closes_its_own_card() {
     let r = rig(FakeMode::Complete, ReviewMode::Unused);

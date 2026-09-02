@@ -222,7 +222,92 @@ const SPINNING = (
  *  imagem em vez de um bloco de texto que não existe. */
 const IMAGE_PATH = /^[^\s]*[\\/][^\s\\/]+\.(png|jpe?g|webp|gif)$/i;
 
-function Receipt({ msg }: { msg: ChatMsg }) {
+/** Every message a delegated agent said or did, keyed by the `Task`/`Agent`
+ *  call that started it. A subagent's whole transcript arrives on the same
+ *  wire as the Director's own — `parent_tool_use_id` is the only mark — and
+ *  without this grouping every command and progress line it produced showed
+ *  up as its own bubble in the Director's conversation. One delegation was
+ *  enough to make the thread unreadable, and the operator said to stop using
+ *  subagents entirely over it. The call itself is still an ordinary tool
+ *  bubble; this is only what hangs off it. */
+type NestedByParent = Map<string, ChatMsg[]>;
+
+function isSubagentCall(msg: ChatMsg): boolean {
+  return msg.tool === "Task" || msg.tool === "Agent";
+}
+
+function Receipt({ msg, nested }: { msg: ChatMsg; nested?: ChatMsg[] }) {
+  if (isSubagentCall(msg)) {
+    return <SubagentReceipt msg={msg} nested={nested ?? []} />;
+  }
+  return <ToolReceipt msg={msg} />;
+}
+
+/** One delegated agent, collapsed to what the operator asked to see: name,
+ *  task and status, one line, nothing streaming past it. Everything the
+ *  subagent actually did is one click away rather than dumped into the
+ *  thread — the same discipline `Receipt` already keeps for a single tool's
+ *  own output (#28), just applied to a whole run of them. */
+function SubagentReceipt({ msg, nested }: { msg: ChatMsg; nested: ChatMsg[] }) {
+  const [open, setOpen] = useState(false);
+  const flying = msg.ok == null;
+  const label = (msg.text ?? "").trim() || "subagent";
+  const status = flying ? "running" : msg.ok ? "done" : "failed";
+  const skin = cx(
+    "flex w-full min-w-0 items-center gap-1.75 rounded-9px border px-2.5 py-1.5 text-left font-mono text-11 font-medium",
+    flying
+      ? "border-primaryLine bg-primarySoft text-primary dark:border-primaryLine-d dark:bg-primarySoft-d dark:text-primary-d"
+      : "border-line bg-surface text-ink2 dark:border-line-d dark:bg-surface-d dark:text-ink2-d",
+  );
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-1.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        title={`${label} — ${status}`}
+        onClick={() => setOpen((o) => !o)}
+        className={cx(skin, "cursor-pointer")}
+      >
+        {flying ? SPINNING : msg.ok ? TICK : CROSS}
+        <span className="min-w-0 flex-1 truncate">
+          {label} — {status}
+        </span>
+        <span className={cx(mono, "shrink-0 text-11")} aria-hidden="true">
+          {open ? "⌄" : "›"}
+        </span>
+      </button>
+      {open && (
+        <div className="flex max-h-[340px] flex-col gap-1.5 overflow-y-auto rounded-9px border border-line px-2.5 py-2 dark:border-line-d">
+          {nested.length === 0 ? (
+            <span className="text-2xs text-faint dark:text-faint-d">
+              nothing reported back yet
+            </span>
+          ) : (
+            nested.map((n, i) =>
+              n.role === "tool" ? (
+                <Receipt key={n.toolUseId ?? i} msg={n} />
+              ) : (
+                <div
+                  key={i}
+                  className="whitespace-pre-wrap break-words text-sm leading-[1.6] text-ink2 dark:text-ink2-d"
+                >
+                  {n.text}
+                </div>
+              ),
+            )
+          )}
+          {msg.detail && (
+            <pre className="max-h-[160px] overflow-auto whitespace-pre-wrap break-words rounded-sm border border-line2 bg-active px-2.5 py-2 font-mono text-sm leading-[1.7] text-muted dark:border-line2-d dark:bg-active-d dark:text-muted-d">
+              {msg.detail}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolReceipt({ msg }: { msg: ChatMsg }) {
   const [open, setOpen] = useState(false);
   const flying = msg.ok == null;
   // The backend's summary often opens with the tool's own name — the raw one,
@@ -328,7 +413,13 @@ function Thought({ text, ts }: { text: string; ts: number }) {
  *  Fechado por omissão só quando **já acabou**. Enquanto alguma chamada está no
  *  ar fica aberto: o que está a acontecer agora é a única coisa que não se pode
  *  esconder atrás de um resumo. */
-function ToolGroup({ tools }: { tools: ChatMsg[] }) {
+function ToolGroup({
+  tools,
+  nestedByParent,
+}: {
+  tools: ChatMsg[];
+  nestedByParent: NestedByParent;
+}) {
   const flying = tools.some((t) => t.ok == null);
   const failed = tools.filter((t) => t.ok === false).length;
   const [open, setOpen] = useState<boolean | null>(null);
@@ -341,7 +432,7 @@ function ToolGroup({ tools }: { tools: ChatMsg[] }) {
   // Uma chamada é uma ficha e nada mais: sem cabeçalho, sem seta, sem estado
   // que se possa fechar para um sítio pior do que aquele de onde veio.
   if (view === "chip") {
-    return <Receipt msg={tools[0]} />;
+    return <Receipt msg={tools[0]} nested={nestedByParent.get(tools[0].toolUseId ?? "")} />;
   }
 
   return (
@@ -373,7 +464,7 @@ function ToolGroup({ tools }: { tools: ChatMsg[] }) {
       {shown && (
         <div className="flex max-h-[340px] flex-col gap-1.5 overflow-y-auto rounded-9px border border-line px-2 py-2 dark:border-line-d">
           {tools.map((t, i) => (
-            <Receipt key={t.toolUseId ?? i} msg={t} />
+            <Receipt key={t.toolUseId ?? i} msg={t} nested={nestedByParent.get(t.toolUseId ?? "")} />
           ))}
         </div>
       )}
@@ -697,6 +788,7 @@ const Turn = memo(
     index,
     streaming,
     askAgain,
+    nestedByParent,
   }: {
     kind: Block["kind"];
     msg: ChatMsg | null;
@@ -707,6 +799,10 @@ const Turn = memo(
     /** Presente só na última vez, e só quando falhou: repetir a pergunta.
      *  `null` em tudo o resto, que é o que deixa a comparação abaixo passar. */
     askAgain: (() => void) | null;
+    /** O que cada agente delegado disse ou fez, para a ficha de subagente que
+     *  está entre `tools`. Estável por quadro (vem de um `useMemo`), portanto
+     *  a comparação abaixo pode confiar na referência. */
+    nestedByParent: NestedByParent;
   }) {
     return (
       <motion.div custom={index} variants={rowIn} className="flex flex-none flex-col gap-3">
@@ -774,7 +870,7 @@ const Turn = memo(
                 )}
               </div>
             )}
-            {tools.length > 0 && <ToolGroup tools={tools} />}
+            {tools.length > 0 && <ToolGroup tools={tools} nestedByParent={nestedByParent} />}
             {/* A hora em que a resposta começou a chegar. Enquanto está a
                 escrever não se diz: o carimbo mudaria por baixo do texto e
                 pareceria a resposta a saltar no tempo. */}
@@ -797,6 +893,7 @@ const Turn = memo(
     a.index === b.index &&
     a.streaming === b.streaming &&
     a.askAgain === b.askAgain &&
+    a.nestedByParent === b.nestedByParent &&
     a.tools.length === b.tools.length &&
     a.tools.every((t, i) => t === b.tools[i]),
 );
@@ -970,9 +1067,28 @@ export function Chat() {
   // one any more; close it when the thread under it changes.
   useEffect(() => setRenaming(null), [conversationId]);
 
+  // O que cada agente delegado disse ou fez, por chamada `Task`/`Agent` que o
+  // lançou. Calculado uma vez por quadro, para o `Turn` memoizado poder
+  // comparar por referência (ver o comparator abaixo).
+  const nestedByParent = useMemo(() => {
+    const map: NestedByParent = new Map();
+    for (const m of chat) {
+      if (!m.parentToolUseId) continue;
+      const arr = map.get(m.parentToolUseId);
+      if (arr) arr.push(m);
+      else map.set(m.parentToolUseId, [m]);
+    }
+    return map;
+  }, [chat]);
+
   const blocks = useMemo(() => {
     const out: Block[] = [];
     for (const m of chat) {
+      // O que um subagente disse ou fez não abre a sua própria vez no fio —
+      // fica preso à ficha do `Task`/`Agent` que o lançou, via
+      // `nestedByParent`. Sem isto, uma delegação enchia a conversa com o
+      // comando e a linha de progresso de cada coisa que ele fazia.
+      if (m.parentToolUseId) continue;
       if (m.role === "tool") {
         const last = out[out.length - 1];
         if (last?.kind === "agent") last.tools.push(m);
@@ -990,8 +1106,12 @@ export function Chat() {
   // piscava num balão acabado e o indicador desligava-se enquanto havia
   // trabalho a decorrer, que é exactamente quando ele serve.
   const streaming = chatBusy && chatWriting;
-  /** A chamada que está no ar, se houver: é ela que dá nome à espera. */
-  const inFlight = [...chat].reverse().find((m) => m.role === "tool" && m.ok == null) ?? null;
+  /** A chamada que está no ar, se houver: é ela que dá nome à espera. O que um
+   *  subagente está a fazer não conta aqui — é ele que tem a sua própria
+   *  ficha, e "Working…" por baixo do compositor é sobre o próprio turno. */
+  const inFlight =
+    [...chat].reverse().find((m) => m.role === "tool" && m.ok == null && !m.parentToolUseId) ??
+    null;
   const lastAsked = [...chat].reverse().find((m) => m.role === "user")?.text ?? "";
 
   /** Repetir a última pergunta. Tem de ser estável: é uma prop do `Turn`, e uma
@@ -1361,6 +1481,7 @@ export function Chat() {
                 kind={block.kind}
                 msg={block.msg}
                 tools={block.tools}
+                nestedByParent={nestedByParent}
                 streaming={streaming && i === blocks.length - 1}
                 askAgain={
                   block.kind === "notice" && i === blocks.length - 1 && lastAsked && !chatBusy
