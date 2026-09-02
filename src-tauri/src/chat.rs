@@ -301,6 +301,17 @@ async fn send_message(
     // global.md: small, always in the prompt on a fresh session.
     let global_memory =
         harness_app::memory::global_for(ws.paths.root()).unwrap_or_default();
+    // The rules `record_decision` already wrote for the open board. Written
+    // since the tool existed and read by nothing until now, which is why the
+    // operator's own standing rule about not being asked twice never reached
+    // the turn it was written for.
+    let decisions = conversation
+        .project_id
+        .as_deref()
+        .and_then(|id| {
+            harness_app::memory::decisions_from(&ws.paths.project_memory_decisions(id))
+        })
+        .unwrap_or_default();
     let outside_work = ws.outside_work().await;
     // Permission the operator granted between turns, on a screen he cannot
     // see. Read here rather than pushed at him when he clicks: the turn is
@@ -344,6 +355,7 @@ async fn send_message(
             resumed: resume_session.is_some(),
             crew: &crew,
             global_memory: &global_memory,
+            decisions: &decisions,
             // Only what the last look found; the look itself runs at startup
             // and at the close, never on a turn the operator is waiting for.
             outside_work: outside_work.as_deref(),

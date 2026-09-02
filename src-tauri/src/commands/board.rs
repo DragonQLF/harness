@@ -369,6 +369,15 @@ pub(crate) async fn start_run_inner(
         prompt.push_str("\n\nStanding notes from the operator:\n");
         prompt.push_str(&global);
     }
+    // And what has already been settled on this board. `record_decision` has
+    // been writing these since it existed and nothing read them back, so a rule
+    // the operator dictated never reached the agent it was dictated at.
+    if let Some(decisions) = harness_app::memory::decisions_from(
+        &ws.paths.project_memory_decisions(runtime.project.id.as_str()),
+    ) {
+        prompt.push_str("\n\nDecisions already settled on this project — follow them:\n");
+        prompt.push_str(&decisions);
+    }
 
     // And what the cards before this one wrote down. `report_work` has always
     // taken these notes and the log has always kept them; nothing ever read

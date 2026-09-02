@@ -3201,3 +3201,51 @@ do que nenhuma.
 
 Fica **88 embrulhos, 88 chamados, zero sem ecrã**. A única excepção que resta é
 do outro lado: o `prepare_shutdown`, registado e invocado por ninguém.
+
+### 131. O Director conversava sobre o trabalho em vez de o fazer
+
+O operador: *"i said i wanna do an experiment, he says blah blah blah and why
+you shouldn't… i point him at something he should do it."*
+
+O transcript dá-lhe razão, e num sítio exacto. À pergunta "isto precisa de uma
+experiência, qual seria um bom começo — Remotion ou outra coisa?", a resposta
+foi:
+
+> Take your time. Nothing's running, nothing's costing you anything. (…) I'll
+> write card 1 whenever you say. Or leave it and come back to it.
+
+Uma pergunta que queria investigação e uma recomendação levou um adiamento. A
+verificação da licença que a resolveu — e resolveu-a bem — só aconteceu depois
+de ele escrever "hm".
+
+**Duas causas, e a segunda é pior.**
+
+**A frase.** O prompt dizia "Only put work on a board when they ask… **and say
+what you are about to do before you do it**". A primeira metade foi escrita
+contra transformar cada pergunta em maquinaria e funciona. A segunda lê-se como
+anunciar e esperar. Saiu, e no lugar dela entraram três regras: agir no mesmo
+turno (apontar é a instrução — "isto precisa de uma experiência" quer dizer
+*corre a experiência*); as quatro coisas que param e mais nenhuma (dinheiro
+acima do combinado, destrutivo ou irreversível, uma bifurcação no *que* se
+constrói, e uma concessão); e discordar sem deixar de trabalhar — dizer que a
+ideia é fraca em duas linhas e depois fazer a versão mais forte dela na mesma,
+porque um mau resultado vê-se e uma coisa não construída não.
+
+**E o `record_decision` era write-only.** O operador já tinha ditado esta regra
+— *"verified work proceeds without asking: approve, merge, start the next
+card"*, escrita depois de o Director lhe pedir duas vezes numa sessão uma
+permissão que já tinha. O tool escreveu o ficheiro. **Nada o lia.** Nenhum
+prompt, nem do chat nem de um cartão, alguma vez carregou
+`memory/decisions/`. Seis ficheiros nos dois projectos, todos por ler.
+
+É o mesmo defeito do `curator` (#120) e da caixa de entrada (#130) pela terceira
+vez: um canal que só escreve. E é o pior dos três, porque escrever uma regra dá
+a sensação de a ter resolvido — o operador ditou-a, viu-a guardada, e o
+comportamento não mudou porque a regra nunca chegou a um turno.
+
+O `memory::decisions_from` lê-as, mais recentes primeiro e com tecto, e entram
+nos dois prompts: a conversa e o run de um cartão. Um agente passa a saber o que
+já foi decidido no quadro em que trabalha.
+
+Não mexido: as quatro coisas que param. São as do operador, escritas por ele
+naquela decisão, e o prompt passa a dizer as mesmas em vez de uma lista minha.

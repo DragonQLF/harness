@@ -111,6 +111,13 @@ pub struct ChatContext<'a> {
     pub crew: &'a [(String, String)],
     /// The operator's standing notes (global.md), always worth repeating.
     pub global_memory: &'a str,
+    /// The standing rules `record_decision` wrote for the open project.
+    ///
+    /// They were written and never read: the tool created the file and nothing
+    /// loaded it back, so every rule the operator dictated reached nobody —
+    /// including the one he dictated about not being asked for permission he
+    /// had already given.
+    pub decisions: &'a str,
     /// Commits that reached Relay's own repository without a card behind them,
     /// already counted and worded by `mirror::describe`. A fact, like the
     /// boards — not a rule. Absent on every project but the mirror, and absent
@@ -435,12 +442,48 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         prompt.push_str("\n\n");
     }
 
-    // The rule that keeps it from turning every question into machinery.
+    // The rule that keeps it from turning every question into machinery — and,
+    // right after it, the rule that keeps *that* one from turning every request
+    // into a conversation about the request.
+    //
+    // The first paragraph was written against over-ticketing and it worked. It
+    // then over-corrected: asked "this needs an experiment, what would be a
+    // good starter — Remotion or something else?", the answer was *"Take your
+    // time. Nothing's running, nothing's costing you anything. I'll write card
+    // 1 whenever you say."* A question that wanted research and a
+    // recommendation got a deferral, and the licence check that settled it only
+    // happened after the operator said "hm".
+    //
+    // "Say what you are about to do before you do it" is what produced that. It
+    // reads as "announce and wait", so it is gone. What replaces it is
+    // narrower: say it while doing it, not instead.
     prompt.push_str(
         "Answer the question that was asked. Most messages want a straight answer, an opinion or \
          a plan in prose — not a project, not a card, not an agent. Only put work on a board when \
-         they ask for something to be carried out, or when it is plainly too much for one reply, \
-         and say what you are about to do before you do it.\n\n",
+         they ask for something to be carried out, or when it is plainly too much for one reply.\n\n",
+    );
+    prompt.push_str(
+        "Then act on it in the same turn. A question you could answer better after looking is a \
+         question to look into now — search the web, read the repository, run the thing, price \
+         the options — and come back with what you found and what you would do. Pointing you at \
+         something is the instruction: \"this needs an experiment\" means run the experiment, \
+         \"look into X\" means look into X and report, \"I want to try Y\" means find the shortest \
+         path to trying Y and take it. Do not answer with what you would do if they said go. They \
+         already did.\n\n",
+    );
+    prompt.push_str(
+        "Four things stop you, and nothing else does: money above what was agreed, something \
+         destructive or irreversible, a fork in what is being built rather than how, and a grant. \
+         Everything else you decide and then report. If you find yourself about to ask permission \
+         for something reversible, do it instead and say what you did — a wrong reversible step \
+         they can see costs them a sentence, and a question costs them their attention, which is \
+         the thing they are short of.\n\n",
+    );
+    prompt.push_str(
+        "Disagreeing is useful; disagreeing instead of working is not. When you think an idea is \
+         weak, say so in a line or two — then do the strongest version of what they asked anyway, \
+         and let the result carry the argument. They can see a bad result and change their mind. \
+         They cannot see the thing you did not build.\n\n",
     );
     // Where the work lands matters as much as whether it starts: a month of
     // "faz-me um site" into the open repo leaves three sites and two
@@ -539,6 +582,19 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
     if !ctx.global_memory.trim().is_empty() {
         prompt.push_str("Standing notes from the operator (always apply):\n");
         prompt.push_str(ctx.global_memory.trim());
+        prompt.push_str("\n\n");
+    }
+
+    // Rules already settled on this board, in the operator's words or in your
+    // own. They outrank your instincts about how to work — that is what makes
+    // them decisions rather than notes.
+    if !ctx.decisions.trim().is_empty() {
+        prompt.push_str(
+            "Decisions already recorded on this project. These are settled: follow them \
+             without re-litigating, and say so if you think one is wrong rather than \
+             quietly working around it.\n",
+        );
+        prompt.push_str(ctx.decisions.trim());
         prompt.push_str("\n\n");
     }
 
@@ -716,7 +772,7 @@ mod tests {
         }
     }
 
-    fn ctx<'a>(projects: &'a [ProjectBrief]) -> ChatContext<'a> {
+    pub(super) fn ctx<'a>(projects: &'a [ProjectBrief]) -> ChatContext<'a> {
         ChatContext {
             new_version: None,
             speaker: director(),
@@ -726,6 +782,7 @@ mod tests {
             resumed: false,
             crew: &[],
             global_memory: "",
+            decisions: "",
             outside_work: None,
             accepted_proposals: &[],
         }
@@ -1267,5 +1324,102 @@ mod tests {
         assert_eq!(with_attachments(" hello ", &[]), "hello");
         // A message can be nothing but files.
         assert!(with_attachments("", &["C:/a.md".into()]).starts_with("Attached file"));
+    }
+}
+
+#[cfg(test)]
+mod proactive_tests {
+    use super::*;
+
+    fn projects() -> Vec<ProjectBrief> {
+        vec![ProjectBrief {
+            id: "signal".into(),
+            name: "signal".into(),
+            path: "/src/signal".into(),
+            active: true,
+            cards: vec![],
+            charter: None,
+        }]
+    }
+
+    fn director(projects: &[ProjectBrief]) -> ChatContext<'_> {
+        let mut c = tests::ctx(projects);
+        c.speaker.is_director = true;
+        c
+    }
+
+    /// Regressão de comportamento, e a razão está no transcript de 2026-09-02.
+    ///
+    /// Perguntado "isto precisa de uma experiência, qual seria um bom começo —
+    /// Remotion ou outra coisa?", o Director respondeu *"Take your time.
+    /// Nothing's running, nothing's costing you anything. I'll write card 1
+    /// whenever you say."* Uma pergunta que queria investigação e uma
+    /// recomendação levou um adiamento; a verificação da licença que a resolveu
+    /// só aconteceu depois de o operador dizer "hm".
+    ///
+    /// O que produzia isso era "say what you are about to do before you do it",
+    /// que se lê como anunciar e esperar. Saiu.
+    #[test]
+    fn the_prompt_no_longer_tells_him_to_announce_and_wait() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "this needs an experiment, where do we start?");
+        assert!(
+            !prompt.contains("say what you are about to do before you do it"),
+            "a frase que produziu o adiamento voltou ao prompt",
+        );
+    }
+
+    #[test]
+    fn pointing_at_something_is_the_instruction() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "look into remotion");
+        assert!(prompt.contains("Then act on it in the same turn."), "{prompt}");
+        assert!(
+            prompt.contains("Pointing you at something is the instruction"),
+            "sem isto, apontar continua a ler-se como conversar sobre apontar",
+        );
+        assert!(prompt.contains("They already did."));
+    }
+
+    /// As quatro coisas que param, e o convite explícito a fazer em vez de
+    /// perguntar quando é reversível. O operador escreveu a mesma regra à mão
+    /// numa decisão que nunca era lida — ver `memory::decisions_from`.
+    #[test]
+    fn only_four_things_stop_him() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "go");
+        assert!(prompt.contains("Four things stop you"), "{prompt}");
+        for stop in ["money above what was agreed", "destructive or irreversible", "a grant"] {
+            assert!(prompt.contains(stop), "falta: {stop}");
+        }
+        assert!(prompt.contains("do it instead and say what you did"));
+    }
+
+    /// Discordar continua a ser útil — o que deixa de ser aceitável é discordar
+    /// *em vez de* trabalhar, que é o que o operador descreveu como "he says
+    /// blah blah and why you shouldn't".
+    #[test]
+    fn disagreement_does_not_replace_the_work() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "i want to try this");
+        assert!(prompt.contains("Disagreeing is useful; disagreeing instead of working is not."));
+        assert!(prompt.contains("do the strongest version of what they asked anyway"));
+    }
+
+    /// E as regras já assentes entram no prompt, que é a outra metade: o
+    /// operador ditou "verified work proceeds without asking", o
+    /// `record_decision` escreveu-a, e nada a lia.
+    #[test]
+    fn recorded_decisions_reach_the_turn_they_were_written_for() {
+        let p = projects();
+        let mut c = director(&p);
+        c.decisions = "# Verified work proceeds without asking\n\nVerifying IS the decision.";
+        let prompt = chat_prompt(&c, "the card is in review");
+        assert!(prompt.contains("Decisions already recorded on this project"));
+        assert!(prompt.contains("Verifying IS the decision."));
+
+        // E um projecto sem decisões não ganha um cabeçalho vazio.
+        let quiet = chat_prompt(&director(&p), "hello");
+        assert!(!quiet.contains("Decisions already recorded"));
     }
 }

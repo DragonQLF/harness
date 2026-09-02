@@ -82,6 +82,67 @@ pub fn global_for(data_dir: &Path) -> Option<String> {
     read_capped(&data_dir.join("global.md"), GLOBAL_MAX_CHARS)
 }
 
+/// How much of a prompt the project's recorded decisions may take.
+///
+/// Bigger than the notes budget because a decision is a *rule* — the thing that
+/// changes what the agent does next turn — and there are few of them: six files
+/// across two projects when this was written.
+const DECISIONS_MAX_CHARS: usize = 5000;
+
+/// The standing rules `record_decision` wrote, newest first.
+///
+/// These were written and never read. `record_decision` created the file and
+/// nothing anywhere loaded it back, so a rule the operator dictated reached
+/// exactly nobody — including the one he dictated *about this*: "verified work
+/// proceeds without asking: approve, merge, start the next card", written after
+/// the Director asked him twice in one session for permission it already had.
+///
+/// A decision the agent cannot read is worse than an unwritten one, because
+/// writing it feels like it settled something.
+///
+/// Newest first and capped, same policy as the notes: forgetting is budget, not
+/// judgment. The file name carries the date `record_decision` stamped, so
+/// sorting by name is sorting by age.
+pub fn decisions_from(dir: &Path) -> Option<String> {
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e == "md"))
+        .collect();
+    // `read_dir` is in the filesystem's order, which is not an order.
+    files.sort();
+    files.reverse();
+
+    let mut out = String::new();
+    let mut dropped = 0usize;
+    for path in files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if out.chars().count() + text.chars().count() > DECISIONS_MAX_CHARS {
+            dropped += 1;
+            continue;
+        }
+        if !out.is_empty() {
+            out.push_str("\n\n---\n\n");
+        }
+        out.push_str(text);
+    }
+    if out.is_empty() {
+        return None;
+    }
+    if dropped > 0 {
+        out.push_str(&format!(
+            "\n\n[{dropped} older decisions left out; these are the most recent]"
+        ));
+    }
+    Some(out)
+}
+
 /// How much of a run's prompt the board's own memory may take.
 ///
 /// Sized against the material rather than guessed: the whole of Nightfall's
@@ -340,6 +401,76 @@ mod notes_tests {
         assert!(
             out.contains("1 older notes left out"),
             "um prompt que cala metade da memória lê-se como um que a tem toda: {out}",
+        );
+    }
+}
+
+#[cfg(test)]
+mod decisions_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "harness-decisions-{}-{tag}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_project_with_no_decisions_contributes_nothing() {
+        assert!(decisions_from(&dir("empty")).is_none());
+        assert!(
+            decisions_from(&std::path::Path::new("/does/not/exist")).is_none(),
+            "uma pasta que não existe é um projecto sem decisões, não um erro",
+        );
+    }
+
+    /// O que estava a falhar: o operador ditou uma regra, o `record_decision`
+    /// escreveu-a, e nada a lia. Isto é a leitura.
+    #[test]
+    fn what_was_recorded_is_what_comes_back() {
+        let d = dir("read");
+        std::fs::write(
+            d.join("2026-08-30-verified-work-proceeds-without-asking-01.md"),
+            "# Verified work proceeds without asking\n\nVerifying IS the decision.",
+        )
+        .unwrap();
+        let out = decisions_from(&d).unwrap();
+        assert!(out.contains("Verifying IS the decision."));
+    }
+
+    #[test]
+    fn newest_first_and_only_markdown() {
+        let d = dir("order");
+        std::fs::write(d.join("2026-08-01-old-01.md"), "the older rule").unwrap();
+        std::fs::write(d.join("2026-09-01-new-01.md"), "the newer rule").unwrap();
+        // O `record_decision` escreve um `curator-state.json` ao lado noutros
+        // caminhos; nada que não seja markdown é uma decisão.
+        std::fs::write(d.join("notes.json"), "{}").unwrap();
+
+        let out = decisions_from(&d).unwrap();
+        assert!(
+            out.find("the newer rule").unwrap() < out.find("the older rule").unwrap(),
+            "a mais recente lê-se primeiro, que é onde o orçamento morde por último",
+        );
+        assert!(!out.contains('{'), "só markdown: {out}");
+    }
+
+    #[test]
+    fn the_budget_drops_the_oldest_and_says_so() {
+        let d = dir("budget");
+        std::fs::write(d.join("2026-08-01-old-01.md"), "o".repeat(DECISIONS_MAX_CHARS)).unwrap();
+        std::fs::write(d.join("2026-09-01-new-01.md"), "the newest rule").unwrap();
+
+        let out = decisions_from(&d).unwrap();
+        assert!(out.starts_with("the newest rule"), "{out}");
+        assert!(
+            out.contains("1 older decisions left out"),
+            "um prompt que cala metade das regras lê-se como um que as tem todas: {out}",
         );
     }
 }

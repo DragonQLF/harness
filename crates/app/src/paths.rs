@@ -147,6 +147,12 @@ impl AppPaths {
         self.project_dir(project_id).join("memory").join("charter.md")
     }
 
+    /// Where `record_decision` writes, and — since it was only ever written —
+    /// where the standing rules of a project have been piling up unread.
+    pub fn project_memory_decisions(&self, project_id: &str) -> PathBuf {
+        self.project_dir(project_id).join("memory").join("decisions")
+    }
+
     /// Mirror-mode artefacts, parked per card until (one day) an operator
     /// chooses to install one. Outside the repository by design.
     pub fn updates_dir(&self) -> PathBuf {
