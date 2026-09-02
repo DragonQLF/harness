@@ -93,6 +93,17 @@ pub(super) async fn create_card(
                  in review or done — those are where a run leaves it.",
             );
         };
+        // A proposal is a finding and a card is a unit of reviewable work, so
+        // the honest ratio is many-to-one: four accepted findings that turn out
+        // to be the same defect belong in one diff. `proposal_id` stays as the
+        // singular spelling of the same thing.
+        let wanted = proposal_ids(call);
+        // Checked BEFORE the card exists. Linking after creation would leave a
+        // card behind on a typo, and the caller would have to clean up a board
+        // to fix an inbox.
+        if let Err(refusal) = unlinkable(ws, &wanted) {
+            return ToolReply::refused(refusal);
+        }
         match crate::commands::board::create_card_inner(
             ws, project_id, &title, &agent, start, ready,
         )
@@ -103,9 +114,13 @@ pub(super) async fn create_card(
                 // only place the card he was given permission to make can
                 // be tied back to the permission, and without the tie the
                 // acceptance would be raised at him for ever.
-                let acted = text(&call.input, "proposal_id").and_then(|id| {
-                    ws.record_proposal_action(&id, project_id, created.card_id.as_str())
-                });
+                let acted: Vec<String> = wanted
+                    .iter()
+                    .filter_map(|id| {
+                        ws.record_proposal_action(id, project_id, created.card_id.as_str())
+                            .map(|p| p.id)
+                    })
+                    .collect();
                 ToolReply::ok(format!(
                     "created {} for {agent}{where_}{}{}",
                     created.card_id,
@@ -116,18 +131,89 @@ pub(super) async fn create_card(
                     } else {
                         ", in later"
                     },
-                    match acted {
-                        Some(p) => format!(
-                            " — the accepted proposal {} is now carried out and will stop \
-                             being raised",
-                            p.id
+                    match acted.len() {
+                        0 => String::new(),
+                        // Say what actually happened: the card is what stops
+                        // the acceptance being raised, and the card has not
+                        // been reviewed yet. Calling it "carried out" here
+                        // would be the app claiming an effect it has not had.
+                        1 => format!(
+                            " — carrying out the accepted proposal {}, which stops being \
+                             raised now that a card holds it",
+                            acted[0]
                         ),
-                        None => String::new(),
+                        n => format!(
+                            " — carrying out {n} accepted proposals ({}), which stop being \
+                             raised now that a card holds them",
+                            acted.join(", ")
+                        ),
                     }
                 ))
             }
             Err(e) => ToolReply::refused(e),
         }
+}
+
+/// Every proposal id the call names, singular spelling first, deduplicated and
+/// in the order given. Both spellings are accepted so nothing that already
+/// passes `proposal_id` breaks.
+fn proposal_ids(call: &ToolCall) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |id: String| {
+        let id = id.trim().to_string();
+        if !id.is_empty() && !out.contains(&id) {
+            out.push(id);
+        }
+    };
+    if let Some(one) = text(&call.input, "proposal_id") {
+        push(one);
+    }
+    if let Some(many) = call.input.get("proposal_ids").and_then(|v| v.as_array()) {
+        for v in many {
+            if let Some(s) = v.as_str() {
+                push(s.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Refuse by name rather than dropping in silence: an id that cannot be linked
+/// is either a typo or a proposal already answered by another card, and both
+/// are worth stopping for. Says which one and why.
+fn unlinkable(ws: &crate::workspace::Workspace, wanted: &[String]) -> Result<(), String> {
+    unlinkable_in(&ws.inbox().proposals, wanted)
+}
+
+/// The decision itself, over plain data so it can be tested without a
+/// workspace, a disk or a board.
+fn unlinkable_in(
+    proposals: &[harness_app::inbox::Proposal],
+    wanted: &[String],
+) -> Result<(), String> {
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    for id in wanted {
+        match proposals.iter().find(|p| &p.id == id) {
+            None => return Err(format!("there is no proposal {id} in the inbox")),
+            Some(p) if p.status != harness_app::inbox::ProposalStatus::Accepted => {
+                return Err(format!(
+                    "proposal {id} is {:?}, not accepted — only an accepted proposal can be \
+                     carried out by a card",
+                    p.status
+                ));
+            }
+            Some(p) => {
+                if let Some(held) = &p.card_id {
+                    return Err(format!(
+                        "proposal {id} is already carried out by card {held}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Dizer-lhe mais uma coisa a meio do turno. Não interrompe: entra na fila do
@@ -330,6 +416,69 @@ pub(super) async fn read_diff(runtime: &ProjectRuntime, call: &ToolCall) -> Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use harness_app::inbox::{Proposal, ProposalStatus};
+
+    fn call_with(input: serde_json::Value) -> ToolCall {
+        ToolCall { name: "create_card".into(), input }
+    }
+
+    fn proposal(id: &str, status: ProposalStatus, card: Option<&str>) -> Proposal {
+        Proposal {
+            id: id.into(),
+            created_ms: 0,
+            title: String::new(),
+            observation: String::new(),
+            proposal: String::new(),
+            status,
+            card_id: card.map(|c| c.to_string()),
+            project_id: None,
+        }
+    }
+
+    /// Both spellings mean the same thing, and naming one twice is one link,
+    /// not two.
+    #[test]
+    fn both_spellings_are_gathered_in_order_without_repeats() {
+        let call = call_with(serde_json::json!({
+            "proposal_id": "prp_one",
+            "proposal_ids": ["prp_two", "prp_one", "  ", "prp_three"],
+        }));
+        assert_eq!(proposal_ids(&call), vec!["prp_one", "prp_two", "prp_three"]);
+        // The singular alone still behaves exactly as it always did.
+        let old = call_with(serde_json::json!({"proposal_id": "prp_only"}));
+        assert_eq!(proposal_ids(&old), vec!["prp_only"]);
+        // And a card that carries no proposal names none.
+        assert!(proposal_ids(&call_with(serde_json::json!({}))).is_empty());
+    }
+
+    /// Silence is the failure being fixed: a bad id must be refused BY NAME,
+    /// never dropped, because a dropped link leaves the operator's acceptance
+    /// being raised for ever with nothing to show why.
+    #[test]
+    fn a_proposal_that_cannot_be_linked_is_refused_by_name() {
+        let inbox = vec![
+            proposal("prp_open", ProposalStatus::Accepted, None),
+            proposal("prp_taken", ProposalStatus::Accepted, Some("c_1fab")),
+            proposal("prp_no", ProposalStatus::Dismissed, None),
+        ];
+        assert!(unlinkable_in(&inbox, &[]).is_ok());
+        assert!(unlinkable_in(&inbox, &["prp_open".into()]).is_ok());
+
+        let missing = unlinkable_in(&inbox, &["prp_ghost".into()]).unwrap_err();
+        assert!(missing.contains("prp_ghost"), "{missing}");
+
+        let taken = unlinkable_in(&inbox, &["prp_taken".into()]).unwrap_err();
+        assert!(taken.contains("prp_taken") && taken.contains("c_1fab"), "{taken}");
+
+        let dismissed = unlinkable_in(&inbox, &["prp_no".into()]).unwrap_err();
+        assert!(dismissed.contains("prp_no"), "{dismissed}");
+
+        // One bad id in a good list still refuses the whole call, so a card is
+        // never created against a half-linked set.
+        let mixed =
+            unlinkable_in(&inbox, &["prp_open".into(), "prp_ghost".into()]).unwrap_err();
+        assert!(mixed.contains("prp_ghost"), "{mixed}");
+    }
 
     #[test]
     fn column_names_match_the_board() {

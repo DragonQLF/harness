@@ -332,6 +332,16 @@ function harnessTools(runId) {
               "The accepted proposal this card carries out, for example prp_7b30. Pass it and " +
                 "the acceptance stops being raised at you every turn.",
             ),
+          proposal_ids: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Several accepted proposals that this one card carries out. A proposal is a " +
+                "finding and a card is a unit of reviewable work, so the honest ratio is " +
+                "many-to-one: when four accepted findings turn out to be the same defect in " +
+                "four costumes, they belong in one diff, not four. Every id is checked and an " +
+                "unknown or already-linked one is refused by name rather than dropped.",
+            ),
         },
         call("create_card"),
       ),
