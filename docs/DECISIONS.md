@@ -3061,3 +3061,45 @@ quando se manda a mensagem seguinte é o fio ao vivo a não entregar, e o
 suspeito é o #125 — o reencaminhador que morria ao primeiro `Lagged` e a partir
 daí não entregava mais nada. Essa correcção existe e ainda não chegou a nenhuma
 instalação: a única versão que os instalados vêem é a 0.3.25.
+
+### 128. Uma dívida que era uma linha num documento passou a ser um teste
+
+A pergunta do operador foi: porque é que mexer numa coisa parte outra, e se isto
+não é um problema de manutenção. A resposta honesta é que nada se partiu — os
+defeitos desta noite eram todos anteriores, e um deles (`while let Ok` no
+`broadcast`) está no repositório desde o **primeiro** commit do engine. O que
+mudou foi o operador ter usado a app a sério durante um dia inteiro.
+
+Mas o padrão é real e é um só: **uma coisa declarada num sítio, sem nada em lado
+nenhum a obrigá-la a ser verdade.** Quatro dos nove desta noite são isso — o
+`subagents: false` guardado por uma literal noutra linguagem, o "nunca escreve"
+que era uma etiqueta, o `failing()` que ninguém lia, o `curator` que ninguém
+chamava.
+
+O repositório já sabe disto. Tem o ts-rs a gerar os tipos, o `check:store` a ler
+o `useMemo` pelo AST, o `vocabulary.rs` a derivar o `LEGAL_MOVES` do domínio.
+Falhou onde essa maquinaria não chega — e o `DEBT.md` é, em boa parte, a lista da
+mesma classe, notada em vez de fechada.
+
+O `check:commands` fecha a primeira. Lê o `generate_handler!` e o `ipc.ts`, e
+falha em três casos: um comando registado sem embrulho, um embrulho para um
+comando que não existe, e um embrulho que ninguém chama. As duas listas de
+excepções vivem no script com a razão de cada uma, e o guarda também falha ao
+contrário: uma excepção que deixou de o ser é apanhada em vez de ficar a mentir.
+
+Encontrou quatro coisas que ninguém sabia:
+
+- `api.checks`, `api.codexStatus` e `api.inbox` — embrulhos sem chamador, que se
+  juntam aos cinco que o `DEBT.md` já nomeava;
+- e o `prepare_shutdown`, que é pior do que estar sem porta: está registado, não
+  é invocado por ninguém — nem pela janela nem pelo Rust — e corre exactamente
+  os dois passos que o `closing.rs:117-129` já corre. Uma segunda cópia de
+  lógica viva é a pior espécie de código morto, porque quem editar uma não edita
+  a outra. Fica nomeado e por decidir; apagá-lo é uma escolha, não uma limpeza.
+
+Provado a partir-se antes de ser acrescentado ao portão: um embrulho para um
+comando inexistente e um comando registado sem embrulho, os dois apanhados.
+
+Entra no `check`, no `CLAUDE.md` e no "Check before publishing" do CI. O que se
+quer impedir não são as listas de excepções — é elas crescerem sem ninguém
+decidir.
