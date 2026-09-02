@@ -3249,3 +3249,47 @@ já foi decidido no quadro em que trabalha.
 
 Não mexido: as quatro coisas que param. São as do operador, escritas por ele
 naquela decisão, e o prompt passa a dizer as mesmas em vez de uma lista minha.
+
+### 132. O prompt do Director, auditado contra o que está publicado para este modelo
+
+O #131 corrigiu o comportamento por instinto: li o transcript, vi a frase que
+adiava, e reescrevi-a. Funcionava, mas era uma opinião. Isto é a mesma correcção
+feita contra o que a Anthropic documenta para o `claude-opus-5`, que é o modelo
+em que o Director corre.
+
+**A auditoria passou.** Os sinais de prompt datado — pressão em maiúsculas
+(`MUST`/`NEVER`/`CRITICAL`), andaimes substituídos por funcionalidades da API
+("think step by step", `<scratchpad>`, tectos de palavras, cadências de
+"resume de N em N chamadas"), *prefill*, listas de proibições sem razão — **não
+existem neste prompt**. Nem havia andaime de verificação para apagar. Vale a
+pena dizê-lo, porque a conclusão fácil de uma auditoria é que está tudo mal.
+
+O que faltava eram três coisas que este modelo faz e o prompt não respondia:
+
+**Âmbito.** A redacção que entrou é a que está publicada e medida para este
+modelo — reduziu mudanças de âmbito a quase zero **sem** gerar perguntas de
+esclarecimento a mais, que é exactamente a troca que a versão anterior perdia.
+Inclui a cláusula que faltava à minha: *"se concluíres que o pedido está errado
+ou que há melhor caminho, di-lo numa frase e continua a fazer o que foi pedido"*
+— e a de acabar o trabalho todo antes de dizer que está feito. Usa-se a dela e
+não a minha porque a dela foi medida.
+
+**Comprimento.** Este modelo escreve mais do que os anteriores, e o `effort`
+não é a alavanca — uma instrução curta de concisão é, e mede cerca de um quinto
+menos. O prompt não tinha nenhuma. O operador chamou ao que recebia "blah blah
+blah", que é a mesma observação vista do outro lado.
+
+**Delegação.** Este modelo procura subagentes por iniciativa própria — e é uma
+**mudança de direcção**: o anterior tinha de ser empurrado a delegar. Nos logs
+desta máquina: nove numa conversa, quatro deles abertos *por* subagentes. O
+#124 corrigiu o guarda morto que deixava isso passar; isto é a outra metade,
+porque um guarda que recusa é pior maneira de dizer "não compensa" do que não
+procurar. O parágrafo só aparece a quem pode delegar.
+
+Uma proibição minha saiu por causa da auditoria: *"Do not answer with what you
+would do if they said go"*. Descrever o sucesso ganha a enumerar a falha, e uma
+proibição contra uma falha pode ancorar nela. Ficou a versão positiva.
+
+Um teste guarda o que a auditoria tirou: nenhum andaime datado, nenhuma
+maiúscula de ênfase. Uma instrução que precisa de ser gritada para ser ouvida
+está a competir com as outras, e este modelo ouve-as todas.

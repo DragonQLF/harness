@@ -442,49 +442,90 @@ pub fn chat_prompt(ctx: &ChatContext, message: &str) -> String {
         prompt.push_str("\n\n");
     }
 
-    // The rule that keeps it from turning every question into machinery — and,
-    // right after it, the rule that keeps *that* one from turning every request
-    // into a conversation about the request.
+    // The rule that keeps it from turning every question into machinery, and
+    // then the one that keeps *that* one from turning every request into a
+    // conversation about the request.
     //
     // The first paragraph was written against over-ticketing and it worked. It
     // then over-corrected: asked "this needs an experiment, what would be a
     // good starter — Remotion or something else?", the answer was *"Take your
     // time. Nothing's running, nothing's costing you anything. I'll write card
     // 1 whenever you say."* A question that wanted research and a
-    // recommendation got a deferral, and the licence check that settled it only
-    // happened after the operator said "hm".
+    // recommendation got a deferral, and the licence check that settled it
+    // only happened after the operator wrote "hm".
     //
-    // "Say what you are about to do before you do it" is what produced that. It
-    // reads as "announce and wait", so it is gone. What replaces it is
-    // narrower: say it while doing it, not instead.
+    // "Say what you are about to do before you do it" produced that — it reads
+    // as announce-and-wait — so it is gone.
     prompt.push_str(
         "Answer the question that was asked. Most messages want a straight answer, an opinion or \
          a plan in prose — not a project, not a card, not an agent. Only put work on a board when \
          they ask for something to be carried out, or when it is plainly too much for one reply.\n\n",
     );
+    // Anthropic's tested scope-discipline wording for this model, near-verbatim:
+    // it cut unrequested scope changes to nearly zero *without* producing extra
+    // clarifying questions, which is the exact trade this prompt kept losing.
+    // The two sentences after it are ours, and they earn their place by naming
+    // a failure that reproduced here rather than a general virtue: the operator
+    // pointed at something and got a discussion of it.
     prompt.push_str(
-        "Then act on it in the same turn. A question you could answer better after looking is a \
-         question to look into now — search the web, read the repository, run the thing, price \
-         the options — and come back with what you found and what you would do. Pointing you at \
-         something is the instruction: \"this needs an experiment\" means run the experiment, \
-         \"look into X\" means look into X and report, \"I want to try Y\" means find the shortest \
-         path to trying Y and take it. Do not answer with what you would do if they said go. They \
-         already did.\n\n",
+        "Deliver what they asked for, at the scope they intended. Interpret ambiguity the way a \
+         careful colleague would: make routine judgment calls yourself, and check in only when \
+         different readings would lead to materially different work. If you conclude the ask is \
+         mistaken or a better approach exists, say so in a sentence and keep going with the task \
+         as asked — do not quietly narrow, widen, or transform it. Finish the whole task, not just \
+         the easy part of it, and report completion only when it is fully done; if you genuinely \
+         cannot finish something, do the rest and say plainly what is missing and why.\n\n",
     );
     prompt.push_str(
-        "Four things stop you, and nothing else does: money above what was agreed, something \
-         destructive or irreversible, a fork in what is being built rather than how, and a grant. \
-         Everything else you decide and then report. If you find yourself about to ask permission \
-         for something reversible, do it instead and say what you did — a wrong reversible step \
-         they can see costs them a sentence, and a question costs them their attention, which is \
-         the thing they are short of.\n\n",
+        "Being pointed at something is the instruction. \"This needs an experiment\" means run \
+         the experiment; \"look into X\" means look into X and come back with what you found. A \
+         question you could answer better after looking is one to look into now — search, read the \
+         repository, run the thing, price the options — and answer with what you found and what \
+         you would do.\n\n",
     );
+    // The four are the operator's own, lifted from the decision he dictated
+    // after being asked twice in one session for permission he had already
+    // given. His words: "you are supposed to be autonomous not having to ask me
+    // stupid questions". Stated as a closed list because an open one is read as
+    // an invitation to add to it.
     prompt.push_str(
-        "Disagreeing is useful; disagreeing instead of working is not. When you think an idea is \
-         weak, say so in a line or two — then do the strongest version of what they asked anyway, \
-         and let the result carry the argument. They can see a bad result and change their mind. \
-         They cannot see the thing you did not build.\n\n",
+        "Four things stop you: money above what was agreed, something destructive or \
+         irreversible, a fork in what is being built rather than how, and a grant. Everything \
+         else you decide and then report. Where something is reversible, do it and say what you \
+         did — they can see a wrong reversible step and correct it in a sentence, and a question \
+         costs them their attention, which is the thing they are short of.\n\n",
     );
+
+    // Two shifts this model has that the prompt had no answer for, both
+    // documented for it rather than guessed at.
+    //
+    // Length: Claude Opus 5 writes longer user-facing text than prior models,
+    // and `effort` is not the lever — a short conciseness instruction is, and
+    // measured about a fifth off. The operator's word for what he was getting
+    // was "blah blah blah", which is the same observation from the other side.
+    prompt.push_str(
+        "Keep responses focused, brief and concise, so they are not overwhelming to read. \
+         Caveats and disclaimers are short, with most of the answer on the answer; asked to \
+         explain something, give a high-level summary unless they asked for depth.\n\n",
+    );
+    // Delegation: this model reaches for subagents freely — a direction change
+    // from the one before it, which had to be pushed to delegate. It shows in
+    // the logs: nine subagents in one conversation, four of them opened *by*
+    // subagents. The dead `Task`/`Agent` guard (#124) let that happen; this is
+    // the other half, because a guard that refuses is a worse way to say "not
+    // worth it" than not reaching for it in the first place.
+    if ctx.speaker.can_delegate {
+        prompt.push_str(
+            "Subagents multiply cost and time: each re-establishes context, re-explores and \
+             reports back, and then you read the report. Delegate rarely, and only when the \
+             payoff clearly beats that overhead — a genuinely independent, sizeable track, not \
+             work you could finish in a handful of tool calls, and never to review or \
+             double-check your own work. One is better than several; brief it precisely the \
+             first time; and once you have delegated, do not redo it or re-derive what it \
+             found.\n\n",
+        );
+    }
+
     // Where the work lands matters as much as whether it starts: a month of
     // "faz-me um site" into the open repo leaves three sites and two
     // experiments tangled in one history, and moving later costs — worktrees,
@@ -1345,20 +1386,20 @@ mod proactive_tests {
     fn director(projects: &[ProjectBrief]) -> ChatContext<'_> {
         let mut c = tests::ctx(projects);
         c.speaker.is_director = true;
+        c.speaker.can_delegate = true;
         c
     }
 
-    /// Regressão de comportamento, e a razão está no transcript de 2026-09-02.
+    /// Regressão de comportamento, com o transcript de 2026-09-02 por prova.
     ///
     /// Perguntado "isto precisa de uma experiência, qual seria um bom começo —
-    /// Remotion ou outra coisa?", o Director respondeu *"Take your time.
-    /// Nothing's running, nothing's costing you anything. I'll write card 1
-    /// whenever you say."* Uma pergunta que queria investigação e uma
-    /// recomendação levou um adiamento; a verificação da licença que a resolveu
-    /// só aconteceu depois de o operador dizer "hm".
+    /// Remotion ou outra coisa?", a resposta foi *"Take your time. Nothing's
+    /// running… I'll write card 1 whenever you say."* — e a verificação da
+    /// licença que resolveu a pergunta só aconteceu depois de o operador
+    /// escrever "hm".
     ///
-    /// O que produzia isso era "say what you are about to do before you do it",
-    /// que se lê como anunciar e esperar. Saiu.
+    /// O que a produzia era "say what you are about to do before you do it",
+    /// que se lê como anunciar e esperar.
     #[test]
     fn the_prompt_no_longer_tells_him_to_announce_and_wait() {
         let p = projects();
@@ -1373,42 +1414,68 @@ mod proactive_tests {
     fn pointing_at_something_is_the_instruction() {
         let p = projects();
         let prompt = chat_prompt(&director(&p), "look into remotion");
-        assert!(prompt.contains("Then act on it in the same turn."), "{prompt}");
-        assert!(
-            prompt.contains("Pointing you at something is the instruction"),
-            "sem isto, apontar continua a ler-se como conversar sobre apontar",
-        );
-        assert!(prompt.contains("They already did."));
+        assert!(prompt.contains("Being pointed at something is the instruction."), "{prompt}");
+        assert!(prompt.contains("means run the experiment"));
     }
 
-    /// As quatro coisas que param, e o convite explícito a fazer em vez de
-    /// perguntar quando é reversível. O operador escreveu a mesma regra à mão
-    /// numa decisão que nunca era lida — ver `memory::decisions_from`.
+    /// A redacção de âmbito é a que a Anthropic mediu para este modelo: reduziu
+    /// mudanças de âmbito a quase zero **sem** gerar perguntas de esclarecimento
+    /// a mais. É essa a troca que este prompt vinha a perder — e é por isso que
+    /// se usa a dela e não uma escrita à mão.
+    #[test]
+    fn the_tested_scope_wording_is_the_one_that_ships() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "build me a thing");
+        for phrase in [
+            "at the scope they intended",
+            "check in only when",
+            "keep going with the task as asked",
+            "Finish the whole task",
+        ] {
+            assert!(prompt.contains(phrase), "falta a cláusula: {phrase}");
+        }
+    }
+
     #[test]
     fn only_four_things_stop_him() {
         let p = projects();
         let prompt = chat_prompt(&director(&p), "go");
         assert!(prompt.contains("Four things stop you"), "{prompt}");
-        for stop in ["money above what was agreed", "destructive or irreversible", "a grant"] {
+        for stop in ["money above what was agreed", "destructive or", "a grant"] {
             assert!(prompt.contains(stop), "falta: {stop}");
         }
-        assert!(prompt.contains("do it instead and say what you did"));
+        assert!(prompt.contains("do it and say what you did"));
     }
 
-    /// Discordar continua a ser útil — o que deixa de ser aceitável é discordar
-    /// *em vez de* trabalhar, que é o que o operador descreveu como "he says
-    /// blah blah and why you shouldn't".
+    /// Este modelo escreve mais do que os anteriores e o `effort` não é a
+    /// alavanca — uma instrução curta de concisão é. O operador chamou-lhe
+    /// "blah blah blah".
     #[test]
-    fn disagreement_does_not_replace_the_work() {
+    fn length_is_addressed_because_effort_does_not_address_it() {
         let p = projects();
-        let prompt = chat_prompt(&director(&p), "i want to try this");
-        assert!(prompt.contains("Disagreeing is useful; disagreeing instead of working is not."));
-        assert!(prompt.contains("do the strongest version of what they asked anyway"));
+        let prompt = chat_prompt(&director(&p), "hi");
+        assert!(prompt.contains("focused, brief and concise"), "{prompt}");
     }
 
-    /// E as regras já assentes entram no prompt, que é a outra metade: o
-    /// operador ditou "verified work proceeds without asking", o
-    /// `record_decision` escreveu-a, e nada a lia.
+    /// Este modelo procura subagentes por iniciativa própria — mudança de
+    /// direcção face ao anterior, que era preciso empurrar. Nos logs: nove
+    /// numa conversa, quatro deles abertos *por* subagentes.
+    #[test]
+    fn delegation_is_capped_for_whoever_can_delegate() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "research this");
+        assert!(prompt.contains("Subagents multiply cost and time"), "{prompt}");
+        assert!(prompt.contains("never to review or double-check your own work"));
+
+        // Quem não pode delegar não leva um parágrafo sobre delegar.
+        let mut lone = director(&p);
+        lone.speaker.can_delegate = false;
+        assert!(!chat_prompt(&lone, "research this").contains("Subagents multiply"));
+    }
+
+    /// A outra metade: as regras já assentes chegam ao turno. O operador ditou
+    /// "verified work proceeds without asking", o `record_decision` escreveu-a,
+    /// e nada a lia — ver `memory::decisions_from`.
     #[test]
     fn recorded_decisions_reach_the_turn_they_were_written_for() {
         let p = projects();
@@ -1418,8 +1485,29 @@ mod proactive_tests {
         assert!(prompt.contains("Decisions already recorded on this project"));
         assert!(prompt.contains("Verifying IS the decision."));
 
-        // E um projecto sem decisões não ganha um cabeçalho vazio.
         let quiet = chat_prompt(&director(&p), "hello");
         assert!(!quiet.contains("Decisions already recorded"));
+    }
+
+    /// O guarda contra o prompt voltar a acumular o que a auditoria tirou:
+    /// linguagem de pressão e andaimes que este modelo já não precisa.
+    #[test]
+    fn the_prompt_stays_clean_of_dated_patterns() {
+        let p = projects();
+        let prompt = chat_prompt(&director(&p), "anything");
+        for dated in [
+            "think step by step",
+            "<scratchpad>",
+            "double-check your answer",
+            "Be thorough",
+            "Do not be lazy",
+        ] {
+            assert!(!prompt.contains(dated), "andaime datado de volta no prompt: {dated}");
+        }
+        // Ênfase gritada: nenhuma. Uma instrução que precisa de maiúsculas para
+        // ser ouvida está a competir com as outras, e este modelo ouve todas.
+        for shouted in ["MUST ", "NEVER ", "ALWAYS ", "CRITICAL", "IMPORTANT:"] {
+            assert!(!prompt.contains(shouted), "linguagem de pressão: {shouted}");
+        }
     }
 }
