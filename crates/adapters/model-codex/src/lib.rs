@@ -131,6 +131,78 @@ fn sandbox_and_approval(mode: Option<&str>) -> (&'static str, &'static str, Opti
 /// `env={"K":"V"}` fails to parse while `env.K="V"` is exactly right. Strings
 /// and arrays happen to be spelled the same in both, so `json!` serves for
 /// those.
+/// Every `-c` override a run carries: what it was granted, plus whether its
+/// sandbox may reach the network.
+///
+/// Kept as one door so the call site cannot acquire one kind of override and
+/// forget the other.
+fn config_overrides(spec: &RunSpec) -> Vec<String> {
+    let mut out = mcp_overrides(spec);
+    out.extend(network_override(spec));
+    out
+}
+
+/// WHY A CODEX RUN MAY NEED THE NETWORK, AND WHY THIS IS TIED TO THE SHELL
+/// GRANT RATHER THAN TURNED ON.
+///
+/// `workspace-write` denies the network, and denying the network denies
+/// *binding a local port*. That is not a detail: anything that renders through
+/// a local server — Remotion, a dev server, a preview — fails with
+/// `listen EPERM 127.0.0.1` and cannot be made to work by trying harder. A
+/// Codex agent was given three video cards and produced nothing three times;
+/// its own report said exactly this, and it was reviewed as incompetence
+/// because nothing in Relay said the capability was missing.
+///
+/// The rule is the one an operator has already answered. An agent granted
+/// SHELL may run arbitrary commands, which is strictly more than opening a
+/// loopback socket; forbidding the socket while allowing the commands is
+/// incoherent. So network access follows the shell grant, and an agent without
+/// it keeps exactly the sandbox it has today. `danger-full-access` is still
+/// never chosen — this widens one field of `workspace-write`, and the run is
+/// still confined to its worktree.
+///
+/// `None` for `allowed_tools` means the port was built with whatever the
+/// profile had rather than a narrowed list, so it is read as "not explicitly
+/// granted" and gets nothing: a widening should require someone to have said
+/// yes, not require them to have said no.
+/// WHICH KEYS, AND HOW THEY WERE ESTABLISHED — because the obvious one is the
+/// wrong one and cost three runs to find out.
+///
+/// `sandbox_workspace_write.network_access` governs OUTBOUND traffic. It does
+/// not grant a listening socket: with it set, `listen 127.0.0.1` still fails
+/// `EPERM` (measured against codex-cli 0.147.0). Binding is a separate
+/// permission, `network.allow_local_binding`, which lives in a NAMED PROFILE —
+/// codex refuses `[permissions]` without a `default_permissions` naming one,
+/// which is how the shape was pinned down. `allow_unix_sockets` sits beside it
+/// and is what a Docker socket would need.
+///
+/// NOT PROVEN END TO END. `codex sandbox`, the only local harness, goes silent
+/// once a named profile is selected, so this is wired from the config shape
+/// codex itself enforces rather than from an observed bind. The proof is a real
+/// run of a Codex agent holding Shell that opens a port; until that is done,
+/// treat this as wired and unconfirmed.
+fn network_override(spec: &RunSpec) -> Vec<String> {
+    let Some(tools) = spec.allowed_tools.as_ref() else {
+        return Vec::new();
+    };
+    if !tools.iter().any(|t| SHELL_TOOL_NAMES.contains(&t.as_str())) {
+        return Vec::new();
+    }
+    vec![
+        format!("permissions.{PROFILE}.network.allow_local_binding=true"),
+        format!("permissions.{PROFILE}.network.allow_unix_sockets=true"),
+        "sandbox_workspace_write.network_access=true".to_string(),
+        format!("default_permissions={}", json!(PROFILE)),
+    ]
+}
+
+/// The permission profile Relay defines for its own runs. Named rather than
+/// anonymous because codex requires `default_permissions` to select one.
+const PROFILE: &str = "relay_shell";
+
+/// What "the operator granted Shell" is spelled as by the time a run is built.
+const SHELL_TOOL_NAMES: [&str; 4] = ["Bash", "Shell", "BashOutput", "KillShell"];
+
 fn mcp_overrides(spec: &RunSpec) -> Vec<String> {
     let mut out = Vec::new();
     for grant in &spec.grants.mcp_servers {
@@ -960,7 +1032,7 @@ impl AgentPort for CodexAgent {
                 return Ok(RunOutcome::completed(spec.resume_session.clone(), None));
             }
 
-            let mut child = spawn(&program, &spec.cwd, home.as_deref(), &mcp_overrides(&spec))?;
+            let mut child = spawn(&program, &spec.cwd, home.as_deref(), &config_overrides(&spec))?;
             let stdin = child.stdin.take().ok_or("codex stdin unavailable")?;
             let stdout = child.stdout.take().ok_or("codex stdout unavailable")?;
             let mut session = Session {
@@ -1491,5 +1563,36 @@ mod tests {
             ],
             "an env table is dotted keys, not JSON — TOML does not read {{\"K\":\"V\"}}"
         );
+    }
+}
+
+#[cfg(test)]
+mod network_grant_tests {
+    use super::*;
+
+    fn spec_with(tools: Option<Vec<&str>>) -> RunSpec {
+        let mut spec = RunSpec::new("x", std::path::PathBuf::from("/tmp"));
+        spec.allowed_tools = tools.map(|t| t.iter().map(|s| s.to_string()).collect());
+        spec
+    }
+
+    /// The widening follows a grant the operator answered. Shell already means
+    /// "may run arbitrary commands", which is strictly more than a loopback
+    /// socket; without it nothing changes.
+    #[test]
+    fn only_a_run_granted_shell_may_bind_a_port() {
+        let granted = network_override(&spec_with(Some(vec!["Read", "Bash"])));
+        assert!(
+            granted.iter().any(|o| o.contains("allow_local_binding=true")),
+            "{granted:?}"
+        );
+        assert!(
+            granted.iter().any(|o| o.starts_with("default_permissions=")),
+            "a profile must be selected or codex refuses the config: {granted:?}"
+        );
+
+        assert!(network_override(&spec_with(Some(vec!["Read", "Search"]))).is_empty());
+        // No list at all is not a grant: a widening should need a yes.
+        assert!(network_override(&spec_with(None)).is_empty());
     }
 }
