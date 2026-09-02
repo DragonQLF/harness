@@ -8,13 +8,22 @@ import { cx } from "../lib/cx";
 import { clock } from "../lib/format";
 import { TONE } from "../lib/types";
 import { useStore } from "../state/store";
-import { CHOICE, CHOICE_OFF, CHOICE_ON, HOVER_ROW, PANEL, tabular, truncate } from "../components/ui";
+import { api, reason } from "../lib/ipc";
+import type { View } from "./views";
+import { CHOICE, CHOICE_OFF, CHOICE_ON, HOVER_ROW, PANEL, QUIET, tabular, truncate } from "../components/ui";
 
 const FILTERS = ["All", "Cards", "Runs", "Reviews"] as const;
 
-export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
-  const { activity, snapshot, project } = useStore();
+export function Activity({
+  openRun,
+  go,
+}: {
+  openRun: (cardId: string) => void;
+  go: (v: View) => void;
+}) {
+  const { activity, snapshot, project, projectId, openConversation, toast } = useStore();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
+  const [asking, setAsking] = useState(false);
 
   if (!project) {
     return (
@@ -40,6 +49,29 @@ export function Activity({ openRun }: { openRun: (cardId: string) => void }) {
         {/* The chrome above already names the screen and what it lists. Every
             other view leaves the heading to it; this one said it twice. */}
         <div className="flex-1" />
+        {/* O Analista existia no motor e não tinha botão: compõe as tabelas
+            que a Relay já calculou sobre si própria, abre uma conversa com o
+            Director e faz-lhe a pergunta. Devolve o id dessa conversa, que é
+            para onde isto salta — a resposta chega lá, não aqui. */}
+        <button
+          type="button"
+          disabled={asking}
+          onClick={async () => {
+            setAsking(true);
+            try {
+              const id = await api.analystAsk(projectId);
+              await openConversation(id);
+              go("chat");
+            } catch (e) {
+              toast("bad", "The analyst could not start", reason(e));
+            } finally {
+              setAsking(false);
+            }
+          }}
+          className={cx(QUIET, "px-4 py-2 text-md disabled:cursor-not-allowed disabled:opacity-60")}
+        >
+          {asking ? "Asking…" : "Ask the analyst"}
+        </button>
         <div className="flex gap-0.5 rounded-full border border-line bg-surface p-1 dark:border-line-d dark:bg-surface-d">
           {FILTERS.map((f) => {
             const on = filter === f;

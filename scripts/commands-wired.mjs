@@ -55,15 +55,6 @@ const SEM_JANELA = new Map([
  * lê, e para que a próxima seja uma decisão e não um esquecimento.
  */
 const SEM_PORTA = new Map([
-  ["checks", "ler os checks configurados de um projecto: o ecrã de detalhe que os mostrava não é importado desde o 6bc7309, portanto configurá-los não tem interface"],
-  ["codexStatus", "estado do login do Codex: sem sítio no ecrã que o pergunte"],
-  ["inbox", "redundante: o `bootstrap` traz as propostas e o evento `inbox://proposals` traz as seguintes"],
-  ["cardRunChecks", "correr os checks de um cartão à mão: os checks já correm sozinhos no fim de uma execução, falta o ecrã por onde os configurar"],
-  ["overrideCard", "forçar um estado com uma razão — funcionalidade sem botão"],
-  ["analystAsk", "pedir a análise semanal — funcionalidade sem botão"],
-  ["approvalsPending", "redundante: o `bootstrap` e o evento chegam antes"],
-  ["openAgentTerminal", "era do `ProjectPage`, que nada importa desde o 6bc7309"],
-  ["projectUpdate", "sem ecrã de detalhe de projecto que o chame"],
 ]);
 
 /** Os comandos que o Rust regista, do `generate_handler!`. */

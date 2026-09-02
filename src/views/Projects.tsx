@@ -51,10 +51,11 @@ const LINK =
 const LANG = [TONE.accent, TONE.info, TONE.ok, TONE.warn, TONE.bad];
 
 export function ProjectPage({ go }: { go: (v: View) => void }) {
-  const { projectId, project, snapshot, agents, toast } = useStore();
+  const { projectId, project, snapshot, agents, toast, refreshProjects } = useStore();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [checks, setChecks] = useState<CheckRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({ name: "", command: "" });
 
   useEffect(() => {
     if (!projectId) return;
@@ -93,6 +94,28 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
         ? { label: "passing", tone: TONE.ok }
         : { label: "not run", tone: TONE.neutral };
   const agentNames = new Set(detail.commits.map((c) => c.agent).filter(Boolean));
+
+  /** Acrescentar um check e guardá-lo. O `api.checks` relê o que ficou no
+   *  disco em vez de acreditar no que temos em memória: quem guarda é o
+   *  backend, e é a ele que se pergunta o que ficou guardado. */
+  const addCheck = async () => {
+    if (!projectId || !draft.name.trim() || !draft.command.trim()) return;
+    const row: CheckRow = {
+      name: draft.name.trim(),
+      command: draft.command.trim(),
+      status: "idle",
+      detail: "",
+      ran_ms: 0,
+      duration_ms: 0,
+    };
+    try {
+      await api.setChecks(projectId, [...checks, row]);
+      setChecks(await api.checks(projectId));
+      setDraft({ name: "", command: "" });
+    } catch (e) {
+      toast("bad", "Could not save the checks", reason(e));
+    }
+  };
 
   const runChecks = async () => {
     if (!projectId) return;
@@ -504,6 +527,71 @@ export function ProjectPage({ go }: { go: (v: View) => void }) {
                 No checks recognised for this repository.
               </div>
             )}
+            {/* Configurar os checks não tinha interface nenhuma, e desde o #122
+                deixou de ser cosmético: um check vermelho recusa a aprovação de
+                um cartão, portanto quais são eles é uma decisão com efeito. */}
+            <div className="flex items-center gap-2.5 border-t border-line2 px-4 py-2.5 dark:border-line2-d">
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                aria-label="Check name"
+                placeholder="name"
+                className="w-[120px] min-w-0 rounded-md border border-line3 bg-surface px-2.5 py-1.5 font-mono text-sm outline-none focus:border-accentLine dark:border-line3-d dark:bg-surface-d dark:focus:border-accentLine-d"
+              />
+              <input
+                value={draft.command}
+                onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void addCheck();
+                }}
+                aria-label="Command to run"
+                placeholder="pnpm build"
+                className="min-w-0 flex-1 rounded-md border border-line3 bg-surface px-2.5 py-1.5 font-mono text-sm outline-none focus:border-accentLine dark:border-line3-d dark:bg-surface-d dark:focus:border-accentLine-d"
+              />
+              <button
+                type="button"
+                disabled={!draft.name.trim() || !draft.command.trim()}
+                onClick={() => void addCheck()}
+                className={cx(LINK, "text-sm font-bold text-text3 disabled:opacity-50 dark:text-text3-d")}
+              >
+                Add
+              </button>
+            </div>
+          </section>
+
+          {/* Um projecto em pausa recusa todo o arranque — o `start_run` responde
+              "this project is paused; resume it before starting work" — e o
+              estado só se via. Não havia por onde o tirar da pausa, o que faz
+              de um projecto pausado um projecto morto. */}
+          <section className={cx(PANEL, "p-4")}>
+            <div className="flex items-center gap-2.5">
+              <div className="text-md font-extrabold tracking-[-.01em]">This project</div>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const saved = await api.projectUpdate({ ...project, paused: !project.paused });
+                    toast(
+                      "ok",
+                      saved.paused ? "Paused" : "Resumed",
+                      saved.paused ? "No new runs start here" : "Cards can start again",
+                    );
+                    refreshProjects();
+                  } catch (e) {
+                    toast("bad", "Could not change the project", reason(e));
+                  }
+                }}
+                className={cx(LINK, "text-sm font-bold text-text3 dark:text-text3-d")}
+              >
+                {project.paused ? "Resume →" : "Pause →"}
+              </button>
+            </div>
+            <p className="mb-0 mt-1.5 text-sm leading-normal text-text3 dark:text-text3-d">
+              {project.paused
+                ? "Paused: every start is refused until you resume it."
+                : "Running: cards start normally."}
+            </p>
           </section>
 
           <section className={cx(PANEL, "p-4")}>
@@ -653,6 +741,22 @@ export function Projects({ go }: { go: (v: View) => void }) {
                   className={cx(LINK, "text-sm font-bold text-text3 dark:text-text3-d")}
                 >
                   Code →
+                </button>
+                {/* O caminho de volta ao `ProjectPage`. Ele existe desde
+                    sempre — o grafo de commits, os ramos, as linguagens e os
+                    checks — e nada o importava desde o `6bc7309`, portanto
+                    configurar os checks de um projecto não tinha interface
+                    nenhuma. */}
+                <button
+                  type="button"
+                  disabled={!p.exists}
+                  onClick={() => {
+                    selectProject(p.id);
+                    go("project");
+                  }}
+                  className={cx(LINK, "text-sm font-bold text-text3 dark:text-text3-d")}
+                >
+                  Details →
                 </button>
                 <button
                   type="button"

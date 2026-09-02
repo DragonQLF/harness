@@ -9,9 +9,9 @@ import { cx } from "../lib/cx";
 import { paneIn } from "../lib/motion";
 import { MODELS, tone } from "../lib/types";
 import type { QueueRow } from "../lib/types";
-import { api } from "../lib/ipc";
+import { api, reason } from "../lib/ipc";
 import { useStore } from "../state/store";
-import { Eyebrow, Glyph, mono, truncate } from "../components/ui";
+import { Eyebrow, Glyph, QUIET, mono, truncate } from "../components/ui";
 
 /** One line of a patch, coloured by what it does to the file. */
 function classify(text: string): string {
@@ -106,6 +106,7 @@ export function Review({
     snapshot,
     agents,
     project,
+    projectId,
     activity,
     diffs,
     loadCardDiff,
@@ -115,6 +116,7 @@ export function Review({
   } = useStore();
 
   const [why, setWhy] = useState("");
+  const [checking, setChecking] = useState(false);
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const cards = useMemo(
     () => (snapshot?.cards ?? []).filter((c) => c.status === "review"),
@@ -371,13 +373,55 @@ export function Review({
               />
             </div>
             <div className="flex items-center gap-2.5">
+              {/* Isto dizia "Relay does not merge" e deixou de ser verdade com
+                  o #119: aprovar integra, e é essa a razão de o cartão seguinte
+                  encontrar o trabalho deste. Uma frase que descreve o que a app
+                  já não faz é pior do que nenhuma. */}
               <span className="max-w-[430px] flex-1 text-sm font-normal leading-[1.45] text-text4 dark:text-text4-d">
-                Approving moves the card to Done. Relay does not merge:{" "}
+                Approving merges{" "}
                 <span className={cx(mono, "text-xs text-text3 dark:text-text3-d")}>
                   {diff?.branch ?? session?.branch ?? "the branch"}
                 </span>{" "}
-                and its worktree stay until you remove them.
+                into the base branch and moves the card to Done. A conflict leaves it here,
+                naming the files that disagreed.
               </span>
+              {/* Correr os checks deste cartão, na worktree dele. Corriam
+                  sozinhos no fim de uma execução e o resultado ficava escrito;
+                  o que não havia era maneira de os pedir outra vez depois de
+                  mexer no código. */}
+              <button
+                type="button"
+                disabled={checking}
+                onClick={async () => {
+                  if (!projectId) return;
+                  setChecking(true);
+                  try {
+                    const pass = await api.cardRunChecks(projectId, card.id);
+                    const red = pass.rows.filter((r) => r.status === "fail");
+                    if (pass.rows.length === 0) {
+                      toast(
+                        "warn",
+                        "No checks configured",
+                        "Add them on the project's Details screen; until then nothing gates an approval.",
+                      );
+                    } else if (red.length === 0) {
+                      toast("ok", "Checks green", `${pass.rows.length} ran in this card's worktree`);
+                    } else {
+                      toast("bad", "Checks failing", red.map((r) => r.name).join(", "));
+                    }
+                  } catch (e) {
+                    toast("bad", "Could not run the checks", reason(e));
+                  } finally {
+                    setChecking(false);
+                  }
+                }}
+                className={cx(
+                  QUIET,
+                  "min-h-6 px-3.5 py-2 text-md font-semibold disabled:cursor-not-allowed disabled:opacity-60",
+                )}
+              >
+                {checking ? "Running…" : "Run checks"}
+              </button>
               <button
                 type="button"
                 onClick={() => {

@@ -7,7 +7,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { ago } from "../lib/format";
 import { cx } from "../lib/cx";
 import { sheetIn, toastIn, veil } from "../lib/motion";
-import { TONE, tone, type Tone, type ToneName } from "../lib/types";
+import { TONE, tone, type Status, type Tone, type ToneName } from "../lib/types";
+import { api, reason } from "../lib/ipc";
 import { useStore } from "../state/store";
 import { truncate } from "./ui";
 
@@ -65,13 +66,20 @@ export function Toasts() {
 }
 
 export function ApprovalSheet({ close }: { close: () => void }) {
-  const { approvals, answerApproval, agents, snapshot, projects } = useStore();
+  const { approvals, answerApproval, refreshApprovals, agents, snapshot, projects } = useStore();
   const [always, setAlways] = useState(false);
   const request = approvals[0];
 
   useEffect(() => {
     setAlways(false);
   }, [request?.request_id]);
+
+  // Ao abrir a folha, perguntar em vez de acreditar: a fila chega por evento, e
+  // um evento perdido deixava-a a mostrar uma pergunta já respondida — ou a não
+  // mostrar uma que espera.
+  useEffect(() => {
+    void refreshApprovals();
+  }, [refreshApprovals]);
 
   if (!request) return null;
 
@@ -238,6 +246,107 @@ export function RejectSheet({ cardId, close }: { cardId: string | null; close: (
             )}
           >
             Send back with reason
+          </button>
+          <button
+            type="button"
+            onClick={close}
+            className="min-h-6 cursor-pointer rounded-full border border-line bg-transparent px-4.5 py-3 text-lg font-semibold text-text2 transition-colors duration-150 hover:bg-hovered hover:text-text dark:border-line-d dark:text-text2-d dark:hover:bg-hovered-d dark:hover:text-text-d"
+          >
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/** Forçar um cartão para uma coluna que o quadro recusa, com a razão escrita.
+ *
+ *  O `drop()` do Board recusava um movimento ilegal **em silêncio**: o cartão
+ *  voltava para onde estava e nada dizia porquê nem oferecia saída. O
+ *  `override_card` existia no motor e no `ipc.ts` desde sempre e não tinha
+ *  botão nenhum, portanto um cartão preso numa coluna errada só se destrancava
+ *  por fora da app.
+ *
+ *  A razão é obrigatória e é o ponto: um estado forçado sem explicação é uma
+ *  mentira no histórico, e este é o único caminho que escreve um por cima do
+ *  que a máquina de estados permite. */
+export function OverrideSheet({
+  ask,
+  close,
+}: {
+  ask: { cardId: string; to: Status } | null;
+  close: () => void;
+}) {
+  const { snapshot, projectId, toast, refresh } = useStore();
+  const [why, setWhy] = useState("");
+  const card = snapshot?.cards.find((c) => c.id === ask?.cardId);
+
+  useEffect(() => {
+    setWhy("");
+  }, [ask?.cardId, ask?.to]);
+
+  if (!ask) return null;
+
+  const send = async () => {
+    if (!projectId || !why.trim()) return;
+    try {
+      await api.overrideCard(projectId, ask.cardId, ask.to, why.trim());
+      toast("ok", "Forced", `${ask.cardId} → ${ask.to}`);
+      refresh();
+      close();
+    } catch (e) {
+      toast("bad", "Could not force it", reason(e));
+    }
+  };
+
+  return (
+    <motion.div
+      variants={veil}
+      initial="hidden"
+      animate="shown"
+      exit="gone"
+      className={SCRIM}
+      onClick={close}
+    >
+      <motion.div
+        variants={sheetIn}
+        initial="hidden"
+        animate="shown"
+        exit="gone"
+        onClick={(e) => e.stopPropagation()}
+        className={cx(SHEET, "w-[440px]")}
+      >
+        <div className="mb-1.5 text-[20px] font-extrabold tracking-[-.02em]">
+          Force it to {ask.to}
+        </div>
+        <p className="mx-0 mb-3.5 mt-0 text-md leading-[1.55] text-text2 dark:text-text2-d">
+          The board does not allow {card?.status ?? "this"} → {ask.to}. Forcing it writes the
+          reason into the history beside the move.
+        </p>
+        <textarea
+          rows={3}
+          autoFocus
+          value={why}
+          onChange={(e) => setWhy(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+          }}
+          aria-label="Why is this being forced?"
+          placeholder="Why — whoever reads this later has only these words."
+          className="w-full resize-none rounded-lg border border-line bg-surface2 px-4 py-3.5 text-md leading-relaxed outline-none transition-colors duration-150 hover:border-accentLine focus-visible:border-accentLine dark:border-line-d dark:bg-surface2-d dark:hover:border-accentLine-d dark:focus-visible:border-accentLine-d"
+        />
+        <div className="mt-3.5 flex gap-2.5">
+          <button
+            type="button"
+            disabled={!why.trim()}
+            onClick={() => void send()}
+            className={cx(
+              "min-h-6 flex-1 cursor-pointer rounded-full border-none bg-warn p-3 text-lg font-bold text-onAccent transition-[filter] duration-150 hover:brightness-[1.06] disabled:cursor-not-allowed dark:bg-warn-d dark:text-onAccent-d",
+              why.trim() ? "opacity-100" : "opacity-65",
+            )}
+          >
+            Force with reason
           </button>
           <button
             type="button"

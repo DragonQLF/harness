@@ -4,6 +4,7 @@ import {
   FileText,
   Folder,
   Gauge,
+  Inbox as InboxIcon,
   List,
   Plus,
   SlidersHorizontal,
@@ -120,10 +121,13 @@ export function Sidebar({
     snapshot,
     approvals,
     activity,
+    proposals,
     worktrees,
     settings,
     status,
   } = useStore();
+
+  const waiting = proposals.filter((p) => p.status === "open").length;
 
   const [picking, setPicking] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
@@ -227,7 +231,7 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Section label="RECORDS" count={3} />
+        <Section label="RECORDS" count={4} />
         <Row
           label="Usage"
           icon={<Gauge {...ICON} />}
@@ -243,6 +247,23 @@ export function Sidebar({
             activity.length > 0 ? (
               <span className="flex-none rounded-9px bg-primary px-1.75 py-px text-xs font-semibold text-white dark:bg-primary-d">
                 {activity.length}
+              </span>
+            ) : undefined
+          }
+        />
+        {/* O contador é o ponto. As propostas eram carregadas, actualizadas
+            por evento, postas no contexto — e não tinham leitor nenhum desde
+            que o rail saiu (#89). Catorze por ler, e nada no ecrã que o
+            dissesse. */}
+        <Row
+          label="Inbox"
+          icon={<InboxIcon {...ICON} />}
+          on={view === "inbox"}
+          onClick={() => go("inbox")}
+          right={
+            waiting > 0 ? (
+              <span className="flex-none rounded-9px bg-primary px-1.75 py-px text-xs font-semibold text-white dark:bg-primary-d">
+                {waiting}
               </span>
             ) : undefined
           }

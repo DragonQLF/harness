@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Check, GitBranch, ListFilter, Lock, Play, TriangleAlert } from "lucide-react";
-import { RejectSheet } from "../components/Overlays";
+import { OverrideSheet, RejectSheet } from "../components/Overlays";
 import { cx } from "../lib/cx";
 import { clock, duration, money, plural, tail, truncate } from "../lib/format";
 import { api, events, reason, type UnlistenFn } from "../lib/ipc";
@@ -344,6 +344,7 @@ export function Board({
   const [over, setOver] = useState<Status | null>(null);
   const [adding, setAdding] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
+  const [forcing, setForcing] = useState<{ cardId: string; to: Status } | null>(null);
   const [only, setOnly] = useState<string | null>(null);
   const [filtering, setFiltering] = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
@@ -442,7 +443,16 @@ export function Board({
     setOver(null);
     const card = dragged;
     setDrag(null);
-    if (!card || card.status === to || !LEGAL_MOVES[card.status].includes(to)) return;
+    if (!card || card.status === to) return;
+    // Um movimento que o quadro não permite deixava de acontecer em silêncio:
+    // o cartão voltava ao sítio e nada dizia porquê nem dava saída. O
+    // `override_card` existia no motor e não tinha botão. Perguntar a razão é
+    // a forma de o oferecer sem o tornar um atalho — um estado forçado sem
+    // explicação é uma mentira no histórico.
+    if (!LEGAL_MOVES[card.status].includes(to)) {
+      setForcing({ cardId: card.id, to });
+      return;
+    }
     if (to === "running") startRun(card.id);
     else if (to === "done") openReview(card.id);
     else moveCard(card.id, to);
@@ -1063,6 +1073,7 @@ export function Board({
 
       <AnimatePresence>
         {rejecting && <RejectSheet cardId={rejecting} close={() => setRejecting(null)} />}
+        {forcing && <OverrideSheet ask={forcing} close={() => setForcing(null)} />}
       </AnimatePresence>
 
       {/* Hand the card to someone else. Only profiles that may be given work

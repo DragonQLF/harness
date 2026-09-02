@@ -21,6 +21,8 @@ export type View =
   | "activity"
   | "trees"
   | "projects"
+  | "project"
+  | "inbox"
   | "settings";
 
 /** The six that get a slot in the centred nav, in order. */
@@ -37,5 +39,7 @@ export const VIEW_TITLES: Record<View, string> = {
   activity: "Activity",
   trees: "Worktrees",
   projects: "Projects",
+  project: "Project",
+  inbox: "Inbox",
   settings: "Settings",
 };

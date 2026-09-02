@@ -189,6 +189,7 @@ interface Store {
   createAgentFromTemplate: (templateId: string) => Promise<void>;
   duplicateAgent: (agentId: string) => Promise<void>;
   removeAgent: (agentId: string) => Promise<void>;
+  refreshApprovals: () => Promise<void>;
   answerApproval: (requestId: string, allow: boolean, always: boolean) => Promise<void>;
   /** Accept a proposal: its card is born in the harness's own project. */
   acceptProposal: (proposalId: string) => Promise<void>;
@@ -272,6 +273,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [worktrees, setWorktrees] = useState<WorktreeRow[]>([]);
   const feed = useRunFeed();
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+
+  /** Ask the backend what is actually waiting, instead of trusting the events.
+   *
+   *  A fila chega por `approvals://pending` e o `bootstrap` traz a primeira. As
+   *  duas são entregas, e uma entrega pode não chegar — foi exactamente isso o
+   *  #125, em que o reencaminhador morria e a janela deixava de saber de tudo o
+   *  resto. Uma pergunta directa é a única coisa que reconcilia, e o sítio para
+   *  a fazer é quando alguém abre a folha para responder. */
+  const refreshApprovals = useCallback(async () => {
+    try {
+      setApprovals(await api.approvalsPending());
+    } catch {
+      // Não vale um toast: quem está a olhar já tem a fila que o evento trouxe.
+    }
+  }, []);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [outsideWork, setOutsideWork] = useState<OutsideWorkSeen[]>([]);
   const [diffs, setDiffs] = useState<Record<string, CardDiff>>({});
@@ -991,6 +1007,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       runModels: feed.runModels,
       streams: feed.streams,
       approvals,
+      refreshApprovals,
       diffs,
       loadCardDiff,
       conversations: chat.conversations,
@@ -1056,6 +1073,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       agentTemplates,
       agents,
       answerApproval,
+      refreshApprovals,
       approvals,
       approve,
       assignAgent,

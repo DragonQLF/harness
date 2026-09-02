@@ -96,6 +96,24 @@ export function Worktrees() {
                 {w.path}
               </span>
               <span className="flex justify-self-end gap-1.5">
+                {/* Um terminal já dentro da worktree do cartão, com o CLI do
+                    agente à mão. Existia no backend e não tinha botão desde que
+                    o ecrã que o chamava deixou de ser importado. Só faz sentido
+                    onde há cartão: o comando resolve a sessão por ele. */}
+                {card && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!projectId) return;
+                      api
+                        .openAgentTerminal(projectId, card.id)
+                        .catch((e) => toast("bad", "Could not open a terminal", reason(e)));
+                    }}
+                    className={cx(QUIET, "px-3.5 py-1.5 text-sm")}
+                  >
+                    Terminal
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => api.reveal(w.path).catch(() => {})}

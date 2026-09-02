@@ -27,10 +27,11 @@ import { FirstRun } from "./views/FirstRun";
 import { Board } from "./views/Board";
 import { Sessions } from "./views/Sessions";
 import { Agents } from "./views/Agents";
-import { Projects } from "./views/Projects";
+import { Projects, ProjectPage } from "./views/Projects";
 import { Activity } from "./views/Activity";
 import { Settings } from "./views/Settings";
 import { Worktrees } from "./views/Worktrees";
+import { Inbox } from "./views/Inbox";
 import { NAV_VIEWS, VIEW_TITLES, type View } from "./views/views";
 import "./styles/app.css";
 
@@ -487,13 +488,18 @@ function Shell() {
       sessions: "sessions",
       sessions_list: "sessions",
       code: "code",
-      project: "code",
       trees: "trees",
       worktrees: "trees",
       log: "activity",
       activity: "activity",
       agents: "agents",
       projects: "projects",
+      // Era sinónimo de `code`, porque não havia ecrã de projecto para onde
+      // apontar. Há: o `ProjectPage` voltou a ter estrada, portanto a palavra
+      // passa a significar-se a si própria.
+      project: "project",
+      inbox: "inbox",
+      proposals: "inbox",
       settings: "settings",
     };
     const next = map[navigation.screen.toLowerCase()];
@@ -561,6 +567,8 @@ function Shell() {
       "activity",
       "trees",
       "projects",
+      "project",
+      "inbox",
       "settings",
     ];
     const list: PaletteAction[] = screens.map((v) => ({
@@ -742,11 +750,15 @@ function Shell() {
               {(view === "activity" ||
                 view === "trees" ||
                 view === "projects" ||
+                view === "project" ||
+                view === "inbox" ||
                 view === "settings") && (
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                  {view === "activity" && <Activity openRun={openRun} />}
+                  {view === "activity" && <Activity openRun={openRun} go={go} />}
                   {view === "trees" && <Worktrees />}
                   {view === "projects" && <Projects go={go} />}
+                  {view === "project" && <ProjectPage go={go} />}
+                  {view === "inbox" && <Inbox />}
                   {view === "settings" && <Settings />}
                 </div>
               )}

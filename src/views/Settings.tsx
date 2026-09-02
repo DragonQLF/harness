@@ -8,7 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, events, reason } from "../lib/ipc";
 import { cx } from "../lib/cx";
 import { ago, money } from "../lib/format";
-import { ruleIsRevoked, ruleLabel, type Provider } from "../lib/types";
+import { ruleIsRevoked, ruleLabel, type CodexStatus, type Provider } from "../lib/types";
 import { useStore } from "../state/store";
 import { checkForUpdate, useAppVersion, useUpdater } from "../components/Updater";
 import {
@@ -171,8 +171,15 @@ export function Settings() {
   const { settings, status, dataDir, saveSettings, installSidecar, toast, projects, refreshProjects } =
     useStore();
   const [log, setLog] = useState<string[]>([]);
+  const [codex, setCodex] = useState<CodexStatus | null>(null);
   const [fetchingRelay, setFetchingRelay] = useState(false);
   const mirror = projects.find((p) => p.mirror);
+
+  // Perguntado ao entrar, e não no `bootstrap`: procurar o binário e ler o
+  // login é trabalho de disco que ninguém deve pagar ao abrir a janela.
+  useEffect(() => {
+    api.codexStatus().then(setCodex).catch(() => setCodex(null));
+  }, []);
 
   const updateProvider = (id: string, patch: Partial<Provider>) =>
     saveSettings({
@@ -461,6 +468,32 @@ export function Settings() {
               Open a terminal
             </button>
           </div>
+        </Row>
+        {/* O Codex é o segundo backend e o estado dele não estava em lado
+            nenhum: um agente com `backend: codex` e sem login falhava no
+            arranque, e o ecrã não tinha por onde dizer que era isso. */}
+        <Row
+          name="Codex"
+          note={
+            codex === null
+              ? "checking…"
+              : !codex.cli_found
+                ? "not installed — `codex` is not on the PATH"
+                : `${codex.cli_version ?? "installed"} · ${
+                    codex.logged_in
+                      ? `signed in${codex.auth_mode ? ` (${codex.auth_mode})` : ""}`
+                      : "not signed in — run `codex login`"
+                  }`
+          }
+        >
+          <span
+            className={cx(
+              "h-1.75 w-1.75 rounded-full",
+              codex?.cli_found && codex?.logged_in
+                ? "bg-ok dark:bg-ok-d"
+                : "bg-warn dark:bg-warn-d",
+            )}
+          />
         </Row>
         <Row
           name="Sidecar"

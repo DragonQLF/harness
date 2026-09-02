@@ -3148,3 +3148,56 @@ Provado a partir-se com um `kind` trocado e com o módulo gerado desactualizado,
 que é o outro modo de falhar: um `pnpm codegen` esquecido deixa o sidecar a
 importar uma lista velha, e uma lista velha é a segunda cópia que isto veio
 remover.
+
+### 130. As nove portas sem ecrã, ligadas — e uma delas escondia uma funcionalidade inteira
+
+O #128 pôs o guarda e nomeou nove embrulhos sem chamador. O operador leu a lista
+e apanhou a entrada errada: *"inbox no caller? i can't see what the director is
+proposing"*.
+
+Tinha razão, e a minha razão escrita ao lado estava errada. Eu dizia
+"redundante: o `bootstrap` traz as propostas e o evento traz as seguintes" —
+verdade sobre o **carregamento**, e a coisa errada a concluir daí. As propostas
+carregam, actualizam-se por evento e entram no contexto do store; **nenhum
+componente as lia**. O único sítio que as mostrava era o rail do RightNow, que o
+#89 tirou. Estavam catorze por ler no disco, enquanto o prompt do Director o
+manda usar o `propose_improvement` a cada ferramenta recusada. Ele escrevia para
+um sítio sem leitor, e depois era chamado de burocrático por isso.
+
+Uma razão errada num ficheiro cujo propósito é as razões serem honestas é pior
+do que não a ter. Ficou como o próprio guarda a apanhar: quando o `api.inbox`
+passou a ser chamado, o `check:commands` recusou-se a deixar a excepção
+sobreviver.
+
+As nove:
+
+- **`inbox`** — ecrã próprio, linha na nav com contador do que espera, aceitar e
+  dispensar. Aceitar é permissão e não trabalho, e a linha di-lo.
+- **`checks` + `projectUpdate`** — o `ProjectPage` voltou a ter destino. Existia
+  inteiro e nada o importava desde o `6bc7309`; com ele voltaram o grafo, os
+  ramos e as linguagens, e **configurar os checks passou a ter interface** — que
+  desde o #122 é uma decisão com efeito, porque um check vermelho recusa uma
+  aprovação. O `projectUpdate` ficou onde faltava mais: um projecto em pausa
+  recusa todo o arranque e não havia por onde o retomar.
+- **`cardRunChecks`** — na revisão, ao lado do que aprova. Correr outra vez
+  depois de mexer no código era o que faltava.
+- **`overrideCard`** — no `drop()` do quadro, que recusava um movimento ilegal
+  **em silêncio**. Agora pergunta a razão e força com ela escrita: um estado
+  forçado sem explicação é uma mentira no histórico.
+- **`analystAsk`** — no Activity. Abre a conversa e salta para lá, porque é lá
+  que a resposta chega.
+- **`codexStatus`** — nas Settings, ao lado do sidecar. Um agente em Codex sem
+  login falhava no arranque e o ecrã não tinha por onde dizer que era isso.
+- **`openAgentTerminal`** — nas Worktrees, e só onde há cartão, porque é por ele
+  que o comando resolve a sessão.
+- **`approvalsPending`** — ao abrir a folha de permissões, para perguntar em vez
+  de acreditar. A fila chega por evento, e um evento pode não chegar: foi
+  exactamente isso o #125.
+
+E uma frase que deixou de ser verdade, encontrada a caminho: a revisão dizia
+"Relay does not merge — the branch and its worktree stay until you remove them".
+Com o #119 aprovar integra. Uma frase que descreve o que a app já não faz é pior
+do que nenhuma.
+
+Fica **88 embrulhos, 88 chamados, zero sem ecrã**. A única excepção que resta é
+do outro lado: o `prepare_shutdown`, registado e invocado por ninguém.
