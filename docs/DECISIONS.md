@@ -40,6 +40,7 @@ o texto refere-se a eles constantemente.
 | 2026-08-30 | 109 | O trabalho de fundo passa a ver-se: nível e não arestas, fora do fio |
 | 2026-08-31 | 110 | Um resto é um processo agarrado a uma sessão sem execução viva; descoberta em vez de lock |
 | 2026-08-31 | 111 | O run sobrevive à Relay: socket em vez de cano, com identidade conferida |
+| 2026-09-02 | 133 | O modelo de commits, dito ao Director em vez de deduzido do histórico |
 
 > Nota: o número 63 não existe — houve um salto ao numerar o Modo Espelho.
 > Não reutilizar; os números são estáveis mesmo quando errados.
@@ -3293,3 +3294,45 @@ proibição contra uma falha pode ancorar nela. Ficou a versão positiva.
 Um teste guarda o que a auditoria tirou: nenhum andaime datado, nenhuma
 maiúscula de ênfase. Uma instrução que precisa de ser gritada para ser ouvida
 está a competir com as outras, e este modelo ouve-as todas.
+
+### 133. O modelo de commits, dito ao Director em vez de deduzido do histórico
+
+Quatro propostas aceites, o mesmo defeito nas quatro: a Relay a dizer que
+aconteceu uma coisa que não aconteceu. Esta decisão é sobre a primeira — as
+outras três (liveness do `message_run`, o fio do subagente que inundava a
+conversa, e a recusa do `AskUserQuestion`) são correcções de comportamento,
+sem mudança de arquitectura, e ficam sem entrada própria aqui.
+
+**O facto.** Um run produz exactamente um commit, construído pela Relay a
+partir do `report_work` do agente depois de o run acabar — o assunto é o
+título do cartão, nunca nada que o agente escreva directamente no git
+(`crates/engine/src/runs.rs`, dentro do `tokio::spawn` do `launch_run`). O
+Director nunca foi dito isto. Pior: o histórico do próprio repositório mistura
+duas eras — commits de um mecanismo antigo em que o agente corria o git
+directamente (sem trailers `Harness-Card`/`Harness-Run`, assuntos escritos à
+mão, carimbos espalhados por um run) ao lado dos de hoje (trailers, título do
+cartão como assunto). Sem o facto dito, esse histórico lê-se como prova de que
+commits incrementais eram possíveis. Foi assim que uma condição impossível de
+cumprir ("commit à medida que avanças") entrou em três cartões, um cartão foi
+recusado com esse fundamento falso, e um agente foi corrigido duas vezes por
+estar certo.
+
+**A correcção.** Uma frase no `how_harness_works` (`crates/app/src/director.rs`),
+que entra em toda a sessão fresca — Director e especialistas — dizendo o
+modelo e a instrução que dele decorre: nunca pedir a um agente para commitar
+aos poucos ou a meio, porque há um commit por run, feito depois, nunca vários
+feitos durante.
+
+**O que não se fez, e porquê.** A proposta media melhor: "se o diff se mantiver
+legível", tornar a capacidade real — o `report_work` aceitar uma série
+ordenada de commits (assunto, corpo, caminhos), para um trabalho que começa
+por andaime poder aterrar em passos revistos separadamente, e para uma
+execução morta a meio deixar trabalho utilizável em vez de nada (o que
+aconteceu a um documento de pesquisa inteiro numa sessão anterior). Não
+entrou nesta passagem: o diff já ia com três outras correcções de honestidade
+no mesmo motor, e a série pedia uma forma nova na fronteira do `report_work`
+(assinatura da ferramenta, o que o MCP declara, os testes de commit no
+`runs.rs`) — risco a mais para uma sessão sem `cargo test`/`pnpm check` a
+correr (permissão negada ao Bash), onde cada linha nova em código que não
+compila sozinho tem de se verificar à mão. Fica em `docs/DEBT.md` para quem
+pegar a seguir, com a fronteira já desenhada.

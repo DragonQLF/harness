@@ -298,8 +298,12 @@ impl EngineHandle {
     /// correction typed into the composer reaches a live turn. Answers with the
     /// queued message's id, which is what a `message_read` later names.
     ///
-    /// Refused when nothing is running on that card — there is no inbox to put
-    /// it in, and pretending otherwise would drop the message in silence.
+    /// Refused when nothing is running on that card, checked against the
+    /// board's own status rather than mere presence in the engine's run table
+    /// — a card the operator moved off Running by hand once kept its run
+    /// entry and this returned success for a delivery nobody was reading. The
+    /// refusal names the status it found, so a caller cannot mistake a
+    /// discard for a delivery.
     pub async fn message_run(&self, card_id: CardId, text: String) -> Result<String, String> {
         self.ask(|reply| Msg::MessageRun { card_id, text, reply }).await?
     }
@@ -722,7 +726,7 @@ impl Engine {
                     let _ = reply.send(self.cancel_run(&card_id));
                 }
                 Msg::MessageRun { card_id, text, reply } => {
-                    let _ = reply.send(self.message_run(&card_id, &text));
+                    let _ = reply.send(self.message_run(&card_id, &text).await);
                 }
                 Msg::ActiveRuns { reply } => {
                     let _ = reply.send(self.active_runs());

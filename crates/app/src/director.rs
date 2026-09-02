@@ -236,6 +236,10 @@ fn how_harness_works(ctx: &ChatContext) -> String {
          - A **project** is a git repository with a board. Work you want an agent to carry out \
          becomes a **card**; one card is one agent run, in its own git worktree, reviewed as a \
          diff before it counts.\n\
+         - A run produces exactly one commit, built by Relay itself from the agent's \
+         report_work call once the run ends — the subject is the card's title, not anything \
+         the agent writes to git directly — so never ask an agent to commit as it goes or in \
+         steps; there is one commit per run, made after, not several made during.\n\
          - **Agent profiles** are the crew: each has a brief, a model, tools and a budget.\n",
     );
     if !ctx.crew.is_empty() {
@@ -911,6 +915,25 @@ mod tests {
         assert!(prompt.contains("Anything they bring you is in scope"));
         assert!(
             prompt.trim_end().ends_with("Fernando: should I start a website studio?"),
+            "{prompt}"
+        );
+    }
+
+    /// The Director read the mirror's own log — commits made under an older
+    /// mechanism sitting beside today's — and concluded incremental commits
+    /// were possible: an unmeetable "commit as you go" gate landed in three
+    /// cards, one got rejected on that false ground, and an agent was told
+    /// twice it was wrong when it was right. The commit model has to be
+    /// stated, not left to be guessed from history that mixes two eras.
+    #[test]
+    fn the_commit_model_is_stated_so_it_is_never_guessed_from_history() {
+        let prompt = chat_prompt(&ctx(&[]), "hello");
+        assert!(
+            prompt.contains("exactly one commit"),
+            "the one-run-one-commit model must be in the standing prompt: {prompt}"
+        );
+        assert!(
+            prompt.contains("never ask an agent to commit as it goes or in steps"),
             "{prompt}"
         );
     }

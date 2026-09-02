@@ -917,10 +917,15 @@ async function handleRun({ id, spec }) {
           text: "the agent tried to ask you a question through a terminal-only tool; refused — it should ask in text instead",
         },
       });
+      // "no way to show this right now" reads as transient — as if trying
+      // again, or waiting, might work. It never will: no run of any kind has
+      // a surface for this tool, and there is no retry that changes that. A
+      // refusal that sounds temporary invites exactly the wrong response, so
+      // this says what will not change instead.
       return {
         behavior: "deny",
         message:
-          "there is no way to show this question to the operator right now. Say what you need to know in plain text and wait for their reply.",
+          "AskUserQuestion is not available here — there is no surface for it in any Relay conversation, and that will not change on a retry. Ask what you need to know in plain text and wait for the reply.",
       };
     }
 

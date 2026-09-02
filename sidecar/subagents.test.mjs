@@ -49,6 +49,25 @@ test("e nada mais é um subagente", () => {
   }
 });
 
+// A recusa do AskUserQuestion dizia "there is no way to show this question to
+// the operator right now" — lê-se como transitório, como se tentar outra vez
+// ou esperar pudesse resolver. Não há superfície nenhuma para esta ferramenta
+// em conversa nenhuma do Relay, e isso não muda com uma segunda tentativa.
+test("a recusa do AskUserQuestion não soa a transitória", () => {
+  const clause = source.slice(
+    source.indexOf('if (toolName === "AskUserQuestion")'),
+    source.indexOf('if (toolName === "AskUserQuestion")') + 900,
+  );
+  assert.ok(
+    !/no way to show this question.*right now/s.test(clause),
+    "a frase transitória voltou: " + clause,
+  );
+  assert.ok(
+    /not available/i.test(clause),
+    "a recusa deve dizer que não está disponível, não que falhou desta vez",
+  );
+});
+
 test("os três guardas perguntam pelo nome, não comparam com uma grafia", () => {
   // O defeito não foi um guarda em falta — foi três guardas a comparar com uma
   // literal que deixou de ser verdade. Se voltarem a comparar, isto falha.
